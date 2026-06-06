@@ -128,25 +128,33 @@ export default function TablesPage() {
                 </div>
               )}
 
-              <div className="w-full flex gap-2 pt-2">
+              <div className="w-full flex flex-col gap-2 pt-2">
                 {order ? (
                   <>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => setTrackOrderId(order.id)}
+                        className="flex-1 flex items-center justify-center gap-1 py-2 rounded-lg bg-secondary text-secondary-foreground text-xs font-bold hover:bg-secondary/80 transition-colors touch-target"
+                      >
+                        <Eye className="w-3.5 h-3.5" /> Acompanhar
+                      </button>
+                      <button
+                        onClick={() => navigate('/pos')}
+                        className="flex-1 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-opacity touch-target"
+                      >
+                        Conta
+                      </button>
+                    </div>
                     <button
-                      onClick={() => setTrackOrderId(order.id)}
-                      className="flex-1 flex items-center justify-center gap-1 py-2 rounded-lg bg-secondary text-secondary-foreground text-xs font-bold hover:bg-secondary/80 transition-colors touch-target"
+                      onClick={() => navigate('/menu', { state: { addToOrderId: order.id, tableId: table.id, tableNumber: table.number } })}
+                      className="w-full flex items-center justify-center gap-1 py-2 rounded-lg bg-success/20 text-success text-xs font-bold hover:bg-success/30 transition-colors touch-target"
                     >
-                      <Eye className="w-3.5 h-3.5" /> Acompanhar
-                    </button>
-                    <button
-                      onClick={() => navigate('/pos')}
-                      className="flex-1 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-opacity touch-target"
-                    >
-                      Conta
+                      <Plus className="w-3.5 h-3.5" /> Adicionar pedido
                     </button>
                   </>
                 ) : (
                   <button
-                    onClick={() => navigate('/menu')}
+                    onClick={() => navigate('/menu', { state: { tableId: table.id, tableNumber: table.number } })}
                     className="flex-1 py-2 rounded-lg bg-success text-success-foreground text-xs font-bold hover:opacity-90 transition-opacity touch-target"
                   >
                     Abrir pedido

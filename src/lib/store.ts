@@ -1,4 +1,5 @@
-import { MenuItem, Table, Order, Staff, InventoryItem, Shift, SecurityAlert } from '@/types/restaurant';
+import { MenuItem, Table, Order, Staff, InventoryItem, Shift, SecurityAlert, Customer } from '@/types/restaurant';
+import { syncQueue } from './syncQueue';
 
 // Generic localStorage CRUD with offline support
 
@@ -122,6 +123,44 @@ export const inventoryStore = {
   },
   getLowStock: (): InventoryItem[] => {
     return inventoryStore.getAll().filter(i => i.currentStock <= i.minStock);
+  },
+};
+
+// Customers (CRM) — every mutation is mirrored to the offline sync queue
+export const customerStore = {
+  getAll: (): Customer[] => getStore<Customer>('customers'),
+  save: (items: Customer[]) => setStore('customers', items),
+  add: (c: Omit<Customer, 'id' | 'createdAt' | 'pointsAdjustment'> & { pointsAdjustment?: number }): Customer => {
+    const all = customerStore.getAll();
+    const created: Customer = {
+      ...c,
+      pointsAdjustment: c.pointsAdjustment ?? 0,
+      id: generateId(),
+      createdAt: new Date().toISOString(),
+    };
+    all.push(created);
+    customerStore.save(all);
+    syncQueue.enqueue({ entity: 'customer', type: 'create', entityId: created.id, payload: created });
+    return created;
+  },
+  update: (id: string, updates: Partial<Customer>) => {
+    const all = customerStore.getAll();
+    const idx = all.findIndex(c => c.id === id);
+    if (idx !== -1) {
+      all[idx] = { ...all[idx], ...updates };
+      customerStore.save(all);
+      syncQueue.enqueue({ entity: 'customer', type: 'update', entityId: id, payload: all[idx] });
+    }
+    return all[idx];
+  },
+  remove: (id: string) => {
+    customerStore.save(customerStore.getAll().filter(c => c.id !== id));
+    syncQueue.enqueue({ entity: 'customer', type: 'delete', entityId: id });
+  },
+  findByPhone: (phone: string): Customer | undefined => {
+    const norm = phone.replace(/\D/g, '');
+    if (!norm) return undefined;
+    return customerStore.getAll().find(c => c.phone.replace(/\D/g, '') === norm);
   },
 };
 

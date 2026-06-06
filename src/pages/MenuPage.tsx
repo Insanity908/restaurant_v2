@@ -1,34 +1,48 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import PageShell from '@/components/PageShell';
 import { useRestaurant } from '@/hooks/useRestaurant';
 import { getMenuItemImage, formatPrice } from '@/lib/helpers';
 import { MenuItem, OrderItem } from '@/types/restaurant';
-import { Plus, Minus, ShoppingCart, X, Pencil, Trash2, Settings2 } from 'lucide-react';
+import { Plus, Minus, ShoppingCart, X, Pencil, Trash2, Settings2, PlusCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import MenuItemDialog from '@/components/MenuItemDialog';
+import { toast } from 'sonner';
 
 const categories = ['Popular', 'Entradas', 'Pratos Principais', 'Bebidas', 'Sobremesas'];
 
 export default function MenuPage() {
-  const { menuItems, tables, inventory, createOrder, generateId, addMenuItem, updateMenuItem, deleteMenuItem } = useRestaurant();
+  const { menuItems, tables, orders, inventory, createOrder, appendOrderItems, generateId, addMenuItem, updateMenuItem, deleteMenuItem } = useRestaurant();
+  const location = useLocation();
+  const navState = (location.state ?? {}) as { addToOrderId?: string; tableId?: string; tableNumber?: number };
+  const addToOrderId = navState.addToOrderId;
+  const targetOrder = addToOrderId ? orders.find(o => o.id === addToOrderId) : undefined;
+
   const [activeCategory, setActiveCategory] = useState('Popular');
   const [cart, setCart] = useState<OrderItem[]>([]);
   const [showCart, setShowCart] = useState(false);
-  const [selectedTable, setSelectedTable] = useState<string>('');
+  const [selectedTable, setSelectedTable] = useState<string>(navState.tableId ?? '');
   const [orderType, setOrderType] = useState<'dine-in' | 'takeaway' | 'delivery'>('dine-in');
   const [manageMode, setManageMode] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
+  const [tableError, setTableError] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (navState.tableId) setSelectedTable(navState.tableId);
+  }, [navState.tableId]);
 
   const filtered = manageMode
     ? menuItems.filter(item => item.category === activeCategory)
     : menuItems.filter(item => item.category === activeCategory && item.available);
-  const freeTables = tables.filter(t => t.status === 'free');
+  // When adding to an existing order, allow selecting the occupied target table too
+  const tablesForSelect = addToOrderId
+    ? tables.filter(t => t.status === 'free' || t.id === navState.tableId)
+    : tables.filter(t => t.status === 'free');
   const cartTotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
@@ -56,6 +70,23 @@ export default function MenuPage() {
 
   const submitOrder = () => {
     if (cart.length === 0) return;
+    if (addToOrderId && targetOrder) {
+      const ok = appendOrderItems(addToOrderId, cart);
+      if (ok) {
+        toast.success(`Itens adicionados à Mesa ${targetOrder.tableNumber ?? ''}`);
+        setCart([]);
+        setShowCart(false);
+        navigate('/kitchen');
+      } else {
+        toast.error('Não foi possível adicionar ao pedido');
+      }
+      return;
+    }
+    if (orderType === 'dine-in' && !selectedTable) {
+      setTableError(true);
+      toast.error('Selecione uma mesa para continuar');
+      return;
+    }
     const table = tables.find(t => t.id === selectedTable);
     createOrder({
       tableId: selectedTable || undefined,
@@ -68,6 +99,7 @@ export default function MenuPage() {
     });
     setCart([]);
     setShowCart(false);
+    setTableError(false);
     navigate('/kitchen');
   };
 
@@ -92,6 +124,22 @@ export default function MenuPage() {
 
   return (
     <PageShell title="O que deseja pedir hoje?" subtitle="Selecione os itens do cardápio">
+      {addToOrderId && targetOrder && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-success/30 bg-success/10 p-3">
+          <div className="flex items-center gap-2 text-sm">
+            <PlusCircle className="w-4 h-4 text-success shrink-0" />
+            <span className="text-foreground">
+              A adicionar itens ao pedido da <strong>Mesa {targetOrder.tableNumber}</strong> · #{targetOrder.id.slice(-4)}
+            </span>
+          </div>
+          <button
+            onClick={() => navigate('/tables')}
+            className="text-xs font-bold text-muted-foreground hover:text-foreground"
+          >
+            Cancelar
+          </button>
+        </div>
+      )}
       {/* Top bar: categories + manage toggle */}
       <div className="flex items-center gap-3 mb-4">
         <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 flex-1">
@@ -308,21 +356,30 @@ export default function MenuPage() {
                 </div>
 
                 {orderType === 'dine-in' && (
-                  <select
-                    value={selectedTable}
-                    onChange={e => setSelectedTable(e.target.value)}
-                    className="w-full bg-secondary text-secondary-foreground rounded-lg px-3 py-2.5 text-sm"
-                  >
-                    <option value="">Selecionar Mesa</option>
-                    {freeTables.map(t => (
-                      <option key={t.id} value={t.id}>Mesa {t.number} ({t.seats} lugares)</option>
-                    ))}
-                  </select>
+                  <div className="space-y-1">
+                    <select
+                      value={selectedTable}
+                      onChange={e => { setSelectedTable(e.target.value); if (e.target.value) setTableError(false); }}
+                      className={cn(
+                        'w-full bg-secondary text-secondary-foreground rounded-lg px-3 py-2.5 text-sm border',
+                        tableError && !selectedTable ? 'border-destructive' : 'border-transparent',
+                      )}
+                    >
+                      <option value="">Selecionar Mesa</option>
+                      {tablesForSelect.map(t => (
+                        <option key={t.id} value={t.id}>Mesa {t.number} ({t.seats} lugares)</option>
+                      ))}
+                    </select>
+                    {tableError && !selectedTable && (
+                      <p className="text-xs text-destructive">Mesa obrigatória para pedidos no local.</p>
+                    )}
+                  </div>
                 )}
 
                 <button
                   onClick={submitOrder}
-                  className="w-full bg-primary text-primary-foreground py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors"
+                  disabled={cart.length === 0 || (orderType === 'dine-in' && !selectedTable && !addToOrderId)}
+                  className="w-full bg-primary text-primary-foreground py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Confirmar Pedido
                   <span className="text-lg">→</span>

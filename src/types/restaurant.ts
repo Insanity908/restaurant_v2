@@ -64,6 +64,7 @@ export interface Order {
   status: 'active' | 'preparing' | 'ready' | 'completed' | 'cancelled';
   customerName?: string;
   customerPhone?: string;
+  customerId?: string;
   createdAt: string;
   updatedAt: string;
   total: number;
@@ -131,6 +132,18 @@ export interface SecurityAlert {
   attempts: number;
   createdAt: string;
   read: boolean;
+}
+
+export interface Customer {
+  id: string;
+  name: string;
+  phone: string;
+  email?: string;
+  nuit?: string;
+  birthday?: string; // 'MM-DD' or full ISO
+  notes?: string;
+  pointsAdjustment: number; // manual additions/redemptions
+  createdAt: string;
 }
 
 export interface Shift {

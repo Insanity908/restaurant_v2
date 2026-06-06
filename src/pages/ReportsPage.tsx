@@ -18,7 +18,9 @@ import { DollarSign, TrendingUp, ShoppingBag, Award, Package, Calendar as Calend
 import type { DateRange } from 'react-day-picker';
 import type { Order, InventoryItem, Staff, Shift } from '@/types/restaurant';
 import { exportReportsCSV, exportReportsPDF } from '@/lib/exportReports';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { printBatchReceipts, downloadBatchReceiptsHTML } from '@/lib/receiptBatch';
+import { loadSettings } from '@/lib/settings';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { toast } from 'sonner';
 
 type RangePreset = 'today' | 'week' | 'month' | 'all' | 'custom';
@@ -449,6 +451,27 @@ export default function ReportsPage() {
               <DropdownMenuItem onClick={() => handleExport('csv')} className="gap-2 cursor-pointer">
                 <FileSpreadsheet className="w-4 h-4" />
                 Exportar CSV
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onClick={() => {
+                  if (paidOrders.length === 0) { toast.info('Sem recibos no período'); return; }
+                  printBatchReceipts(paidOrders, { brand: loadSettings().brandName, rangeLabel });
+                }}
+                className="gap-2 cursor-pointer"
+              >
+                <ScrollText className="w-4 h-4" />
+                Imprimir recibos do período
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => {
+                  if (paidOrders.length === 0) { toast.info('Sem recibos no período'); return; }
+                  downloadBatchReceiptsHTML(paidOrders, { brand: loadSettings().brandName, rangeLabel });
+                }}
+                className="gap-2 cursor-pointer"
+              >
+                <Download className="w-4 h-4" />
+                Guardar recibos (HTML)
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

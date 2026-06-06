@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { MenuItem, Table, Order, OrderItem, InventoryItem, AuditActor } from '@/types/restaurant';
-import { menuStore, tableStore, orderStore, inventoryStore, seedData } from '@/lib/store';
+import { menuStore, tableStore, orderStore, inventoryStore, customerStore, seedData } from '@/lib/store';
 import { useAuth } from '@/context/AuthContext';
 import { parseQty, areUnitsCompatible, convertQty } from '@/lib/units';
 
@@ -44,6 +44,29 @@ export function useRestaurant() {
     refresh();
     return newOrder;
   }, [refresh, user]);
+
+  const appendOrderItems = useCallback((orderId: string, items: OrderItem[]) => {
+    const order = orderStore.getAll().find(o => o.id === orderId);
+    if (!order) return false;
+    const merged = [...order.items];
+    items.forEach(ni => {
+      const existing = merged.find(
+        m => m.menuItemId === ni.menuItemId && m.status === 'pending' && !m.notes && (!m.modifiers || m.modifiers.length === 0),
+      );
+      if (existing) {
+        existing.quantity += ni.quantity;
+      } else {
+        merged.push(ni);
+      }
+    });
+    const newTotal = merged.reduce((s, i) => s + i.price * i.quantity, 0);
+    const newStatus: Order['status'] =
+      order.status === 'completed' || order.status === 'cancelled' ? order.status : 'active';
+    orderStore.update(orderId, { items: merged, total: newTotal, status: newStatus });
+    items.forEach(i => inventoryStore.deductForOrder(i.menuItemId, i.quantity));
+    refresh();
+    return true;
+  }, [refresh]);
 
   const appendEventsForItemChanges = useCallback(
     (prevItems: OrderItem[], nextItems: OrderItem[], existingEvents: import('@/types/restaurant').OrderEvent[] = []) => {
@@ -102,23 +125,43 @@ export function useRestaurant() {
     refresh();
   }, [refresh, appendEventsForItemChanges]);
 
-  const completeOrder = useCallback((orderId: string, paymentMethod: Order['paymentMethod'], tip?: number) => {
+  const completeOrder = useCallback((
+    orderId: string,
+    paymentMethod: Order['paymentMethod'],
+    tip?: number,
+    loyalty?: { customerId?: string; discount?: number; redeemedPoints?: number },
+  ) => {
     const order = orders.find(o => o.id === orderId);
     if (!order) return { ok: false as const, reason: 'not-found' as const };
     const pending = order.items.filter(i => i.status !== 'served');
     if (pending.length > 0) {
       return { ok: false as const, reason: 'unserved-items' as const, pending };
     }
+    const discount = Math.max(0, loyalty?.discount ?? 0);
+    const originalSubtotal = order.items.reduce((s, i) => s + i.price * i.quantity, 0);
+    const newTotal = Math.max(0, originalSubtotal - discount);
     orderStore.update(orderId, {
       status: 'completed',
       paid: true,
       paymentMethod,
       tip: tip || 0,
+      discount: discount || undefined,
+      total: newTotal,
+      customerId: loyalty?.customerId ?? order.customerId,
       closedBy: actorFrom(user),
       closedAt: new Date().toISOString(),
     });
     if (order.tableId) {
       tableStore.update(order.tableId, { status: 'free', currentOrderId: undefined });
+    }
+    // Redeem points: decrement adjustment (earning is automatic via order total)
+    if (loyalty?.customerId && loyalty.redeemedPoints && loyalty.redeemedPoints > 0) {
+      const customer = customerStore.getAll().find(c => c.id === loyalty.customerId);
+      if (customer) {
+        customerStore.update(customer.id, {
+          pointsAdjustment: (customer.pointsAdjustment || 0) - loyalty.redeemedPoints,
+        });
+      }
     }
     refresh();
     return { ok: true as const };
@@ -251,7 +294,7 @@ export function useRestaurant() {
   return {
     menuItems, tables, orders, activeOrders, kitchenOrders,
     inventory, lowStockItems,
-    createOrder, updateOrder, updateOrderItemStatus, completeOrder, cancelOrder,
+    createOrder, appendOrderItems, updateOrder, updateOrderItemStatus, completeOrder, cancelOrder,
     addMenuItem, updateMenuItem, deleteMenuItem,
     addInventoryItem, updateInventoryItem, deleteInventoryItem,
     addTable, updateTable, deleteTable,

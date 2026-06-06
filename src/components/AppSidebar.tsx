@@ -1,8 +1,10 @@
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutGrid, UtensilsCrossed, ChefHat, CreditCard, BarChart3, Settings, Coffee, Package, LogOut, Users, Clock } from 'lucide-react';
+import { LayoutGrid, UtensilsCrossed, ChefHat, CreditCard, BarChart3, Settings, Coffee, Package, LogOut, Users, Clock, UserCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useOptionalAuth, ROUTE_PERMISSIONS } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
+import { useSettings } from '@/hooks/useSettings';
+
 
 const navItems = [
   { path: '/', icon: LayoutGrid, label: 'Dashboard' },
@@ -13,7 +15,9 @@ const navItems = [
   { path: '/inventory', icon: Package, label: 'Inventário' },
   { path: '/reports', icon: BarChart3, label: 'Relatórios' },
   { path: '/staff', icon: Users, label: 'Funcionários' },
+  { path: '/customers', icon: UserCircle, label: 'Clientes' },
   { path: '/shifts', icon: Clock, label: 'Turnos' },
+  { path: '/settings', icon: Settings, label: 'Configurações' },
 ];
 
 const ROLE_LABEL: Record<string, string> = {
@@ -25,6 +29,8 @@ export default function AppSidebar() {
   const auth = useOptionalAuth();
   const user = auth?.user ?? null;
   const logout = auth?.logout;
+  const { settings } = useSettings();
+
 
   if (!user) return null;
 
@@ -36,13 +42,18 @@ export default function AppSidebar() {
   return (
     <aside className="fixed left-0 top-0 z-40 h-full w-16 lg:w-56 glass-strong flex flex-col items-center lg:items-stretch py-4 gap-1">
       <div className="flex items-center gap-2 px-3 mb-6">
-        <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center">
-          <Coffee className="w-5 h-5 text-primary" />
+        <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center overflow-hidden">
+          {settings.iconUrl ? (
+            <img src={settings.iconUrl} alt="logo" className="w-full h-full object-cover" />
+          ) : (
+            <span className="text-xl leading-none">{settings.iconEmoji || '☕'}</span>
+          )}
         </div>
-        <span className="hidden lg:block font-heading font-bold text-sm text-foreground">
-          SABOR DE<br/>NAMPULA
+        <span className="hidden lg:block font-heading font-bold text-sm text-foreground whitespace-pre-line leading-tight">
+          {settings.brandName}
         </span>
       </div>
+
 
       <nav className="flex-1 flex flex-col gap-1 w-full px-2 overflow-y-auto">
         {visibleItems.map(({ path, icon: Icon, label }) => {

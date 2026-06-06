@@ -16,6 +16,7 @@ import InventoryPage from "@/pages/InventoryPage";
 import SettingsPage from "@/pages/SettingsPage";
 import StaffPage from "@/pages/StaffPage";
 import ShiftsPage from "@/pages/ShiftsPage";
+import CustomersPage from "@/pages/CustomersPage";
 import LoginPage from "@/pages/LoginPage";
 import NotFound from "./pages/NotFound.tsx";
 
@@ -46,6 +47,7 @@ const App = () => (
             <Route path="/reports" element={<RequireAuth><ReportsPage /></RequireAuth>} />
             <Route path="/staff" element={<RequireAuth><StaffPage /></RequireAuth>} />
             <Route path="/shifts" element={<RequireAuth><ShiftsPage /></RequireAuth>} />
+            <Route path="/customers" element={<RequireAuth><CustomersPage /></RequireAuth>} />
             <Route path="/settings" element={<RequireAuth><SettingsPage /></RequireAuth>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
