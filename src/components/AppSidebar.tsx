@@ -1,12 +1,14 @@
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutGrid, UtensilsCrossed, ChefHat, CreditCard, BarChart3, Settings, Coffee, Package, LogOut, Users, Clock, UserCircle } from 'lucide-react';
+import { LayoutGrid, UtensilsCrossed, ChefHat, CreditCard, BarChart3, Settings, Coffee, Package, LogOut, Users, Clock, UserCircle, Receipt, ShieldCheck } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useOptionalAuth, ROUTE_PERMISSIONS } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
 import { useSettings } from '@/hooks/useSettings';
+import { useLicense } from '@/hooks/useLicense';
 
 
 const navItems = [
+  { path: '/admin', icon: ShieldCheck, label: 'Super Admin' },
   { path: '/', icon: LayoutGrid, label: 'Dashboard' },
   { path: '/menu', icon: UtensilsCrossed, label: 'Cardápio' },
   { path: '/tables', icon: Coffee, label: 'Mesas' },
@@ -17,11 +19,12 @@ const navItems = [
   { path: '/staff', icon: Users, label: 'Funcionários' },
   { path: '/customers', icon: UserCircle, label: 'Clientes' },
   { path: '/shifts', icon: Clock, label: 'Turnos' },
+  { path: '/billing', icon: Receipt, label: 'Faturação' },
   { path: '/settings', icon: Settings, label: 'Configurações' },
 ];
 
 const ROLE_LABEL: Record<string, string> = {
-  admin: 'Administrador', manager: 'Gerente', cashier: 'Caixa', waiter: 'Garçom', kitchen: 'Cozinha',
+  superadmin: 'Super Admin', admin: 'Administrador', manager: 'Gerente', cashier: 'Caixa', waiter: 'Garçom', kitchen: 'Cozinha',
 };
 
 export default function AppSidebar() {
@@ -30,6 +33,7 @@ export default function AppSidebar() {
   const user = auth?.user ?? null;
   const logout = auth?.logout;
   const { settings } = useSettings();
+  const { tenant, status, daysLeft } = useLicense();
 
 
   if (!user) return null;
@@ -93,6 +97,21 @@ export default function AppSidebar() {
           <LogOut className="w-4 h-4 shrink-0" />
           <span className="hidden lg:inline">Sair</span>
         </Button>
+        {tenant && user.role !== 'superadmin' && (
+          <Link to="/billing" className={cn(
+            'hidden lg:flex items-center gap-2 px-2 py-1.5 rounded-lg border',
+            status === 'active' ? 'bg-success/10 border-success/20 text-success' :
+            status === 'trial' ? 'bg-primary/10 border-primary/20 text-primary' :
+            'bg-destructive/10 border-destructive/20 text-destructive',
+          )}>
+            <div className="w-2 h-2 rounded-full bg-current animate-pulse" />
+            <span className="text-xs font-medium">
+              {status === 'trial' ? `Teste · ${Math.max(0, daysLeft)}d` :
+               status === 'active' ? `Ativo · ${Math.max(0, daysLeft)}d` :
+               status === 'expired' ? 'Expirado' : 'Bloqueado'}
+            </span>
+          </Link>
+        )}
         <div className="hidden lg:flex items-center gap-2 px-2 py-1.5 rounded-lg bg-success/10 border border-success/20">
           <div className="w-2 h-2 rounded-full bg-success animate-pulse" />
           <span className="text-xs text-success font-medium">Online</span>

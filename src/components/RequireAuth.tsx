@@ -3,6 +3,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth, ROUTE_PERMISSIONS } from '@/context/AuthContext';
 import { ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import RequireLicense from '@/components/RequireLicense';
 
 interface RequireAuthProps {
   children: ReactNode;
@@ -42,5 +43,5 @@ export default function RequireAuth({ children }: RequireAuthProps) {
     );
   }
 
-  return <>{children}</>;
+  return <RequireLicense>{children}</RequireLicense>;
 }

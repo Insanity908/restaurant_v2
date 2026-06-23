@@ -1,11 +1,22 @@
 import { MenuItem, Table, Order, Staff, InventoryItem, Shift, SecurityAlert, Customer } from '@/types/restaurant';
 import { syncQueue } from './syncQueue';
 
-// Generic localStorage CRUD with offline support
+// Tenant-scoped keys: automatically prefixed with the active tenant id so that
+// each restaurant has its own isolated data in localStorage.
+const TENANT_SCOPED = new Set([
+  'menu_items', 'tables', 'orders', 'inventory', 'customers',
+  'staff', 'security_alerts', 'shifts',
+]);
+
+function scopedKey(key: string): string {
+  if (!TENANT_SCOPED.has(key)) return key;
+  const tenantId = localStorage.getItem('current_tenant_id');
+  return tenantId ? `${tenantId}__${key}` : key;
+}
 
 function getStore<T>(key: string): T[] {
   try {
-    const data = localStorage.getItem(key);
+    const data = localStorage.getItem(scopedKey(key));
     return data ? JSON.parse(data) : [];
   } catch {
     return [];
@@ -13,7 +24,7 @@ function getStore<T>(key: string): T[] {
 }
 
 function setStore<T>(key: string, data: T[]): void {
-  localStorage.setItem(key, JSON.stringify(data));
+  localStorage.setItem(scopedKey(key), JSON.stringify(data));
 }
 
 function generateId(): string {
@@ -255,7 +266,13 @@ export const shiftStore = {
     return shiftStore.update(active.id, { clockOut: new Date().toISOString() });
   },
 };
+
 export function seedData() {
+  // Only seed within an active tenant scope, otherwise we would write to the
+  // unprefixed legacy keys and leak across restaurants.
+  const tenantId = localStorage.getItem('current_tenant_id');
+  if (!tenantId) return;
+
   if (menuStore.getAll().length === 0) {
     const items: Omit<MenuItem, 'id'>[] = [
       { name: 'Pizza Pepperoni', price: 850, category: 'Popular', available: true, description: 'Classic pepperoni with mozzarella' },
@@ -297,7 +314,6 @@ export function seedData() {
 
   if (staffStore.getAll().length === 0) {
     const seedStaff: Omit<Staff, 'id'>[] = [
-      { name: 'Administrador', role: 'admin', pin: '0000' },
       { name: 'Gerente', role: 'manager', pin: '1111' },
       { name: 'Caixa', role: 'cashier', pin: '2222' },
       { name: 'Garçom', role: 'waiter', pin: '3333' },

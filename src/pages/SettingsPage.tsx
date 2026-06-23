@@ -7,19 +7,28 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Slider } from '@/components/ui/slider';
 import { useSettings } from '@/hooks/useSettings';
-import { Upload, RotateCcw, Save, Palette, Building2, Smartphone, Image as ImageIcon, AlertCircle } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
+import { Upload, RotateCcw, Save, Palette, Building2, Smartphone, Image as ImageIcon, AlertCircle, CreditCard } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   maskMzPhone, maskIntlPhone, maskBankAccount, maskIban, maskNuit,
   validateMpesa, validateEmola, validateBankAccount, validateIban, validateNuit, validateIntlPhone,
 } from '@/lib/validators';
+import { getStripeLinks, setStripeLinks, getStripePublishableKey, setStripePublishableKey } from '@/lib/billing';
+import type { BillingPlan } from '@/types/restaurant';
 
 const EMOJI_CHOICES = ['☕', '🍴', '🍕', '🍔', '🍲', '🥘', '🍜', '🌮', '🍱', '🥗', '🍳', '🔥', '⭐', '🏪'];
 
 export default function SettingsPage() {
   const { settings, update, reset } = useSettings();
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === 'superadmin';
   const [local, setLocal] = useState(settings);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Stripe billing config (super-admin only)
+  const [stripePub, setStripePub] = useState(getStripePublishableKey());
+  const [stripeLinksLocal, setStripeLinksLocal] = useState(getStripeLinks());
 
   const set = <K extends keyof typeof local>(k: K, v: typeof local[K]) =>
     setLocal(prev => ({ ...prev, [k]: v }));
@@ -73,11 +82,12 @@ export default function SettingsPage() {
       }
     >
       <Tabs defaultValue="brand" className="space-y-6">
-        <TabsList className="grid grid-cols-2 lg:grid-cols-4 w-full lg:w-auto">
+        <TabsList className={`grid grid-cols-2 ${isSuperAdmin ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} w-full lg:w-auto`}>
           <TabsTrigger value="brand"><ImageIcon className="w-4 h-4 mr-2" />Marca</TabsTrigger>
           <TabsTrigger value="theme"><Palette className="w-4 h-4 mr-2" />Aparência</TabsTrigger>
           <TabsTrigger value="payments"><Smartphone className="w-4 h-4 mr-2" />Pagamentos</TabsTrigger>
           <TabsTrigger value="business"><Building2 className="w-4 h-4 mr-2" />Negócio</TabsTrigger>
+          {isSuperAdmin && <TabsTrigger value="billing"><CreditCard className="w-4 h-4 mr-2" />Faturação SaaS</TabsTrigger>}
         </TabsList>
 
         {/* BRAND */}
@@ -184,13 +194,13 @@ export default function SettingsPage() {
               <Field label="Número M-Pesa" value={local.mpesaNumber}
                 onChange={v => set('mpesaNumber', maskMzPhone(v))}
                 placeholder="84 123 4567" error={errors.mpesaNumber}
-                hint="" inputMode="numeric" />
+                hint="Vodacom: começa por 84 ou 85" inputMode="numeric" />
               <Field label="Nome do titular M-Pesa" value={local.mpesaName}
                 onChange={v => set('mpesaName', v)} placeholder="Nome registado" />
               <Field label="Número e-Mola" value={local.emolaNumber}
                 onChange={v => set('emolaNumber', maskMzPhone(v))}
                 placeholder="86 123 4567" error={errors.emolaNumber}
-                hint="" inputMode="numeric" />
+                hint="Movitel: começa por 86 ou 87" inputMode="numeric" />
             </div>
           </Card>
 
@@ -232,6 +242,44 @@ export default function SettingsPage() {
             </div>
           </Card>
         </TabsContent>
+
+        {/* BILLING SAAS — super-admin only */}
+        {isSuperAdmin && (
+          <TabsContent value="billing" className="space-y-4">
+            <Card className="p-6 space-y-4">
+              <div>
+                <h2 className="font-heading text-lg font-semibold">Configuração Stripe</h2>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Cole os Payment Links criados no painel Stripe. Devem redirecionar para <code>/billing/success?plan=&lt;plano&gt;</code> após o pagamento.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label>Chave publicável (pk_live_… ou pk_test_…)</Label>
+                <Input value={stripePub} onChange={e => setStripePub(e.target.value)} placeholder="pk_live_..." />
+                <p className="text-[11px] text-muted-foreground">
+                  Para activação 100% garantida via webhook é necessário backend. Sem isso, a activação acontece quando o cliente retorna ao site.
+                </p>
+              </div>
+              {(['quarterly', 'semiannual', 'annual'] as BillingPlan[]).map(p => (
+                <div key={p} className="space-y-2">
+                  <Label>Payment Link — {p}</Label>
+                  <Input
+                    value={stripeLinksLocal[p]}
+                    onChange={e => setStripeLinksLocal(prev => ({ ...prev, [p]: e.target.value }))}
+                    placeholder="https://buy.stripe.com/..."
+                  />
+                </div>
+              ))}
+              <Button onClick={() => {
+                setStripePublishableKey(stripePub.trim());
+                setStripeLinks(stripeLinksLocal);
+                toast.success('Configuração Stripe guardada');
+              }}>
+                <Save className="w-4 h-4" />Guardar Stripe
+              </Button>
+            </Card>
+          </TabsContent>
+        )}
       </Tabs>
     </PageShell>
   );

@@ -5,7 +5,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import AppSidebar from "@/components/AppSidebar";
 import RequireAuth from "@/components/RequireAuth";
-import { AuthProvider } from "@/context/AuthContext";
+import RequireSuperAdmin from "@/components/RequireSuperAdmin";
+import { AuthProvider, useOptionalAuth } from "@/context/AuthContext";
 import DashboardPage from "@/pages/DashboardPage";
 import MenuPage from "@/pages/MenuPage";
 import TablesPage from "@/pages/TablesPage";
@@ -18,14 +19,34 @@ import StaffPage from "@/pages/StaffPage";
 import ShiftsPage from "@/pages/ShiftsPage";
 import CustomersPage from "@/pages/CustomersPage";
 import LoginPage from "@/pages/LoginPage";
+import LandingPage from "@/pages/LandingPage";
+import SignupPage from "@/pages/SignupPage";
+import PricingPage from "@/pages/PricingPage";
+import BillingPage from "@/pages/BillingPage";
+import BillingSuccessPage from "@/pages/BillingSuccessPage";
+import BlockedPage from "@/pages/BlockedPage";
+import SuperAdminPage from "@/pages/SuperAdminPage";
+import OnboardingPage from "@/pages/OnboardingPage";
 import NotFound from "./pages/NotFound.tsx";
 
 const queryClient = new QueryClient();
 
+const NO_SIDEBAR_PATHS = ['/login', '/signup', '/landing', '/blocked', '/billing/success'];
+
 function ConditionalSidebar() {
   const location = useLocation();
-  if (location.pathname === '/login') return null;
+  const auth = useOptionalAuth();
+  if (NO_SIDEBAR_PATHS.includes(location.pathname)) return null;
+  if (!auth?.user && location.pathname === '/') return null;
   return <AppSidebar />;
+}
+
+function HomeRoute() {
+  const auth = useOptionalAuth();
+  if (auth?.loading) return null;
+  if (!auth?.user) return <LandingPage />;
+  if (auth.user.role === 'superadmin') return <RequireSuperAdmin><SuperAdminPage /></RequireSuperAdmin>;
+  return <RequireAuth><DashboardPage /></RequireAuth>;
 }
 
 const App = () => (
@@ -38,7 +59,11 @@ const App = () => (
           <ConditionalSidebar />
           <Routes>
             <Route path="/login" element={<LoginPage />} />
-            <Route path="/" element={<RequireAuth><DashboardPage /></RequireAuth>} />
+            <Route path="/signup" element={<SignupPage />} />
+            <Route path="/landing" element={<LandingPage />} />
+            <Route path="/blocked" element={<BlockedPage />} />
+            <Route path="/billing/success" element={<BillingSuccessPage />} />
+            <Route path="/" element={<HomeRoute />} />
             <Route path="/menu" element={<RequireAuth><MenuPage /></RequireAuth>} />
             <Route path="/tables" element={<RequireAuth><TablesPage /></RequireAuth>} />
             <Route path="/kitchen" element={<RequireAuth><KitchenPage /></RequireAuth>} />
@@ -49,6 +74,10 @@ const App = () => (
             <Route path="/shifts" element={<RequireAuth><ShiftsPage /></RequireAuth>} />
             <Route path="/customers" element={<RequireAuth><CustomersPage /></RequireAuth>} />
             <Route path="/settings" element={<RequireAuth><SettingsPage /></RequireAuth>} />
+            <Route path="/pricing" element={<RequireAuth><PricingPage /></RequireAuth>} />
+            <Route path="/billing" element={<RequireAuth><BillingPage /></RequireAuth>} />
+            <Route path="/onboarding" element={<RequireAuth><OnboardingPage /></RequireAuth>} />
+            <Route path="/admin" element={<RequireSuperAdmin><SuperAdminPage /></RequireSuperAdmin>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>

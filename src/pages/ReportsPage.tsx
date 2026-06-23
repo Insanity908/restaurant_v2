@@ -1,4 +1,6 @@
 import { useMemo, useState, useEffect } from 'react';
+import { Navigate } from 'react-router-dom';
+import { useAuth } from '@/context/AuthContext';
 import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isWithinInterval, differenceInMilliseconds, subMilliseconds } from 'date-fns';
 import { pt } from 'date-fns/locale';
 import PageShell from '@/components/PageShell';
@@ -93,6 +95,8 @@ const COLORS = [
 ];
 
 export default function ReportsPage() {
+  const { user } = useAuth();
+  if (user?.role === 'superadmin') return <Navigate to="/admin" replace />;
   const { orders, inventory, menuItems } = useRestaurant();
   const [period, setPeriod] = useState<'daily' | 'monthly'>('daily');
   const [preset, setPreset] = useState<RangePreset>('all');

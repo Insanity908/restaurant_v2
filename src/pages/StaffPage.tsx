@@ -21,6 +21,7 @@ import { useAuth } from '@/context/AuthContext';
 import { toast } from 'sonner';
 
 const ROLES: { value: UserRole; label: string; tone: string }[] = [
+  { value: 'superadmin', label: 'Super Admin', tone: 'bg-destructive/15 text-destructive border-destructive/30' },
   { value: 'admin', label: 'Administrador', tone: 'bg-primary/15 text-primary border-primary/30' },
   { value: 'manager', label: 'Gerente', tone: 'bg-success/15 text-success border-success/30' },
   { value: 'cashier', label: 'Caixa', tone: 'bg-blue-500/15 text-blue-400 border-blue-500/30' },
@@ -53,10 +54,18 @@ export default function StaffPage() {
   useEffect(() => { refresh(); }, []);
 
   const counts = useMemo(() => {
-    const map: Record<UserRole, number> = { admin: 0, manager: 0, cashier: 0, waiter: 0, kitchen: 0 };
+    const map: Record<UserRole, number> = { superadmin: 0, admin: 0, manager: 0, cashier: 0, waiter: 0, kitchen: 0 };
     staff.forEach(s => { map[s.role]++; });
     return map;
   }, [staff]);
+
+  // Managers can only assign non-elevated roles. Admins can also create managers.
+  const assignableRoles = ROLES.filter(r => {
+    if (user?.role === 'superadmin') return r.value !== 'superadmin';
+    if (user?.role === 'admin') return r.value !== 'superadmin' && r.value !== 'admin';
+    if (user?.role === 'manager') return r.value === 'cashier' || r.value === 'waiter' || r.value === 'kitchen';
+    return false;
+  });
 
   const openNew = () => {
     setEditing(null);
@@ -74,6 +83,7 @@ export default function StaffPage() {
     if (!form.name.trim()) return 'Nome obrigatório';
     if (form.name.trim().length > 60) return 'Nome demasiado longo';
     if (!/^\d{4,6}$/.test(form.pin)) return 'PIN deve ter 4 a 6 dígitos';
+    if (!assignableRoles.some(r => r.value === form.role)) return 'Não tem permissão para atribuir este papel';
     const conflict = staffStore.getAll().find(s => s.pin === form.pin && s.id !== editing?.id);
     if (conflict) return 'PIN já em uso';
     return null;
@@ -236,7 +246,7 @@ export default function StaffPage() {
               <Select value={form.role} onValueChange={(v: UserRole) => setForm(f => ({ ...f, role: v }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {ROLES.map(r => (
+                  {assignableRoles.map(r => (
                     <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>
                   ))}
                 </SelectContent>
