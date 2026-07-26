@@ -14,10 +14,12 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Plus, Pencil, Trash2, Users, ShieldCheck } from 'lucide-react';
+import { Plus, Pencil, Trash2, Users, ShieldCheck, KeyRound } from 'lucide-react';
 import { SecurityAlert, Staff, UserRole } from '@/types/restaurant';
 import { securityAlertStore, staffStore } from '@/lib/store';
 import { useAuth } from '@/context/AuthContext';
+import { ALL_PERMISSIONS, DEFAULT_PERMISSIONS, PERMISSION_LABELS, getStaffPermissions, setStaffPermissions, resetStaffPermissions, type Permission } from '@/lib/permissions';
+import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 
 const ROLES: { value: UserRole; label: string; tone: string }[] = [
@@ -46,6 +48,9 @@ export default function StaffPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Staff | null>(null);
   const [form, setForm] = useState<FormState>(empty);
+  const [permsTarget, setPermsTarget] = useState<Staff | null>(null);
+  const [permsSel, setPermsSel] = useState<Set<Permission>>(new Set());
+  const canManagePerms = user?.role === 'admin' || user?.role === 'superadmin';
 
   const refresh = () => {
     setStaff(staffStore.getAll());
@@ -196,6 +201,14 @@ export default function StaffPage() {
                     <Badge variant="outline" className={`mt-1 ${meta.tone}`}>{meta.label}</Badge>
                   </div>
                   <div className="flex gap-1">
+                    {canManagePerms && (
+                      <Button size="icon" variant="ghost" aria-label="Permissões" onClick={() => {
+                        setPermsTarget(s);
+                        setPermsSel(new Set(getStaffPermissions(s.id, s.role)));
+                      }}>
+                        <KeyRound className="w-4 h-4" />
+                      </Button>
+                    )}
                     <Button size="icon" variant="ghost" onClick={() => openEdit(s)} aria-label="Editar">
                       <Pencil className="w-4 h-4" />
                     </Button>
@@ -270,6 +283,56 @@ export default function StaffPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Permissions Dialog */}
+      <Dialog open={!!permsTarget} onOpenChange={o => !o && setPermsTarget(null)}>
+        <DialogContent className="w-[95vw] max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Permissões · {permsTarget?.name}</DialogTitle>
+          </DialogHeader>
+          {permsTarget && (
+            <div className="space-y-3">
+              <p className="text-xs text-muted-foreground">
+                Ajuste as permissões deste funcionário. Por padrão são as do papel <strong>{roleMeta(permsTarget.role).label}</strong>.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-72 overflow-y-auto pr-1">
+                {ALL_PERMISSIONS.map(p => (
+                  <label key={p} className="flex items-center justify-between gap-2 p-2 rounded bg-secondary/30">
+                    <span className="text-xs">{PERMISSION_LABELS[p]}</span>
+                    <Switch
+                      checked={permsSel.has(p)}
+                      onCheckedChange={(v) => setPermsSel(prev => {
+                        const next = new Set(prev);
+                        if (v) next.add(p); else next.delete(p);
+                        return next;
+                      })}
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="ghost" onClick={() => {
+              if (!permsTarget) return;
+              resetStaffPermissions(permsTarget.id)
+                .then(() => {
+                  setPermsSel(new Set(DEFAULT_PERMISSIONS[permsTarget.role]));
+                  toast.success('Restaurado ao padrão do papel');
+                })
+                .catch((e: Error) => toast.error(e.message));
+            }}>Restaurar padrão</Button>
+            <Button variant="outline" onClick={() => setPermsTarget(null)}>Cancelar</Button>
+            <Button onClick={() => {
+              if (!permsTarget) return;
+              setStaffPermissions(permsTarget.id, Array.from(permsSel))
+                .then(() => { toast.success('Permissões guardadas'); setPermsTarget(null); })
+                .catch((e: Error) => toast.error(e.message));
+            }}>Guardar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PageShell>
   );
 }
+

@@ -10,6 +10,7 @@ import { Building2, Users, Plus, Trash2, ArrowRight, Check } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext';
 import { useLicense } from '@/hooks/useLicense';
 import { tenantStore } from '@/lib/tenants';
+import { accountStore } from '@/lib/accounts';
 import { staffStore, seedData } from '@/lib/store';
 import type { UserRole } from '@/types/restaurant';
 import { toast } from 'sonner';
@@ -22,8 +23,11 @@ export default function OnboardingPage() {
   const { tenant } = useLicense();
   const [step, setStep] = useState<1 | 2>(1);
 
-  // Step 1: tenants owned by this manager's email (allow adding extra restaurants)
-  const myTenants = tenantStore.getAll().filter(t => t.ownerEmail === user?.email);
+  // Tenants owned by this account (multi-restaurant)
+  const myTenants = (() => {
+    const ids = user?.tenantIds || (user?.tenantId ? [user.tenantId] : []);
+    return tenantStore.getAll().filter(t => ids.includes(t.id));
+  })();
   const [extraName, setExtraName] = useState('');
 
   // Step 2: invite team members
@@ -32,12 +36,14 @@ export default function OnboardingPage() {
   ]);
 
   const addExtraTenant = () => {
-    if (!user?.email || !extraName.trim()) return;
+    if (!user?.email || !user?.authUserId || !extraName.trim()) return;
     const t = tenantStore.create({ name: extraName.trim(), ownerEmail: user.email });
+    accountStore.attachTenant(user.authUserId, t.id);
     tenantStore.setCurrent(t.id);
     seedData();
     setExtraName('');
     toast.success(`Restaurante "${t.name}" criado`);
+    setTimeout(() => window.location.reload(), 400);
   };
 
   const switchTenant = (id: string) => {

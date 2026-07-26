@@ -1,10 +1,14 @@
+import { supabase } from '@/integrations/supabase/client';
+
 export interface AppSettings {
   brandName: string;
-  iconEmoji: string; // simple emoji icon
-  iconUrl?: string; // optional uploaded icon (data URL)
-  primaryHue: number; // 0-360
-  primarySaturation: number; // 0-100
-  primaryLightness: number; // 0-100
+  iconEmoji: string;
+  iconUrl?: string;
+  receiptLogo?: string;
+  receiptShowLogo: boolean;
+  primaryHue: number;
+  primarySaturation: number;
+  primaryLightness: number;
   backgroundHue: number;
   backgroundSaturation: number;
   backgroundLightness: number;
@@ -20,12 +24,14 @@ export interface AppSettings {
   phone: string;
 }
 
-const KEY = 'app_settings_v1';
+const CACHE_KEY = 'app_settings_v1';
 
 export const DEFAULT_SETTINGS: AppSettings = {
   brandName: 'SABOR DE NAMPULA',
   iconEmoji: '☕',
   iconUrl: undefined,
+  receiptLogo: undefined,
+  receiptShowLogo: false,
   primaryHue: 30,
   primarySaturation: 95,
   primaryLightness: 55,
@@ -44,20 +50,60 @@ export const DEFAULT_SETTINGS: AppSettings = {
   phone: '',
 };
 
-export function loadSettings(): AppSettings {
+// In-memory cache mirrors localStorage for O(1) sync reads.
+let cache: AppSettings = readLocalCache();
+
+function readLocalCache(): AppSettings {
   try {
-    const raw = localStorage.getItem(KEY);
-    if (!raw) return DEFAULT_SETTINGS;
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return { ...DEFAULT_SETTINGS };
     return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
   } catch {
-    return DEFAULT_SETTINGS;
+    return { ...DEFAULT_SETTINGS };
   }
 }
 
+function writeLocalCache(s: AppSettings) {
+  cache = s;
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify(s)); } catch { /* quota */ }
+}
+
+/** Sync read from cache. Safe to call at boot. */
+export function loadSettings(): AppSettings {
+  return cache;
+}
+
+/** Sync save (updates cache + theme immediately) and fires an async upsert to Supabase. */
 export function saveSettings(s: AppSettings): void {
-  localStorage.setItem(KEY, JSON.stringify(s));
+  writeLocalCache(s);
   applyTheme(s);
   window.dispatchEvent(new CustomEvent('app-settings-changed', { detail: s }));
+  const tenantId = localStorage.getItem('current_tenant_id');
+  if (tenantId) {
+    void supabase
+      .from('app_settings')
+      .upsert({ tenant_id: tenantId, data: s as never }, { onConflict: 'tenant_id' })
+      .then(({ error }) => { if (error) console.warn('saveSettings upsert failed', error.message); });
+  }
+}
+
+/** Fetch authoritative settings for the active tenant and hydrate the cache. */
+export async function fetchSettings(tenantId: string): Promise<AppSettings> {
+  const { data, error } = await supabase
+    .from('app_settings')
+    .select('data')
+    .eq('tenant_id', tenantId)
+    .maybeSingle();
+  if (error) {
+    console.warn('fetchSettings failed', error.message);
+    return cache;
+  }
+  const remote = (data?.data ?? null) as Partial<AppSettings> | null;
+  const merged: AppSettings = { ...DEFAULT_SETTINGS, ...(remote ?? {}) };
+  writeLocalCache(merged);
+  applyTheme(merged);
+  window.dispatchEvent(new CustomEvent('app-settings-changed', { detail: merged }));
+  return merged;
 }
 
 export function applyTheme(s: AppSettings): void {
@@ -70,7 +116,6 @@ export function applyTheme(s: AppSettings): void {
   root.style.setProperty('--sidebar-primary', p);
   root.style.setProperty('--sidebar-ring', p);
   root.style.setProperty('--background', bg);
-  // Derive sidebar bg slightly darker
   const sidebarL = Math.max(0, s.backgroundLightness - 2);
   root.style.setProperty('--sidebar-background', `${s.backgroundHue} ${s.backgroundSaturation}% ${sidebarL}%`);
 }

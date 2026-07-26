@@ -3,9 +3,10 @@ import { useMemo } from 'react';
 import PageShell from '@/components/PageShell';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CreditCard, Copy, RefreshCw, Shield, ArrowUpCircle, TrendingUp } from 'lucide-react';
+import { CreditCard, Copy, RefreshCw, Shield, ArrowUpCircle, TrendingUp, Landmark, Smartphone } from 'lucide-react';
 import { useLicense } from '@/hooks/useLicense';
 import { PLANS, formatMT, buildCheckoutUrl, addMonths } from '@/lib/billing';
+import { getPaymentAccounts, hasAnyPaymentAccounts } from '@/lib/paymentAccounts';
 import { toast } from 'sonner';
 import type { BillingPlan } from '@/types/restaurant';
 
@@ -94,14 +95,44 @@ export default function BillingPage() {
         </div>
       )}
 
-      {/* Plan switcher */}
+      {/* Payment accounts (from super-admin) */}
+      {(() => {
+        const acc = getPaymentAccounts();
+        if (!hasAnyPaymentAccounts(acc)) return null;
+        return (
+          <div className="glass rounded-xl p-5 mb-6 border border-primary/30">
+            <h2 className="font-heading font-semibold mb-3 flex items-center gap-2">
+              <Landmark className="w-4 h-4" />Dados para pagamento manual
+            </h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              {acc.bankAccount && (
+                <div className="rounded-lg bg-secondary/40 p-3">
+                  <p className="text-[11px] text-muted-foreground flex items-center gap-1"><Landmark className="w-3 h-3" /> Conta bancária</p>
+                  {acc.bankName && <p className="font-medium mt-0.5">{acc.bankName}</p>}
+                  <p className="font-mono">{acc.bankAccount}</p>
+                  {acc.bankHolder && <p className="text-xs text-muted-foreground">Titular: {acc.bankHolder}</p>}
+                </div>
+              )}
+              {acc.mobileMoney && (
+                <div className="rounded-lg bg-secondary/40 p-3">
+                  <p className="text-[11px] text-muted-foreground flex items-center gap-1"><Smartphone className="w-3 h-3" /> Conta móvel</p>
+                  {acc.mobileMoneyProvider && <p className="font-medium mt-0.5">{acc.mobileMoneyProvider}</p>}
+                  <p className="font-mono">{acc.mobileMoney}</p>
+                </div>
+              )}
+            </div>
+            {acc.notes && <p className="text-xs text-muted-foreground mt-3">{acc.notes}</p>}
+          </div>
+        );
+      })()}
+
       <div className="glass rounded-xl p-5 mb-6">
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-heading font-semibold flex items-center gap-2">
             <ArrowUpCircle className="w-4 h-4" /> Trocar / Renovar plano
           </h2>
         </div>
-        <div className="grid md:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
           {(Object.keys(PLANS) as BillingPlan[]).map(key => {
             const p = PLANS[key];
             const isCurrent = sub.plan === key && status === 'active';
@@ -113,7 +144,8 @@ export default function BillingPage() {
                   {isCurrent && <Badge variant="outline" className="bg-primary/15 text-primary border-primary/30 text-[10px]">ATUAL</Badge>}
                 </div>
                 <p className="font-heading text-xl font-bold mt-1">{formatMT(p.price)}</p>
-                <p className="text-xs text-muted-foreground">{p.months} meses</p>
+                <p className="text-xs text-muted-foreground">{p.months} {p.months === 1 ? 'mês' : 'meses'}</p>
+                {p.savings && <p className="text-[11px] text-success mt-1">{p.savings}</p>}
                 <p className="text-[11px] text-muted-foreground mt-2">
                   Nova expiração: <strong className="text-foreground">{newExpiry.toLocaleDateString('pt-MZ')}</strong>
                 </p>

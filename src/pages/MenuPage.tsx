@@ -3,13 +3,18 @@ import PageShell from '@/components/PageShell';
 import { useRestaurant } from '@/hooks/useRestaurant';
 import { getMenuItemImage, formatPrice } from '@/lib/helpers';
 import { MenuItem, OrderItem } from '@/types/restaurant';
-import { Plus, Minus, ShoppingCart, X, Pencil, Trash2, Settings2, PlusCircle } from 'lucide-react';
+import { Plus, Minus, ShoppingCart, X, Pencil, Trash2, Settings2, PlusCircle, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import MenuItemDialog from '@/components/MenuItemDialog';
+import { printProforma } from '@/lib/proforma';
+import { loadSettings } from '@/lib/settings';
+import { useAuth } from '@/context/AuthContext';
 import { toast } from 'sonner';
 
 const categories = ['Popular', 'Entradas', 'Pratos Principais', 'Bebidas', 'Sobremesas'];
@@ -30,7 +35,11 @@ export default function MenuPage() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<MenuItem | null>(null);
   const [tableError, setTableError] = useState(false);
+  const [proformaOpen, setProformaOpen] = useState(false);
+  const [proformaSel, setProformaSel] = useState<Set<string>>(new Set());
   const navigate = useNavigate();
+  const { hasPermission } = useAuth();
+  const canProforma = hasPermission('proforma.print');
 
   useEffect(() => {
     if (navState.tableId) setSelectedTable(navState.tableId);
@@ -141,14 +150,14 @@ export default function MenuPage() {
         </div>
       )}
       {/* Top bar: categories + manage toggle */}
-      <div className="flex items-center gap-3 mb-4">
-        <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 flex-1">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mb-4">
+        <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 flex-1 snap-x">
           {categories.map(cat => (
             <button
               key={cat}
               onClick={() => setActiveCategory(cat)}
               className={cn(
-                'px-4 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all touch-target',
+                'px-3 py-1.5 md:px-4 md:py-2 rounded-full text-xs md:text-sm font-medium whitespace-nowrap transition-all snap-start shrink-0',
                 activeCategory === cat
                   ? 'bg-primary text-primary-foreground'
                   : 'bg-secondary text-secondary-foreground hover:bg-secondary/80'
@@ -158,15 +167,28 @@ export default function MenuPage() {
             </button>
           ))}
         </div>
-        <Button
-          variant={manageMode ? 'default' : 'outline'}
-          size="sm"
-          onClick={() => setManageMode(!manageMode)}
-          className="shrink-0 gap-1.5"
-        >
-          <Settings2 className="w-4 h-4" />
-          {manageMode ? 'Fechar' : 'Gerir'}
-        </Button>
+        <div className="flex gap-2 self-end sm:self-auto">
+          {canProforma && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => { setProformaSel(new Set()); setProformaOpen(true); }}
+              className="shrink-0 gap-1.5"
+            >
+              <FileText className="w-4 h-4" />
+              Proforma
+            </Button>
+          )}
+          <Button
+            variant={manageMode ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => setManageMode(!manageMode)}
+            className="shrink-0 gap-1.5"
+          >
+            <Settings2 className="w-4 h-4" />
+            {manageMode ? 'Fechar' : 'Gerir'}
+          </Button>
+        </div>
       </div>
 
       {/* Add new item button in manage mode */}
@@ -263,21 +285,22 @@ export default function MenuPage() {
         <motion.div
           initial={{ y: 100 }}
           animate={{ y: 0 }}
-          className="fixed bottom-0 left-16 lg:left-56 right-0 p-4 z-30"
+          className="fixed left-0 md:left-16 lg:left-56 right-0 bottom-16 md:bottom-0 p-3 md:p-4 z-30"
         >
           <button
             onClick={() => setShowCart(true)}
-            className="w-full glass-strong rounded-2xl p-4 flex items-center justify-between hover:bg-card/100 transition-colors"
+            className="w-full glass-strong rounded-2xl p-3 md:p-4 flex items-center justify-between gap-2 hover:bg-card/100 transition-colors"
           >
-            <div className="flex items-center gap-3">
-              <span className="text-foreground font-bold">Total: {formatPrice(cartTotal)}</span>
-              <span className="bg-primary/20 text-primary text-sm px-2 py-0.5 rounded-full font-medium">
+            <div className="flex items-center gap-2 md:gap-3 min-w-0">
+              <span className="text-foreground font-bold text-sm md:text-base truncate">{formatPrice(cartTotal)}</span>
+              <span className="bg-primary/20 text-primary text-xs md:text-sm px-2 py-0.5 rounded-full font-medium shrink-0">
                 {cartCount} {cartCount === 1 ? 'item' : 'items'}
               </span>
             </div>
-            <span className="bg-primary text-primary-foreground px-6 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2">
+            <span className="bg-primary text-primary-foreground px-3 md:px-6 py-2 md:py-2.5 rounded-xl font-bold text-xs md:text-sm flex items-center gap-1.5 md:gap-2 shrink-0">
               <ShoppingCart className="w-4 h-4" />
-              Finalizar Pedido
+              <span className="hidden sm:inline">Finalizar Pedido</span>
+              <span className="sm:hidden">Finalizar</span>
             </span>
           </button>
         </motion.div>
@@ -398,6 +421,66 @@ export default function MenuPage() {
         item={editingItem}
         inventory={inventory}
       />
+
+      {/* Proforma Dialog */}
+      <Dialog open={proformaOpen} onOpenChange={setProformaOpen}>
+        <DialogContent className="w-[95vw] max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Fatura Proforma</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Selecione os pratos a incluir. Se nenhum for selecionado, imprime todos os pratos disponíveis.
+            </p>
+            <div className="flex items-center gap-2 pb-2 border-b border-border">
+              <Button size="sm" variant="outline" onClick={() => setProformaSel(new Set(menuItems.map(i => i.id)))}>Selecionar todos</Button>
+              <Button size="sm" variant="ghost" onClick={() => setProformaSel(new Set())}>Limpar</Button>
+              <span className="text-xs text-muted-foreground ml-auto">{proformaSel.size} selecionados</span>
+            </div>
+            <div className="max-h-64 overflow-y-auto space-y-1">
+              {menuItems.map(i => (
+                <label key={i.id} className="flex items-center gap-2 p-2 rounded hover:bg-secondary/40 cursor-pointer">
+                  <Checkbox
+                    checked={proformaSel.has(i.id)}
+                    onCheckedChange={(v) => {
+                      setProformaSel(prev => {
+                        const next = new Set(prev);
+                        if (v) next.add(i.id); else next.delete(i.id);
+                        return next;
+                      });
+                    }}
+                  />
+                  <span className="flex-1 text-sm truncate">{i.name}</span>
+                  <span className="text-xs text-muted-foreground">{i.category}</span>
+                  <span className="text-sm font-medium">{formatPrice(i.price)}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setProformaOpen(false)}>Cancelar</Button>
+            <Button onClick={() => {
+              const settings = loadSettings();
+              const list = proformaSel.size > 0
+                ? menuItems.filter(i => proformaSel.has(i.id))
+                : menuItems.filter(i => i.available);
+              if (list.length === 0) { toast.error('Nenhum prato para imprimir'); return; }
+              printProforma({
+                items: list,
+                brand: settings.brandName,
+                address: settings.address,
+                taxId: settings.taxId,
+                phone: settings.phone,
+                logoUrl: settings.receiptShowLogo ? settings.receiptLogo : undefined,
+              });
+              setProformaOpen(false);
+            }}>
+              <FileText className="w-4 h-4" /> Imprimir
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PageShell>
   );
 }
+

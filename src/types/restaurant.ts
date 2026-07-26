@@ -115,13 +115,52 @@ export interface InventoryItem {
   usagePerServing: number; // how much is consumed per serving
 }
 
-export type UserRole = 'waiter' | 'cashier' | 'kitchen' | 'manager' | 'admin';
+export type UserRole = 'waiter' | 'cashier' | 'kitchen' | 'manager' | 'admin' | 'superadmin';
 
 export interface Staff {
   id: string;
   name: string;
   role: UserRole;
   pin?: string;
+}
+
+export type BillingPlan = 'monthly' | 'quarterly' | 'semiannual' | 'annual';
+export type SubscriptionStatus = 'trial' | 'active' | 'expired' | 'blocked';
+
+export interface Subscription {
+  plan: BillingPlan | null;
+  status: SubscriptionStatus;
+  startedAt?: string;
+  expiresAt?: string;
+  lastPaymentRef?: string;
+  blockedByAdmin?: boolean;
+  blockReason?: string;
+  history?: { plan: BillingPlan; paidAt: string; ref?: string }[];
+}
+
+export interface Tenant {
+  id: string;
+  name: string;
+  ownerEmail: string;
+  ownerPhone?: string;
+  licenseKey: string;
+  createdAt: string;
+  subscription: Subscription;
+}
+
+export interface Account {
+  id: string;
+  /** @deprecated use tenantIds; kept for retro-compat during migration */
+  tenantId: string;
+  /** All tenants owned by this account. The primary/active one is `tenantId` fallback. */
+  tenantIds?: string[];
+  email: string;
+  passwordHash: string;
+  /** 'admin' owns tenants (formerly 'manager'); 'superadmin' owns the platform. */
+  role: 'admin' | 'superadmin';
+  name: string;
+  phone?: string;
+  createdAt: string;
 }
 
 export interface SecurityAlert {

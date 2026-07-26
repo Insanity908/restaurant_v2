@@ -21,7 +21,6 @@ export default function BillingSuccessPage() {
     if (plan && tenant) {
       // Real verification of a Stripe Checkout session requires a server-side
       // secret key. We record the session_id as payment reference; full
-      // server-side webhook validation needs Lovable Cloud.
       const ref = sessionId || `sim-${Date.now()}`;
       tenantStore.activatePlan(tenant.id, plan, ref);
       refresh();

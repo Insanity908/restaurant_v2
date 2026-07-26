@@ -1,17 +1,14 @@
 import { Order, OrderItem } from '@/types/restaurant';
 import { formatPrice } from './helpers';
+import { loadSettings } from './settings';
 
 interface ReceiptOptions {
-  /** When provided, only these items are listed (e.g. itens servidos). */
   items?: OrderItem[];
-  /** Receipt title shown at the top. */
   title?: string;
-  /** Subtitle / kind label. */
   subtitle?: string;
-  /** Whether to show totals/payment block. Defaults to true when items not filtered. */
   showTotals?: boolean;
-  /** Restaurant brand. */
   brand?: string;
+  logoUrl?: string;
 }
 
 function escape(str: string): string {
@@ -23,7 +20,9 @@ function escape(str: string): string {
 export function buildReceiptHTML(order: Order, opts: ReceiptOptions = {}): string {
   const items = opts.items ?? order.items;
   const showTotals = opts.showTotals ?? !opts.items;
-  const brand = opts.brand ?? 'Restaurante';
+  const settings = (() => { try { return loadSettings(); } catch { return null; } })();
+  const brand = opts.brand ?? settings?.brandName ?? 'Restaurante';
+  const logoUrl = opts.logoUrl ?? (settings?.receiptShowLogo ? settings.receiptLogo : undefined);
   const title = opts.title ?? 'Recibo';
   const subtitle = opts.subtitle
     ?? (order.type === 'dine-in' ? `Mesa ${order.tableNumber ?? '—'}`
@@ -83,6 +82,7 @@ export function buildReceiptHTML(order: Order, opts: ReceiptOptions = {}): strin
 </style></head>
 <body>
   <div class="receipt">
+    ${logoUrl ? `<div style="text-align:center;margin-bottom:8px"><img src="${escape(logoUrl)}" alt="logo" style="max-width:120px;max-height:60px;object-fit:contain" /></div>` : ''}
     <h1>${escape(brand)}</h1>
     <div class="sub">${escape(title)} — ${escape(subtitle)}</div>
     <div class="meta">

@@ -1,0 +1,108 @@
+// Creates a tenant + admin membership + trial subscription for the calling user.
+// Called by the client right after signUp() succeeds.
+
+import { createClient } from 'npm:@supabase/supabase-js@2';
+import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
+import { z } from 'npm:zod@3';
+
+const BodySchema = z.object({
+  restaurantName: z.string().min(1).max(120),
+  ownerName: z.string().min(1).max(120).optional(),
+  ownerPhone: z.string().max(40).optional(),
+});
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
+
+  try {
+    const authHeader = req.headers.get('Authorization') ?? '';
+    if (!authHeader.startsWith('Bearer ')) {
+      return new Response(JSON.stringify({ error: 'Missing bearer token' }), {
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const anonKey = Deno.env.get('SUPABASE_PUBLISHABLE_KEY') ?? Deno.env.get('SUPABASE_ANON_KEY')!;
+
+    // Validate the JWT and get user id.
+    const userClient = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authHeader } },
+    });
+    const { data: userData, error: userErr } = await userClient.auth.getUser();
+    if (userErr || !userData.user) {
+      return new Response(JSON.stringify({ error: 'Invalid session' }), {
+        status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    const user = userData.user;
+
+    const parsed = BodySchema.safeParse(await req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return new Response(JSON.stringify({ error: parsed.error.flatten().fieldErrors }), {
+        status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    const { restaurantName, ownerName, ownerPhone } = parsed.data;
+
+    const admin = createClient(supabaseUrl, serviceKey);
+
+    // If the user is already a tenant member somewhere, don't auto-create a new one.
+    const { data: existing } = await admin
+      .from('tenant_members')
+      .select('tenant_id')
+      .eq('user_id', user.id)
+      .limit(1);
+    if (existing && existing.length > 0) {
+      return new Response(JSON.stringify({ ok: true, tenantId: existing[0].tenant_id, existed: true }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    // 1) tenant
+    const licenseKey = `lic_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
+    const { data: tenant, error: tenantErr } = await admin
+      .from('tenants')
+      .insert({
+        name: restaurantName.trim(),
+        owner_email: user.email ?? '',
+        owner_phone: ownerPhone?.trim() ?? null,
+        license_key: licenseKey,
+      })
+      .select()
+      .single();
+    if (tenantErr || !tenant) throw tenantErr ?? new Error('Tenant creation failed');
+
+    // 2) profile fields (in case trigger already ran, patch phone/name)
+    await admin.from('profiles').update({
+      name: ownerName?.trim() || user.user_metadata?.name || user.email,
+      phone: ownerPhone?.trim() ?? null,
+    }).eq('id', user.id);
+
+    // 3) membership + admin role
+    await admin.from('tenant_members').insert({ tenant_id: tenant.id, user_id: user.id });
+    await admin.from('user_roles').insert({ tenant_id: tenant.id, user_id: user.id, role: 'admin' });
+
+    // 4) 7-day trial subscription
+    const now = new Date();
+    const expires = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    await admin.from('subscriptions').insert({
+      tenant_id: tenant.id,
+      plan: 'trial',
+      status: 'trial',
+      started_at: now.toISOString(),
+      expires_at: expires.toISOString(),
+      blocked_by_admin: false,
+    });
+
+    return new Response(JSON.stringify({ ok: true, tenantId: tenant.id }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  } catch (e) {
+    console.error('bootstrap-tenant error', e);
+    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : 'Unknown error' }), {
+      status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
+});

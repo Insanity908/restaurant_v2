@@ -1,8 +1,7 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Customer, Order } from '@/types/restaurant';
-
-const POINTS_PER_MT = 1 / 10;
+import { LoyaltySettings, DEFAULT_LOYALTY, tierFromPoints } from './loyaltySettings';
 
 export interface CustomerReportRow {
   name: string;
@@ -12,12 +11,14 @@ export interface CustomerReportRow {
   totalSpent: number;
   lastVisit?: string;
   points: number;
-  tier: 'Bronze' | 'Prata' | 'Ouro';
+  tier: 'Bronze' | 'Prata' | 'Ouro' | '—';
+  loyaltyEnabled: boolean;
 }
 
 export interface CustomerReportOptions {
-  from?: string; // ISO date (inclusive)
-  to?: string;   // ISO date (inclusive, end of day)
+  from?: string;
+  to?: string;
+  loyalty?: LoyaltySettings;
 }
 
 const fmtMT = (n: number) =>
@@ -38,6 +39,7 @@ export function buildCustomerReport(
 ): CustomerReportRow[] {
   const from = opts.from ? new Date(opts.from + 'T00:00:00') : undefined;
   const to = opts.to ? new Date(opts.to + 'T23:59:59') : undefined;
+  const loyalty = opts.loyalty ?? DEFAULT_LOYALTY;
 
   return customers.map(c => {
     const norm = c.phone.replace(/\D/g, '');
@@ -53,10 +55,13 @@ export function buildCustomerReport(
       .map(o => o.closedAt || o.updatedAt)
       .sort()
       .reverse()[0];
-    const earnedPoints = Math.floor(totalSpent * POINTS_PER_MT);
-    const points = Math.max(0, earnedPoints + (c.pointsAdjustment || 0));
-    const tier: CustomerReportRow['tier'] =
-      points >= 200 ? 'Ouro' : points >= 50 ? 'Prata' : 'Bronze';
+
+    const earnedPoints = loyalty.enabled ? Math.floor(totalSpent * loyalty.pointsPerMT) : 0;
+    const points = loyalty.enabled
+      ? Math.max(0, earnedPoints + (c.pointsAdjustment || 0))
+      : 0;
+    const tier: CustomerReportRow['tier'] = loyalty.enabled ? tierFromPoints(points, loyalty) : '—';
+
     return {
       name: c.name,
       phone: c.phone,
@@ -66,6 +71,7 @@ export function buildCustomerReport(
       lastVisit,
       points,
       tier,
+      loyaltyEnabled: loyalty.enabled,
     };
   });
 }
@@ -93,9 +99,11 @@ function download(blob: Blob, filename: string) {
 }
 
 export function exportCustomersCSV(rows: CustomerReportRow[], opts: CustomerReportOptions = {}) {
+  const enabled = opts.loyalty?.enabled ?? false;
   const lines: string[] = [];
   lines.push('Relatório de Clientes');
   lines.push(`Período,${csvEscape(rangeLabel(opts))}`);
+  lines.push(`Fidelidade,${enabled ? 'Ativa' : 'Desativada'}`);
   lines.push('');
   lines.push('Nome,Telefone,Email,Pedidos,Total Gasto,Última Visita,Pontos,Nível');
   rows.forEach(r => {
@@ -106,7 +114,7 @@ export function exportCustomersCSV(rows: CustomerReportRow[], opts: CustomerRepo
       r.orderCount,
       fmtMT(r.totalSpent),
       r.lastVisit ? new Date(r.lastVisit).toLocaleDateString('pt-PT') : '',
-      r.points,
+      enabled ? r.points : '—',
       r.tier,
     ].join(','));
   });
@@ -115,12 +123,13 @@ export function exportCustomersCSV(rows: CustomerReportRow[], opts: CustomerRepo
 }
 
 export function exportCustomersPDF(rows: CustomerReportRow[], opts: CustomerReportOptions = {}) {
+  const enabled = opts.loyalty?.enabled ?? false;
   const doc = new jsPDF();
   const w = doc.internal.pageSize.getWidth();
   doc.setFontSize(16); doc.setFont('helvetica', 'bold');
   doc.text('Relatório de Clientes', w / 2, 15, { align: 'center' });
   doc.setFontSize(10); doc.setFont('helvetica', 'normal'); doc.setTextColor(100);
-  doc.text(`Período: ${rangeLabel(opts)}`, w / 2, 22, { align: 'center' });
+  doc.text(`Período: ${rangeLabel(opts)} · Fidelidade: ${enabled ? 'Ativa' : 'Desativada'}`, w / 2, 22, { align: 'center' });
   doc.text(`Gerado em ${new Date().toLocaleString('pt-PT')}`, w / 2, 27, { align: 'center' });
   doc.setTextColor(0);
 
@@ -135,7 +144,7 @@ export function exportCustomersPDF(rows: CustomerReportRow[], opts: CustomerRepo
       ['Clientes', String(rows.length)],
       ['Pedidos no período', String(totalOrders)],
       ['Receita no período', fmtMT(totalSpent)],
-      ['Pontos em circulação', String(totalPoints)],
+      ['Pontos em circulação', enabled ? String(totalPoints) : '—'],
     ],
     theme: 'striped',
     headStyles: { fillColor: [245, 158, 11], textColor: 255 },
@@ -151,7 +160,7 @@ export function exportCustomersPDF(rows: CustomerReportRow[], opts: CustomerRepo
       String(r.orderCount),
       fmtMT(r.totalSpent),
       r.lastVisit ? new Date(r.lastVisit).toLocaleDateString('pt-PT') : '—',
-      String(r.points),
+      enabled ? String(r.points) : '—',
       r.tier,
     ]),
     theme: 'striped',

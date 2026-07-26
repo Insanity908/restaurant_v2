@@ -12,11 +12,12 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Lock, Unlock, Trash2, Clock, Search, Building2, TrendingUp, Users, BarChart3 } from 'lucide-react';
+import { Lock, Unlock, Trash2, Clock, Search, Building2, TrendingUp, Users, BarChart3, Copy, Landmark, Save } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid } from 'recharts';
 import { tenantStore } from '@/lib/tenants';
 import { accountStore } from '@/lib/accounts';
 import { PLANS, formatMT } from '@/lib/billing';
+import { getPaymentAccounts, savePaymentAccounts, fetchPaymentAccounts, type PaymentAccounts } from '@/lib/paymentAccounts';
 import type { Tenant } from '@/types/restaurant';
 import { toast } from 'sonner';
 
@@ -136,9 +137,10 @@ export default function SuperAdminPage() {
       )}
 
       <Tabs defaultValue="tenants">
-        <TabsList>
+        <TabsList className="overflow-x-auto">
           <TabsTrigger value="tenants">Restaurantes</TabsTrigger>
           <TabsTrigger value="payments">Pagamentos</TabsTrigger>
+          <TabsTrigger value="accounts"><Landmark className="w-3.5 h-3.5 mr-1" />Contas de recebimento</TabsTrigger>
           <TabsTrigger value="system"><BarChart3 className="w-3.5 h-3.5 mr-1" />Relatórios de sistema</TabsTrigger>
         </TabsList>
 
@@ -159,55 +161,81 @@ export default function SuperAdminPage() {
             <div className="grid gap-3">
               {filtered.map(t => {
                 const days = tenantStore.daysUntilExpiry(t);
+                const accs = accountStore.getAll().filter(a =>
+                  (a.tenantIds || []).includes(t.id) || a.tenantId === t.id,
+                );
+                const admin = accs.find(a => a.role === 'admin');
                 return (
-                  <div key={t.id} className="glass rounded-xl p-4 flex flex-col md:flex-row md:items-center gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-heading font-semibold">{t.name}</h3>
-                        {statusBadge(t)}
-                        {t.subscription.plan && <Badge variant="outline">{PLANS[t.subscription.plan].label}</Badge>}
+                  <div key={t.id} className="glass rounded-xl p-4 flex flex-col gap-3">
+                    <div className="flex flex-col md:flex-row md:items-start gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="font-heading font-semibold">{t.name}</h3>
+                          {statusBadge(t)}
+                          {t.subscription.plan && <Badge variant="outline">{PLANS[t.subscription.plan].label}</Badge>}
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <code className="text-[10px] text-muted-foreground bg-secondary/40 px-1.5 py-0.5 rounded">ID: {t.id}</code>
+                          <button
+                            onClick={() => { navigator.clipboard.writeText(t.id); toast.success('ID copiado'); }}
+                            className="text-muted-foreground hover:text-foreground"
+                            aria-label="Copiar ID"
+                          ><Copy className="w-3 h-3" /></button>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Expira: {t.subscription.expiresAt ? new Date(t.subscription.expiresAt).toLocaleDateString('pt-MZ') : '—'} ({Math.max(0, days)}d)
+                        </p>
+                        {admin && (
+                          <div className="mt-2 text-xs text-muted-foreground rounded-lg bg-secondary/30 p-2">
+                            <p className="text-[10px] uppercase text-muted-foreground/70">Administrador</p>
+                            <p className="text-foreground">{admin.name}</p>
+                            <p>{admin.email}</p>
+                            {admin.phone && <p>Tel: {admin.phone}</p>}
+                          </div>
+                        )}
+                        <code className="text-[10px] text-muted-foreground block mt-1">Licença: {t.licenseKey}</code>
                       </div>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        {t.ownerEmail} • Expira: {t.subscription.expiresAt ? new Date(t.subscription.expiresAt).toLocaleDateString('pt-MZ') : '—'} ({Math.max(0, days)}d)
-                      </p>
-                      <code className="text-[10px] text-muted-foreground">{t.licenseKey}</code>
-                    </div>
-                    <div className="flex gap-2 flex-wrap">
-                      <Button size="sm" variant="outline" onClick={() => { setExtendTarget(t); setExtendDays(30); }}>
-                        <Clock className="w-3.5 h-3.5" />+ Dias
-                      </Button>
-                      {t.subscription.blockedByAdmin ? (
-                        <Button size="sm" variant="outline" onClick={() => doUnblock(t)}>
-                          <Unlock className="w-3.5 h-3.5" />Desbloquear
+                      <div className="flex gap-2 flex-wrap">
+                        <Button size="sm" variant="outline" onClick={() => { setExtendTarget(t); setExtendDays(30); }}>
+                          <Clock className="w-3.5 h-3.5" />+ Dias
                         </Button>
-                      ) : (
-                        <Button size="sm" variant="outline" onClick={() => { setBlockTarget(t); setBlockReason(''); }}>
-                          <Lock className="w-3.5 h-3.5" />Bloquear
-                        </Button>
-                      )}
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button size="sm" variant="ghost"><Trash2 className="w-3.5 h-3.5 text-destructive" /></Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Eliminar {t.name}?</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Esta ação remove o restaurante e todas as contas associadas. Não pode ser desfeita.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => doDelete(t)}>Eliminar</AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                        {t.subscription.blockedByAdmin ? (
+                          <Button size="sm" variant="outline" onClick={() => doUnblock(t)}>
+                            <Unlock className="w-3.5 h-3.5" />Desbloquear
+                          </Button>
+                        ) : (
+                          <Button size="sm" variant="outline" onClick={() => { setBlockTarget(t); setBlockReason(''); }}>
+                            <Lock className="w-3.5 h-3.5" />Bloquear
+                          </Button>
+                        )}
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button size="sm" variant="ghost"><Trash2 className="w-3.5 h-3.5 text-destructive" /></Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Eliminar {t.name}?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Esta ação remove o restaurante e todas as contas associadas. Não pode ser desfeita.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => doDelete(t)}>Eliminar</AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </div>
                     </div>
                   </div>
                 );
               })}
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="accounts">
+          <PaymentAccountsForm />
         </TabsContent>
 
         <TabsContent value="payments">
@@ -332,11 +360,13 @@ function SystemReports({ tenants }: { tenants: Tenant[] }) {
   const teamRows = useMemo(() => {
     const accounts = accountStore.getAll();
     return tenants.map(t => {
-      const tenantAccounts = accounts.filter(a => a.tenantId === t.id);
-      const managers = tenantAccounts.filter(a => a.role === 'manager').map(a => a.name || a.email);
+      const tenantAccounts = accounts.filter(a =>
+        (a.tenantIds || []).includes(t.id) || a.tenantId === t.id,
+      );
+      const admins = tenantAccounts.filter(a => a.role === 'admin').map(a => a.name || a.email);
       return {
         tenant: t,
-        managers,
+        managers: admins,
         accountsCount: tenantAccounts.length,
       };
     }).sort((a, b) => b.accountsCount - a.accountsCount);
@@ -443,4 +473,51 @@ function SystemReports({ tenants }: { tenants: Tenant[] }) {
     </div>
   );
 }
+
+function PaymentAccountsForm() {
+  const [data, setData] = useState<PaymentAccounts>(() => getPaymentAccounts());
+  useEffect(() => {
+    fetchPaymentAccounts().then(setData).catch(() => { /* keep cache */ });
+  }, []);
+  const set = <K extends keyof PaymentAccounts>(k: K, v: PaymentAccounts[K]) =>
+    setData(prev => ({ ...prev, [k]: v }));
+  return (
+    <div className="glass rounded-xl p-5 mt-4 space-y-4 max-w-2xl">
+      <div>
+        <h3 className="font-heading font-semibold">Dados de recebimento</h3>
+        <p className="text-xs text-muted-foreground mt-1">Mostrados aos administradores na página de faturação para pagamento manual.</p>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label>Banco</Label>
+          <Input value={data.bankName || ''} onChange={e => set('bankName', e.target.value)} placeholder="BCI, BIM..." />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Titular</Label>
+          <Input value={data.bankHolder || ''} onChange={e => set('bankHolder', e.target.value)} />
+        </div>
+        <div className="space-y-1.5 sm:col-span-2">
+          <Label>Número da conta bancária</Label>
+          <Input value={data.bankAccount || ''} onChange={e => set('bankAccount', e.target.value)} placeholder="0000 0000 0000" />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Provedor conta móvel</Label>
+          <Input value={data.mobileMoneyProvider || ''} onChange={e => set('mobileMoneyProvider', e.target.value)} placeholder="M-Pesa, e-Mola..." />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Número da conta móvel</Label>
+          <Input value={data.mobileMoney || ''} onChange={e => set('mobileMoney', e.target.value)} placeholder="84 000 0000" />
+        </div>
+        <div className="space-y-1.5 sm:col-span-2">
+          <Label>Notas / instruções</Label>
+          <Input value={data.notes || ''} onChange={e => set('notes', e.target.value)} placeholder="Ex: enviar comprovativo para..." />
+        </div>
+      </div>
+      <Button onClick={() => { savePaymentAccounts(data); toast.success('Dados de recebimento guardados'); }}>
+        <Save className="w-4 h-4" /> Guardar
+      </Button>
+    </div>
+  );
+}
+
 

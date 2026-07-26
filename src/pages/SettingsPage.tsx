@@ -142,6 +142,44 @@ export default function SettingsPage() {
               </div>
               <p className="text-xs text-muted-foreground">PNG/JPG quadrado, até 500KB.</p>
             </div>
+
+            <div className="space-y-2 pt-4 border-t border-border">
+              <Label>Logo do recibo (imagem impressa no topo)</Label>
+              <div className="flex items-center gap-3 flex-wrap">
+                {local.receiptLogo && (
+                  <img src={local.receiptLogo} alt="logo recibo" className="w-20 h-14 rounded-lg object-contain border border-border bg-white p-1" />
+                )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  id="receipt-logo-input"
+                  onChange={e => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    if (f.size > 200 * 1024) { toast.error('Imagem muito grande (máx 200KB)'); return; }
+                    const reader = new FileReader();
+                    reader.onload = () => set('receiptLogo', reader.result as string);
+                    reader.readAsDataURL(f);
+                  }}
+                />
+                <Button type="button" variant="outline" onClick={() => document.getElementById('receipt-logo-input')?.click()}>
+                  <Upload className="w-4 h-4" /> Carregar
+                </Button>
+                {local.receiptLogo && (
+                  <Button type="button" variant="ghost" onClick={() => set('receiptLogo', undefined)}>Remover</Button>
+                )}
+                <label className="flex items-center gap-2 text-sm ml-auto">
+                  <input
+                    type="checkbox"
+                    checked={local.receiptShowLogo}
+                    onChange={e => set('receiptShowLogo', e.target.checked)}
+                  />
+                  Mostrar no recibo
+                </label>
+              </div>
+              <p className="text-xs text-muted-foreground">Aparece no topo de recibos e fatura proforma. Máx 200KB.</p>
+            </div>
           </Card>
         </TabsContent>
 
@@ -260,7 +298,7 @@ export default function SettingsPage() {
                   Para activação 100% garantida via webhook é necessário backend. Sem isso, a activação acontece quando o cliente retorna ao site.
                 </p>
               </div>
-              {(['quarterly', 'semiannual', 'annual'] as BillingPlan[]).map(p => (
+              {(['monthly', 'quarterly', 'semiannual', 'annual'] as BillingPlan[]).map(p => (
                 <div key={p} className="space-y-2">
                   <Label>Payment Link — {p}</Label>
                   <Input

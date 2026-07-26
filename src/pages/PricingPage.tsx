@@ -46,21 +46,21 @@ export default function PricingPage() {
         </div>
       )}
 
-      <div className="grid md:grid-cols-3 gap-4 max-w-5xl mx-auto">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 max-w-6xl mx-auto">
         {(Object.keys(PLANS) as BillingPlan[]).map(key => {
           const p = PLANS[key];
-          const highlight = key === 'semiannual';
+          const highlight = key === 'quarterly';
           return (
             <div key={key} className={`glass-strong rounded-2xl p-6 flex flex-col ${highlight ? 'border-2 border-primary' : ''}`}>
               {highlight && <span className="text-xs text-primary font-medium mb-2">MAIS POPULAR</span>}
               <h3 className="font-heading text-xl font-bold">{p.label}</h3>
               <div className="mt-3">
-                <span className="font-heading text-4xl font-bold">{formatMT(p.price)}</span>
-                <span className="text-muted-foreground text-sm"> / {p.months} meses</span>
+                <span className="font-heading text-3xl font-bold">{formatMT(p.price)}</span>
+                <span className="text-muted-foreground text-sm block">{p.months} {p.months === 1 ? 'mês' : 'meses'}</span>
               </div>
               {p.savings && <span className="text-xs text-success mt-1">{p.savings}</span>}
               <ul className="mt-5 space-y-2 text-sm flex-1">
-                <li className="flex gap-2"><Check className="w-4 h-4 text-success" /> {p.months} meses de acesso completo</li>
+                <li className="flex gap-2"><Check className="w-4 h-4 text-success" /> Acesso completo</li>
                 <li className="flex gap-2"><Check className="w-4 h-4 text-success" /> Utilizadores ilimitados</li>
                 <li className="flex gap-2"><Check className="w-4 h-4 text-success" /> Suporte por email</li>
                 <li className="flex gap-2"><Check className="w-4 h-4 text-success" /> Atualizações incluídas</li>

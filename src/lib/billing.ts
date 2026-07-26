@@ -1,9 +1,10 @@
 import { BillingPlan } from '@/types/restaurant';
 
 export const PLANS: Record<BillingPlan, { label: string; months: number; price: number; savings?: string }> = {
-  quarterly: { label: 'Trimestral', months: 3, price: 12000 },
-  semiannual: { label: 'Semestral', months: 6, price: 16000, savings: 'Poupa 33%' },
-  annual: { label: 'Anual', months: 12, price: 30000, savings: 'Poupa 37%' },
+  monthly: { label: 'Mensal', months: 1, price: 3600 },
+  quarterly: { label: 'Trimestral', months: 3, price: 9000, savings: 'Poupa 17%' },
+  semiannual: { label: 'Semestral', months: 6, price: 16000, savings: 'Poupa 26%' },
+  annual: { label: 'Anual', months: 12, price: 30000, savings: 'Poupa 31%' },
 };
 
 const STRIPE_LINKS_KEY = 'stripe_payment_links';
@@ -11,9 +12,9 @@ const STRIPE_PUB_KEY = 'stripe_publishable_key';
 
 export function getStripeLinks(): Record<BillingPlan, string> {
   try {
-    return { quarterly: '', semiannual: '', annual: '', ...JSON.parse(localStorage.getItem(STRIPE_LINKS_KEY) || '{}') };
+    return { monthly: '', quarterly: '', semiannual: '', annual: '', ...JSON.parse(localStorage.getItem(STRIPE_LINKS_KEY) || '{}') };
   } catch {
-    return { quarterly: '', semiannual: '', annual: '' };
+    return { monthly: '', quarterly: '', semiannual: '', annual: '' };
   }
 }
 export function setStripeLinks(links: Record<BillingPlan, string>) {

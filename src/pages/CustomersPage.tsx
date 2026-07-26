@@ -6,19 +6,21 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { Search, Plus, Pencil, Trash2, Phone, Cake, Award, TrendingUp, Gift, Users as UsersIcon, AlertCircle, Download, FileText, CloudOff, RefreshCw } from 'lucide-react';
+import { Search, Plus, Pencil, Trash2, Phone, Cake, Award, TrendingUp, Gift, Users as UsersIcon, AlertCircle, Download, FileText, CloudOff, RefreshCw, Settings2 } from 'lucide-react';
 import { customerStore, orderStore } from '@/lib/store';
 import { Customer, Order } from '@/types/restaurant';
 import { maskMzPhone, maskNuit, validateMpesa, validateNuit } from '@/lib/validators';
 import { toast } from 'sonner';
 import { buildCustomerReport, exportCustomersCSV, exportCustomersPDF } from '@/lib/customerReport';
 import { syncQueue, flushQueue } from '@/lib/syncQueue';
+import { getLoyaltySettings, saveLoyaltySettings, tierFromPoints, LoyaltySettings } from '@/lib/loyaltySettings';
+import { useAuth } from '@/context/AuthContext';
+import { cn } from '@/lib/utils';
 
-// 1 ponto por cada 10 MT gastos
-const POINTS_PER_MT = 1 / 10;
 
 interface CustomerStats {
   totalSpent: number;
@@ -30,7 +32,7 @@ interface CustomerStats {
   orders: Order[];
 }
 
-function computeStats(customer: Customer, orders: Order[]): CustomerStats {
+function computeStats(customer: Customer, orders: Order[], loyalty: LoyaltySettings): CustomerStats {
   const norm = customer.phone.replace(/\D/g, '');
   const matched = orders.filter(
     o => o.paid && (o.customerId === customer.id || (norm && o.customerPhone?.replace(/\D/g, '') === norm))
@@ -40,9 +42,9 @@ function computeStats(customer: Customer, orders: Order[]): CustomerStats {
     .map(o => o.closedAt || o.updatedAt)
     .sort()
     .reverse()[0];
-  const earnedPoints = Math.floor(totalSpent * POINTS_PER_MT);
-  const points = Math.max(0, earnedPoints + (customer.pointsAdjustment || 0));
-  const tier: CustomerStats['tier'] = points >= 200 ? 'Ouro' : points >= 50 ? 'Prata' : 'Bronze';
+  const earnedPoints = loyalty.enabled ? Math.floor(totalSpent * loyalty.pointsPerMT) : 0;
+  const points = loyalty.enabled ? Math.max(0, earnedPoints + (customer.pointsAdjustment || 0)) : 0;
+  const tier: CustomerStats['tier'] = loyalty.enabled ? tierFromPoints(points, loyalty) : 'Bronze';
   return { totalSpent, orderCount: matched.length, lastVisit, earnedPoints, points, tier, orders: matched };
 }
 
@@ -71,6 +73,16 @@ export default function CustomersPage() {
   const [editing, setEditing] = useState<Customer | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Customer | null>(null);
   const [detail, setDetail] = useState<Customer | null>(null);
+  const { user } = useAuth();
+  const isManager = user?.role === 'manager' || user?.role === 'admin';
+
+  // Loyalty settings (per tenant, off by default)
+  const [loyalty, setLoyalty] = useState<LoyaltySettings>(() => getLoyaltySettings());
+  useEffect(() => {
+    const on = () => setLoyalty(getLoyaltySettings());
+    window.addEventListener('loyalty-settings-changed', on);
+    return () => window.removeEventListener('loyalty-settings-changed', on);
+  }, []);
 
   // Date range for export
   const [fromDate, setFromDate] = useState('');
@@ -91,8 +103,8 @@ export default function CustomersPage() {
   const refresh = () => setCustomers(customerStore.getAll());
 
   const enriched = useMemo(
-    () => customers.map(c => ({ customer: c, stats: computeStats(c, orders) })),
-    [customers, orders]
+    () => customers.map(c => ({ customer: c, stats: computeStats(c, orders, loyalty) })),
+    [customers, orders, loyalty]
   );
 
   const filtered = useMemo(() => {
@@ -144,40 +156,42 @@ export default function CustomersPage() {
       }
     >
       {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 mb-4 sm:mb-6">
         <Kpi icon={<UsersIcon className="w-4 h-4" />} label="Clientes" value={String(totals.totalCustomers)} />
         <Kpi icon={<TrendingUp className="w-4 h-4" />} label="Receita total" value={`${totals.totalRevenue.toFixed(0)} MT`} />
-        <Kpi icon={<Award className="w-4 h-4" />} label="Pontos em circulação" value={String(totals.totalPoints)} />
-        <Kpi icon={<Cake className="w-4 h-4" />} label="Aniversários este mês" value={String(birthdays.length)} />
+        {loyalty.enabled && (
+          <Kpi icon={<Award className="w-4 h-4" />} label="Pontos em circulação" value={String(totals.totalPoints)} />
+        )}
+        <Kpi icon={<Cake className="w-4 h-4" />} label="Aniversários" value={String(birthdays.length)} />
       </div>
 
-      <div className="flex flex-wrap items-end gap-3 mb-4">
-        <div className="relative flex-1 min-w-[220px] max-w-md">
+      <div className="flex flex-col md:flex-row md:flex-wrap md:items-end gap-3 mb-4">
+        <div className="relative flex-1 min-w-0 md:min-w-[220px] md:max-w-md">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input className="pl-9" placeholder="Pesquisar por nome, telefone ou email…"
             value={query} onChange={e => setQuery(e.target.value)} />
         </div>
-        <div className="flex items-end gap-2">
-          <div>
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="flex-1 min-w-[120px]">
             <Label className="text-xs">De</Label>
-            <Input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className="w-[140px]" />
+            <Input type="date" value={fromDate} onChange={e => setFromDate(e.target.value)} className="w-full md:w-[140px]" />
           </div>
-          <div>
+          <div className="flex-1 min-w-[120px]">
             <Label className="text-xs">Até</Label>
-            <Input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className="w-[140px]" />
+            <Input type="date" value={toDate} onChange={e => setToDate(e.target.value)} className="w-full md:w-[140px]" />
           </div>
-          <Button variant="outline" size="sm" onClick={() => {
-            const rows = buildCustomerReport(customers, orders, { from: fromDate || undefined, to: toDate || undefined });
+          <Button variant="outline" size="sm" className="flex-1 md:flex-none" onClick={() => {
+            const rows = buildCustomerReport(customers, orders, { from: fromDate || undefined, to: toDate || undefined, loyalty });
             if (!rows.length) { toast.error('Sem dados'); return; }
-            exportCustomersCSV(rows, { from: fromDate || undefined, to: toDate || undefined });
+            exportCustomersCSV(rows, { from: fromDate || undefined, to: toDate || undefined, loyalty });
             toast.success('CSV exportado');
           }}>
             <Download className="w-4 h-4" /> CSV
           </Button>
-          <Button variant="outline" size="sm" onClick={() => {
-            const rows = buildCustomerReport(customers, orders, { from: fromDate || undefined, to: toDate || undefined });
+          <Button variant="outline" size="sm" className="flex-1 md:flex-none" onClick={() => {
+            const rows = buildCustomerReport(customers, orders, { from: fromDate || undefined, to: toDate || undefined, loyalty });
             if (!rows.length) { toast.error('Sem dados'); return; }
-            exportCustomersPDF(rows, { from: fromDate || undefined, to: toDate || undefined });
+            exportCustomersPDF(rows, { from: fromDate || undefined, to: toDate || undefined, loyalty });
             toast.success('PDF exportado');
           }}>
             <FileText className="w-4 h-4" /> PDF
@@ -186,7 +200,7 @@ export default function CustomersPage() {
       </div>
 
       {/* Sync status */}
-      <div className="flex items-center gap-2 mb-4 text-xs">
+      <div className="flex items-center gap-2 mb-4 text-xs flex-wrap">
         {!online && (
           <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30">
             <CloudOff className="w-3 h-3 mr-1" /> Offline
@@ -212,33 +226,63 @@ export default function CustomersPage() {
 
 
       <Tabs defaultValue="all" className="space-y-4">
-        <TabsList>
+        <TabsList className="w-full md:w-auto overflow-x-auto flex whitespace-nowrap">
           <TabsTrigger value="all">Todos ({enriched.length})</TabsTrigger>
           <TabsTrigger value="loyalty">Fidelidade</TabsTrigger>
           <TabsTrigger value="birthdays">Aniversariantes ({birthdays.length})</TabsTrigger>
+          {isManager && <TabsTrigger value="settings"><Settings2 className="w-3.5 h-3.5 mr-1" />Configurações</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="all">
-          <CustomerGrid items={filtered} onView={setDetail} onEdit={openEdit} onDelete={setConfirmDelete} />
+          <CustomerGrid items={filtered} onView={setDetail} onEdit={openEdit} onDelete={setConfirmDelete} loyaltyEnabled={loyalty.enabled} />
         </TabsContent>
 
         <TabsContent value="loyalty">
-          <Card className="p-4 mb-4 bg-primary/5 border-primary/20">
-            <div className="flex items-center gap-2 text-sm">
-              <Gift className="w-4 h-4 text-primary" />
-              <span>Cada <strong>10 MT</strong> gastos = <strong>1 ponto</strong>. Bronze &lt; 50 · Prata 50–199 · Ouro ≥ 200.</span>
-            </div>
-          </Card>
-          <CustomerGrid items={loyaltyList} onView={setDetail} onEdit={openEdit} onDelete={setConfirmDelete} />
+          {!loyalty.enabled ? (
+            <Card className="p-6 text-center bg-secondary/30">
+              <Gift className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+              <p className="text-sm text-muted-foreground mb-3">
+                Programa de fidelidade desativado. Nenhum cliente recebe pontos ou descontos.
+              </p>
+              {isManager && (
+                <Button size="sm" onClick={() => {
+                  const t = document.querySelector<HTMLButtonElement>('[data-state][value="settings"], [role="tab"][value="settings"]');
+                  t?.click();
+                }}>Configurar</Button>
+              )}
+            </Card>
+          ) : (
+            <>
+              <Card className="p-4 mb-4 bg-primary/5 border-primary/20">
+                <div className="flex items-center gap-2 text-sm">
+                  <Gift className="w-4 h-4 text-primary" />
+                  <span>
+                    Cada <strong>{Math.round(1 / loyalty.pointsPerMT)} MT</strong> gastos = <strong>1 ponto</strong>.
+                    {' '}Bronze &lt; {loyalty.tierBronzeMax} · Prata {loyalty.tierBronzeMax}–{loyalty.tierSilverMax - 1} · Ouro ≥ {loyalty.tierSilverMax}.
+                    {loyalty.allowDiscounts
+                      ? ` Descontos permitidos${loyalty.maxDiscountPercent > 0 ? ` (até ${loyalty.maxDiscountPercent}%)` : ''}.`
+                      : ' Descontos desativados.'}
+                  </span>
+                </div>
+              </Card>
+              <CustomerGrid items={loyaltyList} onView={setDetail} onEdit={openEdit} onDelete={setConfirmDelete} loyaltyEnabled />
+            </>
+          )}
         </TabsContent>
 
         <TabsContent value="birthdays">
           {birthdays.length === 0 ? (
             <EmptyState icon={<Cake className="w-8 h-8" />} text="Nenhum aniversariante este mês" />
           ) : (
-            <CustomerGrid items={birthdays} onView={setDetail} onEdit={openEdit} onDelete={setConfirmDelete} showBirthday />
+            <CustomerGrid items={birthdays} onView={setDetail} onEdit={openEdit} onDelete={setConfirmDelete} showBirthday loyaltyEnabled={loyalty.enabled} />
           )}
         </TabsContent>
+
+        {isManager && (
+          <TabsContent value="settings">
+            <LoyaltySettingsPanel value={loyalty} onSave={(patch) => { const next = saveLoyaltySettings(patch); setLoyalty(next); toast.success('Configurações guardadas'); }} />
+          </TabsContent>
+        )}
       </Tabs>
 
       {dialogOpen && (
@@ -253,7 +297,8 @@ export default function CustomersPage() {
       {detail && (
         <CustomerDetailDialog
           customer={detail}
-          stats={computeStats(detail, orders)}
+          stats={computeStats(detail, orders, loyalty)}
+          loyalty={loyalty}
           onClose={() => setDetail(null)}
           onChanged={() => { refresh(); setDetail(customerStore.getAll().find(c => c.id === detail.id) || null); }}
         />
@@ -300,13 +345,14 @@ function EmptyState({ icon, text }: { icon: React.ReactNode; text: string }) {
 }
 
 function CustomerGrid({
-  items, onView, onEdit, onDelete, showBirthday,
+  items, onView, onEdit, onDelete, showBirthday, loyaltyEnabled,
 }: {
   items: { customer: Customer; stats: CustomerStats }[];
   onView: (c: Customer) => void;
   onEdit: (c: Customer) => void;
   onDelete: (c: Customer) => void;
   showBirthday?: boolean;
+  loyaltyEnabled?: boolean;
 }) {
   if (items.length === 0) {
     return <EmptyState icon={<UsersIcon className="w-8 h-8" />} text="Nenhum cliente encontrado" />;
@@ -317,9 +363,9 @@ function CustomerGrid({
         <Card key={customer.id} className="p-4 hover:border-primary/40 transition-colors">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0 flex-1 cursor-pointer" onClick={() => onView(customer)}>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="font-heading font-semibold truncate">{customer.name}</h3>
-                <Badge variant="outline" className={tierBadge(stats.tier)}>{stats.tier}</Badge>
+                {loyaltyEnabled && <Badge variant="outline" className={tierBadge(stats.tier)}>{stats.tier}</Badge>}
               </div>
               {customer.phone && (
                 <p className="text-xs text-muted-foreground flex items-center gap-1 mt-1">
@@ -341,14 +387,90 @@ function CustomerGrid({
               </Button>
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-2 mt-4 text-center">
+          <div className={cn('grid gap-2 mt-4 text-center', loyaltyEnabled ? 'grid-cols-3' : 'grid-cols-2')}>
             <Stat label="Pedidos" value={String(stats.orderCount)} />
             <Stat label="Gasto" value={`${stats.totalSpent.toFixed(0)} MT`} />
-            <Stat label="Pontos" value={String(stats.points)} />
+            {loyaltyEnabled && <Stat label="Pontos" value={String(stats.points)} />}
           </div>
         </Card>
       ))}
     </div>
+  );
+}
+
+function LoyaltySettingsPanel({ value, onSave }: { value: LoyaltySettings; onSave: (patch: Partial<LoyaltySettings>) => void }) {
+  const [form, setForm] = useState<LoyaltySettings>(value);
+  useEffect(() => setForm(value), [value]);
+  const upd = <K extends keyof LoyaltySettings>(k: K, v: LoyaltySettings[K]) => setForm(f => ({ ...f, [k]: v }));
+
+  return (
+    <Card className="p-4 sm:p-6 space-y-5 max-w-2xl">
+      <div>
+        <h3 className="font-heading font-bold text-lg">Programa de Fidelidade</h3>
+        <p className="text-xs text-muted-foreground mt-1">
+          Por padrão nenhum cliente recebe pontos ou descontos. Ative aqui para começar a acumular.
+        </p>
+      </div>
+
+      <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/40">
+        <div>
+          <Label className="text-sm font-medium">Ativar programa</Label>
+          <p className="text-xs text-muted-foreground">Clientes começam a ganhar pontos por gastos.</p>
+        </div>
+        <Switch checked={form.enabled} onCheckedChange={v => upd('enabled', v)} />
+      </div>
+
+      <div className={cn('grid grid-cols-1 sm:grid-cols-2 gap-3', !form.enabled && 'opacity-50 pointer-events-none')}>
+        <div>
+          <Label className="text-xs">MT por 1 ponto</Label>
+          <Input
+            type="number" min="1" step="1"
+            value={form.pointsPerMT > 0 ? String(Math.round(1 / form.pointsPerMT)) : ''}
+            onChange={e => {
+              const n = parseFloat(e.target.value);
+              upd('pointsPerMT', n > 0 ? 1 / n : 0);
+            }}
+          />
+          <p className="text-[11px] text-muted-foreground mt-1">Ex: 10 = 1 ponto por cada 10 MT gastos</p>
+        </div>
+        <div>
+          <Label className="text-xs">Valor de 1 ponto (MT)</Label>
+          <Input type="number" min="0" step="0.5" value={form.mtPerPoint}
+            onChange={e => upd('mtPerPoint', parseFloat(e.target.value) || 0)} />
+          <p className="text-[11px] text-muted-foreground mt-1">Desconto obtido ao resgatar 1 ponto</p>
+        </div>
+        <div>
+          <Label className="text-xs">Limite Bronze &lt; (pontos)</Label>
+          <Input type="number" min="0" value={form.tierBronzeMax}
+            onChange={e => upd('tierBronzeMax', parseInt(e.target.value) || 0)} />
+        </div>
+        <div>
+          <Label className="text-xs">Limite Prata &lt; (pontos)</Label>
+          <Input type="number" min="0" value={form.tierSilverMax}
+            onChange={e => upd('tierSilverMax', parseInt(e.target.value) || 0)} />
+        </div>
+      </div>
+
+      <div className={cn('space-y-3', !form.enabled && 'opacity-50 pointer-events-none')}>
+        <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/40">
+          <div>
+            <Label className="text-sm font-medium">Permitir descontos no POS</Label>
+            <p className="text-xs text-muted-foreground">Se desativado, clientes acumulam mas não resgatam.</p>
+          </div>
+          <Switch checked={form.allowDiscounts} onCheckedChange={v => upd('allowDiscounts', v)} />
+        </div>
+        <div className={cn(!form.allowDiscounts && 'opacity-50 pointer-events-none')}>
+          <Label className="text-xs">Desconto máximo (% do subtotal, 0 = sem limite)</Label>
+          <Input type="number" min="0" max="100" value={form.maxDiscountPercent}
+            onChange={e => upd('maxDiscountPercent', Math.min(100, Math.max(0, parseInt(e.target.value) || 0)))} />
+        </div>
+      </div>
+
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" onClick={() => setForm(value)}>Cancelar</Button>
+        <Button onClick={() => onSave(form)}>Guardar</Button>
+      </div>
+    </Card>
   );
 }
 
@@ -408,7 +530,7 @@ function CustomerDialog({
 
   return (
     <Dialog open={open} onOpenChange={o => !o && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="w-[95vw] max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{customer ? 'Editar cliente' : 'Novo cliente'}</DialogTitle>
         </DialogHeader>
@@ -416,7 +538,7 @@ function CustomerDialog({
           <FieldRow label="Nome" error={errors.name}>
             <Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Nome completo" />
           </FieldRow>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <FieldRow label="Telefone" error={errors.phone}>
               <Input value={form.phone} onChange={e => setForm({ ...form, phone: maskMzPhone(e.target.value) })} placeholder="84 123 4567" inputMode="numeric" />
             </FieldRow>
@@ -460,9 +582,9 @@ function FieldRow({ label, error, children }: { label: string; error?: string | 
 /* ------------------------------ Detail dialog ----------------------------- */
 
 function CustomerDetailDialog({
-  customer, stats, onClose, onChanged,
+  customer, stats, loyalty, onClose, onChanged,
 }: {
-  customer: Customer; stats: CustomerStats; onClose: () => void; onChanged: () => void;
+  customer: Customer; stats: CustomerStats; loyalty: LoyaltySettings; onClose: () => void; onChanged: () => void;
 }) {
   const [redeemQty, setRedeemQty] = useState('');
 
@@ -488,37 +610,42 @@ function CustomerDetailDialog({
 
   return (
     <Dialog open onOpenChange={o => !o && onClose()}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="w-[95vw] max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+          <DialogTitle className="flex items-center gap-2 flex-wrap">
             {customer.name}
-            <Badge variant="outline" className={tierBadge(stats.tier)}>{stats.tier}</Badge>
+            {loyalty.enabled && <Badge variant="outline" className={tierBadge(stats.tier)}>{stats.tier}</Badge>}
           </DialogTitle>
         </DialogHeader>
 
-        <div className="grid grid-cols-3 gap-3">
+        <div className={cn('grid gap-3', loyalty.enabled ? 'grid-cols-3' : 'grid-cols-2')}>
           <Stat label="Pedidos" value={String(stats.orderCount)} />
           <Stat label="Total gasto" value={`${stats.totalSpent.toFixed(0)} MT`} />
-          <Stat label="Pontos" value={String(stats.points)} />
+          {loyalty.enabled && <Stat label="Pontos" value={String(stats.points)} />}
         </div>
 
         {customer.phone && <p className="text-sm text-muted-foreground mt-2"><Phone className="w-3 h-3 inline mr-1" /> {customer.phone}</p>}
         {customer.notes && <p className="text-sm mt-2 p-3 rounded-md bg-secondary/40">{customer.notes}</p>}
 
-        <div className="mt-4">
-          <h4 className="font-heading text-sm font-semibold mb-2 flex items-center gap-2">
-            <Gift className="w-4 h-4 text-primary" /> Fidelidade
-          </h4>
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="flex-1 min-w-[140px]">
-              <Label className="text-xs">Resgatar pontos</Label>
-              <Input value={redeemQty} onChange={e => setRedeemQty(e.target.value.replace(/\D/g, ''))} placeholder="0" inputMode="numeric" />
+        {loyalty.enabled && (
+          <div className="mt-4">
+            <h4 className="font-heading text-sm font-semibold mb-2 flex items-center gap-2">
+              <Gift className="w-4 h-4 text-primary" /> Fidelidade
+            </h4>
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="flex-1 min-w-[140px]">
+                <Label className="text-xs">Resgatar pontos</Label>
+                <Input value={redeemQty} onChange={e => setRedeemQty(e.target.value.replace(/\D/g, ''))} placeholder="0" inputMode="numeric" />
+              </div>
+              <Button onClick={redeem} variant="outline" disabled={!loyalty.allowDiscounts}>Resgatar</Button>
+              <Button onClick={() => addBonus(10)} variant="ghost" size="sm">+10 bónus</Button>
+              <Button onClick={() => addBonus(50)} variant="ghost" size="sm">+50 bónus</Button>
             </div>
-            <Button onClick={redeem} variant="outline">Resgatar</Button>
-            <Button onClick={() => addBonus(10)} variant="ghost" size="sm">+10 bónus</Button>
-            <Button onClick={() => addBonus(50)} variant="ghost" size="sm">+50 bónus</Button>
+            {!loyalty.allowDiscounts && (
+              <p className="text-[11px] text-muted-foreground mt-1">Resgate desativado nas configurações.</p>
+            )}
           </div>
-        </div>
+        )}
 
         <div className="mt-6">
           <h4 className="font-heading text-sm font-semibold mb-2">Histórico de pedidos ({stats.orders.length})</h4>

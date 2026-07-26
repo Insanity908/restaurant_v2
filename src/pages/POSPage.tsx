@@ -10,9 +10,8 @@ import { toast } from 'sonner';
 import { customerStore } from '@/lib/store';
 import { Customer, Order } from '@/types/restaurant';
 import { maskMzPhone } from '@/lib/validators';
+import { getLoyaltySettings, LoyaltySettings } from '@/lib/loyaltySettings';
 
-const POINTS_PER_MT = 1 / 10;
-const MT_PER_POINT = 1; // 1 point = 1 MT discount
 
 type POSTab = 'payments' | 'receipts';
 
@@ -24,6 +23,16 @@ export default function POSPage() {
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'mobile-money'>('cash');
   const [showSuccess, setShowSuccess] = useState(false);
   const [historyOrderId, setHistoryOrderId] = useState<string | null>(null);
+
+  // Loyalty settings (per tenant, off by default)
+  const [loyalty, setLoyalty] = useState<LoyaltySettings>(() => getLoyaltySettings());
+  useEffect(() => {
+    const on = () => setLoyalty(getLoyaltySettings());
+    window.addEventListener('loyalty-settings-changed', on);
+    return () => window.removeEventListener('loyalty-settings-changed', on);
+  }, []);
+  const POINTS_PER_MT = loyalty.enabled ? loyalty.pointsPerMT : 0;
+  const MT_PER_POINT = loyalty.mtPerPoint || 1;
 
   // Loyalty linking
   const [phoneLookup, setPhoneLookup] = useState('');
@@ -55,20 +64,25 @@ export default function POSPage() {
     const matched = orders.filter(o => o.paid &&
       (o.customerId === linkedCustomer.id || (norm && o.customerPhone?.replace(/\D/g, '') === norm)));
     const totalSpent = matched.reduce((s, o) => s + (o.total ?? 0), 0);
-    const earned = Math.floor(totalSpent * POINTS_PER_MT);
-    const points = Math.max(0, earned + (linkedCustomer.pointsAdjustment || 0));
+    const earned = loyalty.enabled ? Math.floor(totalSpent * POINTS_PER_MT) : 0;
+    const points = loyalty.enabled ? Math.max(0, earned + (linkedCustomer.pointsAdjustment || 0)) : 0;
     return { points, totalSpent, orderCount: matched.length };
-  }, [linkedCustomer, orders]);
+  }, [linkedCustomer, orders, loyalty.enabled, POINTS_PER_MT]);
 
   const subtotal = selectedOrder?.total ?? 0;
-  const redeemPts = Math.max(0, Math.min(
+  const redeemAllowed = loyalty.enabled && loyalty.allowDiscounts;
+  const rawRedeemPts = redeemAllowed ? Math.max(0, Math.min(
     parseInt(redeemInput || '0', 10) || 0,
     customerStats?.points ?? 0,
     Math.floor(subtotal / MT_PER_POINT),
-  ));
-  const discount = redeemPts * MT_PER_POINT;
+  )) : 0;
+  let discount = rawRedeemPts * MT_PER_POINT;
+  if (loyalty.maxDiscountPercent > 0) {
+    discount = Math.min(discount, subtotal * (loyalty.maxDiscountPercent / 100));
+  }
+  const redeemPts = MT_PER_POINT > 0 ? Math.floor(discount / MT_PER_POINT) : 0;
   const grandTotal = Math.max(0, subtotal - discount) + tip;
-  const willEarn = linkedCustomer ? Math.floor(Math.max(0, subtotal - discount) * POINTS_PER_MT) : 0;
+  const willEarn = linkedCustomer && loyalty.enabled ? Math.floor(Math.max(0, subtotal - discount) * POINTS_PER_MT) : 0;
 
   const handleLookup = () => {
     const c = customerStore.findByPhone(phoneLookup);
