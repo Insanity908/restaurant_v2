@@ -7,7 +7,7 @@ describe('Funcionários', () => {
     });
   });
 
-  it('admin: cria um novo funcionário (cria conta real + PIN local)', () => {
+  it('admin: cria um novo funcionário (conta real via create-staff-account)', () => {
     // UUID válido: store.ts só sincroniza (POST) quando isUuid(id) é
     // verdadeiro, senão cy.wait('@postStaff') nunca vê nada.
     const NEW_STAFF_ID = 'a1000000-0000-0000-0000-00000000a999';
@@ -15,21 +15,13 @@ describe('Funcionários', () => {
     cy.intercept('POST', '**/functions/v1/create-staff-account', {
       statusCode: 200, body: { ok: true, userId: NEW_STAFF_ID },
     }).as('createAccount');
-    // Alias condicional: seedData() (dados de demonstração, disparados ao
-    // montar a página) também insere funcionários na mesma rota — um
-    // intercept sem filtro apanharia um desses pedidos em vez do que este
-    // teste cria, consoante a ordem de chegada.
-    cy.intercept('POST', '**/rest/v1/staff*', (req) => {
-      if (req.body?.name === 'Maria João') req.alias = 'postStaff';
-      req.reply({ statusCode: 201, body: [] });
-    });
+    cy.intercept('POST', '**/rest/v1/staff*', { statusCode: 201, body: [] }).as('postStaff');
 
     cy.loginAs('admin');
     cy.visit('/staff');
     cy.contains('button', /novo funcionário/i).click();
     cy.get('[role="dialog"]').should('be.visible').within(() => {
       cy.get('#name').type('Maria João');
-      cy.get('#pin').type('5678');
       cy.get('#username').type('maria_caixa');
       cy.get('#staff-email').type('maria@restaurante.mz');
       cy.get('#staff-password').type('senhaForte123');
@@ -38,7 +30,7 @@ describe('Funcionários', () => {
     cy.wait('@createAccount').its('request.body').should('include', {
       name: 'Maria João', username: 'maria_caixa', email: 'maria@restaurante.mz',
     });
-    cy.wait('@postStaff').its('request.body').should('include', { id: NEW_STAFF_ID, name: 'Maria João', pin: '5678' });
+    cy.wait('@postStaff').its('request.body').should('include', { id: NEW_STAFF_ID, name: 'Maria João' });
   });
 
   it('DADOS INCORRECTOS: password curta não chega a chamar a edge function', () => {
@@ -50,7 +42,6 @@ describe('Funcionários', () => {
     cy.contains('button', /novo funcionário/i).click();
     cy.get('[role="dialog"]').within(() => {
       cy.get('#name').type('Teste Curto');
-      cy.get('#pin').type('1111');
       cy.get('#username').type('teste_curto');
       cy.get('#staff-email').type('teste@restaurante.mz');
       cy.get('#staff-password').type('123');
@@ -69,7 +60,6 @@ describe('Funcionários', () => {
     cy.contains('button', /novo funcionário/i).click();
     cy.get('[role="dialog"]').within(() => {
       cy.get('#name').type('Outro Funcionário');
-      cy.get('#pin').type('2222');
       cy.get('#username').type('username_repetido');
       cy.get('#staff-email').type('outro@restaurante.mz');
       cy.get('#staff-password').type('senhaForte123');
