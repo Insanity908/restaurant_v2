@@ -4,6 +4,7 @@
  * em localStorage para leitura síncrona.
  */
 import { supabase } from '@/integrations/supabase/client';
+import { cloud } from './outbox';
 
 export interface PaymentAccounts {
   bankName?: string;
@@ -31,10 +32,12 @@ export function getPaymentAccounts(): PaymentAccounts {
 export function savePaymentAccounts(p: PaymentAccounts): PaymentAccounts {
   const next: PaymentAccounts = { ...p, updatedAt: new Date().toISOString() };
   writeCache(next);
-  void supabase.from('system_payment_accounts').upsert({
+  void cloud('system_payment_accounts').upsert({
     id: 1,
     bank_name: next.bankName ?? null,
     bank_account: next.bankAccount ?? null,
+    bank_holder: next.bankHolder ?? null,
+    notes: next.notes ?? null,
     mobile_money_provider: next.mobileMoneyProvider ?? null,
     mobile_money: next.mobileMoney ?? null,
   }, { onConflict: 'id' }).then(({ error }) => {
@@ -43,11 +46,11 @@ export function savePaymentAccounts(p: PaymentAccounts): PaymentAccounts {
   return next;
 }
 
-/** Hydrate cache from Supabase. `bankHolder`/`notes` are not persisted server-side yet. */
+/** Hydrate cache from Supabase. */
 export async function fetchPaymentAccounts(): Promise<PaymentAccounts> {
   const { data, error } = await supabase
     .from('system_payment_accounts')
-    .select('bank_name, bank_account, mobile_money_provider, mobile_money, updated_at')
+    .select('bank_name, bank_account, bank_holder, notes, mobile_money_provider, mobile_money, updated_at')
     .eq('id', 1)
     .maybeSingle();
   if (error) { console.warn('fetchPaymentAccounts failed', error.message); return readCache(); }
@@ -55,12 +58,11 @@ export async function fetchPaymentAccounts(): Promise<PaymentAccounts> {
   const merged: PaymentAccounts = {
     bankName: data.bank_name ?? undefined,
     bankAccount: data.bank_account ?? undefined,
+    bankHolder: data.bank_holder ?? undefined,
+    notes: data.notes ?? undefined,
     mobileMoneyProvider: data.mobile_money_provider ?? undefined,
     mobileMoney: data.mobile_money ?? undefined,
     updatedAt: data.updated_at ?? undefined,
-    // Keep locally-only fields from cache.
-    bankHolder: readCache().bankHolder,
-    notes: readCache().notes,
   };
   writeCache(merged);
   return merged;

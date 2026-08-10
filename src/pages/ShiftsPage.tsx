@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/context/AuthContext';
-import { shiftStore, staffStore } from '@/lib/store';
+import { shiftStore, staffStore, fetchShifts } from '@/lib/store';
 import type { Shift, Staff } from '@/types/restaurant';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -46,9 +46,14 @@ export default function ShiftsPage() {
 
   useEffect(() => {
     refresh();
+    if (user?.tenantId) {
+      void fetchShifts(user.tenantId).then(() => refresh()).catch(() => {});
+    }
     const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.tenantId]);
+
 
   const myActive = useMemo(
     () => (user ? shifts.find(s => s.staffId === user.id && !s.clockOut) : undefined),

@@ -7,6 +7,8 @@ import { useSettings } from '@/hooks/useSettings';
 import { useLicense } from '@/hooks/useLicense';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { tenantStore } from '@/lib/tenants';
+import { useStorageImage } from '@/hooks/useStorageImage';
+import { LOGO_BUCKET } from '@/lib/storage';
 
 
 const navItems = [
@@ -83,6 +85,7 @@ export default function AppSidebar() {
   const logout = auth?.logout;
   const { settings } = useSettings();
   const { tenant, status, daysLeft } = useLicense();
+  const iconUrl = useStorageImage(LOGO_BUCKET, settings.iconUrl);
 
   if (!user) return null;
 
@@ -99,11 +102,12 @@ export default function AppSidebar() {
       <aside className="hidden md:flex fixed left-0 top-0 z-40 h-full w-16 lg:w-56 glass-strong flex-col items-center lg:items-stretch py-4 gap-1">
         <div className="flex items-center gap-2 px-3 mb-3">
           <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center overflow-hidden">
-            {settings.iconUrl ? (
-              <img src={settings.iconUrl} alt="logo" className="w-full h-full object-cover" />
+            {iconUrl ? (
+              <img src={iconUrl} alt="logo" className="w-full h-full object-cover" />
             ) : (
               <span className="text-xl leading-none">{settings.iconEmoji || '☕'}</span>
             )}
+
           </div>
           <span className="hidden lg:block font-heading font-bold text-sm text-foreground whitespace-pre-line leading-tight">
             {settings.brandName}
@@ -152,7 +156,7 @@ export default function AppSidebar() {
             <LogOut className="w-4 h-4 shrink-0" />
             <span className="hidden lg:inline">Sair</span>
           </Button>
-          {tenant && user.role !== 'superadmin' && (
+          {tenant && user.role === 'admin' && (
             <Link to="/billing" className={cn(
               'hidden lg:flex items-center gap-2 px-2 py-1.5 rounded-lg border',
               status === 'active' ? 'bg-success/10 border-success/20 text-success' :

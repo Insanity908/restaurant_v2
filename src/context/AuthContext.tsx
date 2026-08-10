@@ -6,6 +6,7 @@ import { hasPermission as checkPermission, fetchStaffPermissions, type Permissio
 import { fetchSettings } from '@/lib/settings';
 import { fetchLoyaltySettings } from '@/lib/loyaltySettings';
 import { fetchPaymentAccounts } from '@/lib/paymentAccounts';
+import { fetchStripeConfig } from '@/lib/billing';
 import { fetchTenantCatalog } from '@/lib/store';
 
 interface SessionUser {
@@ -13,6 +14,7 @@ interface SessionUser {
   authUserId: string;
   email: string;
   name: string;
+  username?: string;
   phone?: string;
   role: UserRole;
   tenantId?: string;
@@ -25,7 +27,7 @@ interface AuthContextValue {
   loading: boolean;
   loginWithPassword: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   signInWithGoogle: () => Promise<{ ok: boolean; error?: string }>;
-  signUp: (input: { email: string; password: string; name: string; phone?: string; restaurantName: string }) => Promise<{ ok: boolean; error?: string }>;
+  signUp: (input: { email?: string; username?: string; password: string; name: string; phone?: string; restaurantName: string }) => Promise<{ ok: boolean; error?: string }>;
   logout: () => Promise<void>;
   hasRole: (roles: UserRole[]) => boolean;
   hasPermission: (p: Permission) => boolean;
@@ -33,6 +35,17 @@ interface AuthContextValue {
   refreshProfile: () => Promise<void>;
   // Legacy stub — PIN auth is being replaced by per-staff Supabase accounts.
   loginWithPin: (pin: string) => { ok: boolean; error?: string };
+  /**
+   * Bumped once the background tenant-catalog prefetch (orders, tables,
+   * menu, etc. — see hydrate() below) finishes. `loading` flips to false as
+   * soon as the user profile loads, deliberately NOT waiting on this
+   * catalog fetch so the shell renders fast — but that means a page that
+   * mounts in that window (e.g. right after cy.visit()/a fresh load) can
+   * read localStorage before the catalog has landed, with nothing to tell
+   * it to re-read once it does. useRestaurant() depends on this to trigger
+   * that re-read.
+   */
+  catalogVersion: number;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -41,7 +54,7 @@ const CURRENT_TENANT_KEY = 'current_tenant_id';
 async function loadSessionUser(authUser: User): Promise<SessionUser | null> {
   // Fetch profile, roles and memberships in parallel.
   const [{ data: profile }, { data: roles }, { data: members }] = await Promise.all([
-    supabase.from('profiles').select('name, email, phone').eq('id', authUser.id).maybeSingle(),
+    supabase.from('profiles').select('name, email, phone, username').eq('id', authUser.id).maybeSingle(),
     supabase.from('user_roles').select('role, tenant_id').eq('user_id', authUser.id),
     supabase.from('tenant_members').select('tenant_id').eq('user_id', authUser.id),
   ]);
@@ -74,6 +87,7 @@ async function loadSessionUser(authUser: User): Promise<SessionUser | null> {
     authUserId: authUser.id,
     email: profile?.email ?? authUser.email ?? '',
     name: profile?.name ?? authUser.user_metadata?.name ?? authUser.email ?? '',
+    username: profile?.username ?? undefined,
     phone: profile?.phone ?? undefined,
     role,
     tenantId: currentTenant ?? undefined,
@@ -85,6 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<SessionUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [catalogVersion, setCatalogVersion] = useState(0);
 
   const hydrate = useCallback(async (s: Session | null) => {
     if (!s?.user) { setUser(null); return; }
@@ -92,14 +107,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const u = await loadSessionUser(s.user);
       setUser(u);
       if (u?.tenantId) {
-        // Prefetch tenant-scoped caches in parallel; failures fall back to defaults.
+        // Prefetch tenant-scoped caches in parallel; failures fall back to
+        // defaults. Deliberately not awaited so `loading` (and therefore
+        // the app shell) doesn't block on it — but pages that read the
+        // catalog from localStorage (useRestaurant) need to know when it
+        // lands, hence catalogVersion.
         void Promise.all([
           fetchSettings(u.tenantId).catch(() => { }),
           fetchLoyaltySettings(u.tenantId).catch(() => { }),
           fetchStaffPermissions(u.tenantId).catch(() => { }),
           fetchPaymentAccounts().catch(() => { }),
+          fetchStripeConfig().catch(() => { }),
           fetchTenantCatalog(u.tenantId),
-        ]);
+        ]).then(() => setCatalogVersion(v => v + 1));
       }
     } catch (e) {
       console.error('Failed to load session user', e);
@@ -123,8 +143,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => { sub.subscription.unsubscribe(); };
   }, [hydrate]);
 
-  const loginWithPassword = useCallback(async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
+  const loginWithPassword = useCallback(async (identifier: string, password: string) => {
+    // `identifier` may be an email OR a username — Supabase Auth only knows
+    // email, so usernames are resolved server-side first (SECURITY DEFINER
+    // RPC; profiles isn't publicly readable).
+    let email = identifier.trim();
+    if (!email.includes('@')) {
+      const { data: resolved, error: resolveErr } = await supabase.rpc('resolve_login_email', { identifier: email });
+      if (resolveErr || !resolved) return { ok: false, error: 'Utilizador não encontrado' };
+      email = resolved as string;
+    }
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) return { ok: false, error: error.message };
     return { ok: true };
   }, []);
@@ -147,16 +176,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { ok: true };
   }, []);
 
-  const signUp = useCallback(async (input: { email: string; password: string; name: string; phone?: string; restaurantName: string }) => {
+  const signUp = useCallback(async (input: { email?: string; username?: string; password: string; name: string; phone?: string; restaurantName: string }) => {
+    // Supabase Auth only stores an email, so a username-only signup gets a
+    // synthetic placeholder email (never shown to the user, never emailed);
+    // its local-part is the chosen username so bootstrap-tenant's
+    // email-prefix-as-username fallback recovers it automatically.
+    const username = input.username?.trim().toLowerCase();
+    const authEmail = input.email?.trim() || `${username}@users.saborpos.app`;
     const { data, error } = await supabase.auth.signUp({
-      email: input.email.trim(),
+      email: authEmail,
       password: input.password,
       options: {
         emailRedirectTo: window.location.origin,
         data: { name: input.name, phone: input.phone },
       },
     });
-    if (error) return { ok: false, error: error.message };
+    if (error) {
+      if (!input.email && /registered|exists/i.test(error.message)) {
+        return { ok: false, error: 'Username já está em uso' };
+      }
+      return { ok: false, error: error.message };
+    }
     if (!data.session) {
       // Email confirmation required (unlikely because auto_confirm is on).
       return { ok: false, error: 'Verifique o seu email para confirmar a conta.' };
@@ -209,10 +249,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<AuthContextValue>(() => ({
-    user, session, loading,
+    user, session, loading, catalogVersion,
     loginWithPassword, signInWithGoogle, signUp, logout,
     hasRole, hasPermission, switchTenant, refreshProfile, loginWithPin,
-  }), [user, session, loading, loginWithPassword, signInWithGoogle, signUp, logout, hasRole, hasPermission, switchTenant, refreshProfile, loginWithPin]);
+  }), [user, session, loading, catalogVersion, loginWithPassword, signInWithGoogle, signUp, logout, hasRole, hasPermission, switchTenant, refreshProfile, loginWithPin]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
@@ -229,9 +269,9 @@ export function useOptionalAuth() {
 
 export const ROUTE_PERMISSIONS: Record<string, UserRole[]> = {
   '/': ['admin', 'manager'],
-  '/menu': ['admin', 'manager', 'waiter', 'cashier'],
+  '/menu': ['admin', 'manager', 'waiter', 'cashier', 'kitchen'],
   '/tables': ['admin', 'manager', 'waiter', 'cashier'],
-  '/kitchen': ['admin', 'manager', 'kitchen', 'waiter', 'cashier'],
+  '/kitchen': ['admin', 'manager', 'kitchen', 'waiter'],
   '/pos': ['admin', 'manager', 'cashier', 'waiter'],
   '/inventory': ['admin', 'manager'],
   '/reports': ['admin', 'manager'],

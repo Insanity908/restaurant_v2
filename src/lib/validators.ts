@@ -82,6 +82,14 @@ export function validateNuit(raw: string): ValidationResult {
   return null;
 }
 
+export function validateUsername(raw: string): ValidationResult {
+  const v = raw.trim();
+  if (!v) return 'Username obrigatório';
+  if (v.length < 3 || v.length > 30) return 'Username deve ter 3 a 30 caracteres';
+  if (!/^[a-zA-Z0-9_]+$/.test(v)) return 'Username: apenas letras, números e _';
+  return null;
+}
+
 export function validateIntlPhone(raw: string): ValidationResult {
   if (!raw.trim()) return null;
   const d = digits(raw);

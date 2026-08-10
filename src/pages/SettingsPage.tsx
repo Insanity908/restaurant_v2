@@ -1,4 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
+import { supabase } from '@/integrations/supabase/client';
+import { validateUsername } from '@/lib/validators';
 import PageShell from '@/components/PageShell';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -16,15 +18,36 @@ import {
 } from '@/lib/validators';
 import { getStripeLinks, setStripeLinks, getStripePublishableKey, setStripePublishableKey } from '@/lib/billing';
 import type { BillingPlan } from '@/types/restaurant';
+import { uploadTenantImage, LOGO_BUCKET } from '@/lib/storage';
+import { useStorageImage } from '@/hooks/useStorageImage';
 
 const EMOJI_CHOICES = ['☕', '🍴', '🍕', '🍔', '🍲', '🥘', '🍜', '🌮', '🍱', '🥗', '🍳', '🔥', '⭐', '🏪'];
 
 export default function SettingsPage() {
   const { settings, update, reset } = useSettings();
-  const { user } = useAuth();
+  const { user, refreshProfile } = useAuth();
   const isSuperAdmin = user?.role === 'superadmin';
   const [local, setLocal] = useState(settings);
+  const [usernameLocal, setUsernameLocal] = useState(user?.username ?? '');
+  const [savingUsername, setSavingUsername] = useState(false);
+
+  const saveUsername = async () => {
+    const err = validateUsername(usernameLocal);
+    if (err) { toast.error(err); return; }
+    setSavingUsername(true);
+    const { error } = await supabase.from('profiles').update({ username: usernameLocal.trim() }).eq('id', user?.id);
+    setSavingUsername(false);
+    if (error) {
+      toast.error(error.message.includes('duplicate') ? 'Esse username já está em uso' : error.message);
+      return;
+    }
+    await refreshProfile();
+    toast.success('Username atualizado');
+  };
   const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState<'icon' | 'receipt' | null>(null);
+  const iconPreview = useStorageImage(LOGO_BUCKET, local.iconUrl);
+  const receiptLogoPreview = useStorageImage(LOGO_BUCKET, local.receiptLogo);
 
   // Stripe billing config (super-admin only)
   const [stripePub, setStripePub] = useState(getStripePublishableKey());
@@ -53,15 +76,36 @@ export default function SettingsPage() {
     toast.success('Configurações guardadas');
   };
 
-  const handleIconUpload = (file: File) => {
+  const handleIconUpload = async (file: File) => {
     if (file.size > 500 * 1024) {
       toast.error('Imagem muito grande (máx 500KB)');
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => set('iconUrl', reader.result as string);
-    reader.readAsDataURL(file);
+    setUploading('icon');
+    try {
+      set('iconUrl', await uploadTenantImage(LOGO_BUCKET, file));
+    } catch (err) {
+      toast.error(`Falha ao carregar: ${(err as Error).message}`);
+    } finally {
+      setUploading(null);
+    }
   };
+
+  const handleReceiptLogoUpload = async (file: File) => {
+    if (file.size > 500 * 1024) {
+      toast.error('Imagem muito grande (máx 500KB)');
+      return;
+    }
+    setUploading('receipt');
+    try {
+      set('receiptLogo', await uploadTenantImage(LOGO_BUCKET, file));
+    } catch (err) {
+      toast.error(`Falha ao carregar: ${(err as Error).message}`);
+    } finally {
+      setUploading(null);
+    }
+  };
+
 
   const primaryPreview = `hsl(${local.primaryHue} ${local.primarySaturation}% ${local.primaryLightness}%)`;
   const bgPreview = `hsl(${local.backgroundHue} ${local.backgroundSaturation}% ${local.backgroundLightness}%)`;
@@ -123,18 +167,19 @@ export default function SettingsPage() {
             <div className="space-y-2">
               <Label>Ou carregar imagem (logo)</Label>
               <div className="flex items-center gap-3">
-                {local.iconUrl && (
-                  <img src={local.iconUrl} alt="logo" className="w-14 h-14 rounded-lg object-cover border border-border" />
+                {iconPreview && (
+                  <img src={iconPreview} alt="logo" className="w-14 h-14 rounded-lg object-cover border border-border" />
                 )}
                 <input
                   ref={fileRef}
                   type="file"
                   accept="image/*"
                   className="hidden"
-                  onChange={e => e.target.files?.[0] && handleIconUpload(e.target.files[0])}
+                  aria-label="Carregar imagem do logo"
+                  onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleIconUpload(f); }}
                 />
-                <Button type="button" variant="outline" onClick={() => fileRef.current?.click()}>
-                  <Upload className="w-4 h-4" /> Carregar
+                <Button type="button" variant="outline" disabled={uploading === 'icon'} onClick={() => fileRef.current?.click()}>
+                  <Upload className="w-4 h-4" /> {uploading === 'icon' ? 'A carregar…' : 'Carregar'}
                 </Button>
                 {local.iconUrl && (
                   <Button type="button" variant="ghost" onClick={() => set('iconUrl', undefined)}>Remover</Button>
@@ -146,29 +191,24 @@ export default function SettingsPage() {
             <div className="space-y-2 pt-4 border-t border-border">
               <Label>Logo do recibo (imagem impressa no topo)</Label>
               <div className="flex items-center gap-3 flex-wrap">
-                {local.receiptLogo && (
-                  <img src={local.receiptLogo} alt="logo recibo" className="w-20 h-14 rounded-lg object-contain border border-border bg-white p-1" />
+                {receiptLogoPreview && (
+                  <img src={receiptLogoPreview} alt="logo recibo" className="w-20 h-14 rounded-lg object-contain border border-border bg-white p-1" />
                 )}
                 <input
                   type="file"
                   accept="image/*"
                   className="hidden"
                   id="receipt-logo-input"
-                  onChange={e => {
-                    const f = e.target.files?.[0];
-                    if (!f) return;
-                    if (f.size > 200 * 1024) { toast.error('Imagem muito grande (máx 200KB)'); return; }
-                    const reader = new FileReader();
-                    reader.onload = () => set('receiptLogo', reader.result as string);
-                    reader.readAsDataURL(f);
-                  }}
+                  aria-label="Carregar logo do recibo"
+                  onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleReceiptLogoUpload(f); }}
                 />
-                <Button type="button" variant="outline" onClick={() => document.getElementById('receipt-logo-input')?.click()}>
-                  <Upload className="w-4 h-4" /> Carregar
+                <Button type="button" variant="outline" disabled={uploading === 'receipt'} onClick={() => document.getElementById('receipt-logo-input')?.click()}>
+                  <Upload className="w-4 h-4" /> {uploading === 'receipt' ? 'A carregar…' : 'Carregar'}
                 </Button>
                 {local.receiptLogo && (
                   <Button type="button" variant="ghost" onClick={() => set('receiptLogo', undefined)}>Remover</Button>
                 )}
+
                 <label className="flex items-center gap-2 text-sm ml-auto">
                   <input
                     type="checkbox"
@@ -263,6 +303,24 @@ export default function SettingsPage() {
 
         {/* BUSINESS */}
         <TabsContent value="business" className="space-y-4">
+          <Card className="p-6 space-y-5">
+            <h2 className="font-heading text-lg font-semibold">A sua conta</h2>
+            <div className="space-y-2 max-w-sm">
+              <Label>Username</Label>
+              <div className="flex gap-2">
+                <Input
+                  value={usernameLocal}
+                  onChange={e => setUsernameLocal(e.target.value)}
+                  placeholder="ex: joao_admin"
+                />
+                <Button type="button" variant="outline" disabled={savingUsername} onClick={saveUsername}>
+                  {savingUsername ? 'A guardar…' : 'Guardar'}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">Pode usar este username em vez do email para entrar.</p>
+            </div>
+          </Card>
+
           <Card className="p-6 space-y-5">
             <h2 className="font-heading text-lg font-semibold">Dados do negócio</h2>
             <div className="grid sm:grid-cols-2 gap-4">

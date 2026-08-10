@@ -4,8 +4,11 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import AppSidebar from "@/components/AppSidebar";
+import MigrationGate from "@/components/MigrationGate";
 import RequireAuth from "@/components/RequireAuth";
 import RequireSuperAdmin from "@/components/RequireSuperAdmin";
+import SyncStatus from "@/components/SyncStatus";
+
 import { AuthProvider, useOptionalAuth } from "@/context/AuthContext";
 import DashboardPage from "@/pages/DashboardPage";
 import MenuPage from "@/pages/MenuPage";
@@ -54,10 +57,13 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
-      <BrowserRouter basename="/restaurant_v2">
+      <BrowserRouter>
         <AuthProvider>
           <ConditionalSidebar />
+          <MigrationGate />
+          <SyncStatus />
           <Routes>
+
             <Route path="/login" element={<LoginPage />} />
             <Route path="/signup" element={<SignupPage />} />
             <Route path="/landing" element={<LandingPage />} />

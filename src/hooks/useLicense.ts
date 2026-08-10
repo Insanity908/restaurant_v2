@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { tenantStore } from '@/lib/tenants';
+import { tenantStore, fetchTenant, refreshSubscription } from '@/lib/tenants';
 import { Tenant } from '@/types/restaurant';
 
 export function useLicense() {
@@ -7,11 +7,24 @@ export function useLicense() {
 
   const refresh = useCallback(() => setTenant(tenantStore.current()), []);
 
+  /** Ask the backend to re-evaluate the licence and refresh the local cache. */
+  const syncFromServer = useCallback(async () => {
+    const id = tenantStore.current()?.id ?? localStorage.getItem('current_tenant_id');
+    if (!id) return;
+    const res = await refreshSubscription(id).catch(() => null);
+    if (res?.tenant) setTenant(res.tenant);
+    else {
+      const t = await fetchTenant(id).catch(() => null);
+      if (t) setTenant(t);
+    }
+  }, []);
+
   useEffect(() => {
     refresh();
-    const id = setInterval(refresh, 60 * 1000);
+    void syncFromServer();
+    const id = setInterval(() => { void syncFromServer(); }, 5 * 60 * 1000);
     const onStorage = () => refresh();
-    const onVisible = () => { if (document.visibilityState === 'visible') refresh(); };
+    const onVisible = () => { if (document.visibilityState === 'visible') void syncFromServer(); };
     window.addEventListener('storage', onStorage);
     document.addEventListener('visibilitychange', onVisible);
     return () => {
@@ -19,12 +32,12 @@ export function useLicense() {
       window.removeEventListener('storage', onStorage);
       document.removeEventListener('visibilitychange', onVisible);
     };
-  }, [refresh]);
+  }, [refresh, syncFromServer]);
 
   const status = tenant?.subscription.status ?? null;
   const isActive = status === 'active' || status === 'trial';
   const isBlocked = status === 'blocked' || status === 'expired';
   const daysLeft = tenant ? tenantStore.daysUntilExpiry(tenant) : 0;
 
-  return { tenant, status, isActive, isBlocked, daysLeft, refresh };
+  return { tenant, status, isActive, isBlocked, daysLeft, refresh, syncFromServer };
 }

@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { MenuItem, Table, Order, OrderItem, InventoryItem, AuditActor } from '@/types/restaurant';
-import { menuStore, tableStore, orderStore, inventoryStore, customerStore, seedData } from '@/lib/store';
+import { menuStore, tableStore, orderStore, inventoryStore, customerStore, seedData, subscribeOperations } from '@/lib/store';
 import { useAuth } from '@/context/AuthContext';
 import { parseQty, areUnitsCompatible, convertQty } from '@/lib/units';
 
@@ -14,7 +14,7 @@ function actorFrom(user: { id: string; name: string; role: AuditActor['role'] } 
 }
 
 export function useRestaurant() {
-  const { user } = useAuth();
+  const { user, catalogVersion } = useAuth();
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
@@ -23,13 +23,28 @@ export function useRestaurant() {
 
   const refresh = useCallback(() => setRefreshKey(k => k + 1), []);
 
+  // catalogVersion bumps once AuthContext's background tenant-catalog
+  // fetch resolves. `loading` (and therefore this page mounting at all)
+  // doesn't wait on that fetch — without this dependency, a page that
+  // mounts before it lands reads localStorage too early and is then stuck
+  // with empty/stale data until a Supabase Realtime event happens to fire
+  // (which may be never, e.g. in tests, or slow on a poor connection).
   useEffect(() => {
     seedData();
     setMenuItems(menuStore.getAll());
     setTables(tableStore.getAll());
     setOrders(orderStore.getAll());
     setInventory(inventoryStore.getAll());
-  }, [refreshKey]);
+  }, [refreshKey, catalogVersion]);
+
+  // Realtime: keep orders/tables in sync across devices (KDS, mesas, POS).
+  const tenantId = user?.tenantId;
+  useEffect(() => {
+    if (!tenantId) return;
+    const unsubscribe = subscribeOperations(tenantId, refresh);
+    return unsubscribe;
+  }, [tenantId, refresh]);
+
 
   const createOrder = useCallback((order: Omit<Order, 'id' | 'createdAt' | 'updatedAt'>) => {
     const withActor = { ...order, createdBy: order.createdBy ?? actorFrom(user) };

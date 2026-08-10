@@ -1,6 +1,7 @@
 import { Order, OrderItem } from '@/types/restaurant';
 import { formatPrice } from './helpers';
 import { loadSettings } from './settings';
+import { getCachedUrl, isStoragePath, LOGO_BUCKET } from './storage';
 
 interface ReceiptOptions {
   items?: OrderItem[];
@@ -22,7 +23,8 @@ export function buildReceiptHTML(order: Order, opts: ReceiptOptions = {}): strin
   const showTotals = opts.showTotals ?? !opts.items;
   const settings = (() => { try { return loadSettings(); } catch { return null; } })();
   const brand = opts.brand ?? settings?.brandName ?? 'Restaurante';
-  const logoUrl = opts.logoUrl ?? (settings?.receiptShowLogo ? settings.receiptLogo : undefined);
+  const rawLogo = opts.logoUrl ?? (settings?.receiptShowLogo ? settings.receiptLogo : undefined);
+  const logoUrl = isStoragePath(rawLogo) ? (getCachedUrl(LOGO_BUCKET, rawLogo) || undefined) : rawLogo;
   const title = opts.title ?? 'Recibo';
   const subtitle = opts.subtitle
     ?? (order.type === 'dine-in' ? `Mesa ${order.tableNumber ?? '—'}`

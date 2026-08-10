@@ -1,6 +1,8 @@
 // Loyalty & discount configuration, scoped per tenant.
 // Cache-first (in-memory + localStorage); authoritative source is Supabase.
 import { supabase } from '@/integrations/supabase/client';
+import { cloud } from './outbox';
+import { tenantScopedKey } from './localCache';
 
 export interface LoyaltySettings {
   enabled: boolean;
@@ -25,8 +27,7 @@ export const DEFAULT_LOYALTY: LoyaltySettings = {
 const BASE_KEY = 'loyalty_settings';
 
 function scopedKey(): string {
-  const tenantId = localStorage.getItem('current_tenant_id');
-  return tenantId ? `${tenantId}__${BASE_KEY}` : BASE_KEY;
+  return tenantScopedKey(BASE_KEY);
 }
 
 function readCache(): LoyaltySettings {
@@ -52,7 +53,7 @@ export function saveLoyaltySettings(patch: Partial<LoyaltySettings>): LoyaltySet
   window.dispatchEvent(new CustomEvent('loyalty-settings-changed'));
   const tenantId = localStorage.getItem('current_tenant_id');
   if (tenantId) {
-    void supabase.from('loyalty_settings').upsert({
+    void cloud('loyalty_settings').upsert({
       tenant_id: tenantId,
       enabled: next.enabled,
       points_per_mt: next.pointsPerMT,

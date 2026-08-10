@@ -7,23 +7,31 @@ import { Coffee } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { toast } from 'sonner';
 
+const USERNAME_RE = /^[a-zA-Z0-9_]{3,30}$/;
+
 export default function SignupPage() {
   const navigate = useNavigate();
   const { signUp, signInWithGoogle } = useAuth();
+  const [mode, setMode] = useState<'email' | 'username'>('email');
   const [form, setForm] = useState({
-    restaurant: '', name: '', email: '', phone: '', password: '', confirm: '',
+    restaurant: '', name: '', email: '', username: '', phone: '', password: '', confirm: '',
   });
   const [loading, setLoading] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.restaurant.trim() || !form.name.trim()) return toast.error('Nome obrigatório');
-    if (!/^\S+@\S+\.\S+$/.test(form.email)) return toast.error('Email inválido');
+    if (mode === 'email') {
+      if (!/^\S+@\S+\.\S+$/.test(form.email)) return toast.error('Email inválido');
+    } else {
+      if (!USERNAME_RE.test(form.username)) return toast.error('Username: 3-30 caracteres, apenas letras, números e _');
+    }
     if (form.password.length < 8) return toast.error('Password deve ter pelo menos 8 caracteres');
     if (form.password !== form.confirm) return toast.error('Passwords não coincidem');
     setLoading(true);
     const res = await signUp({
-      email: form.email,
+      email: mode === 'email' ? form.email : undefined,
+      username: mode === 'username' ? form.username : undefined,
       password: form.password,
       name: form.name,
       phone: form.phone || undefined,
@@ -61,11 +69,36 @@ export default function SignupPage() {
             <Label>O seu nome</Label>
             <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1.5">
-              <Label>Email</Label>
-              <Input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} autoComplete="email" />
+          <div className="space-y-1.5">
+            <div className="inline-flex rounded-lg border border-border/60 p-0.5 text-xs">
+              <button
+                type="button"
+                className={`px-3 py-1 rounded-md transition-colors ${mode === 'email' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+                onClick={() => setMode('email')}
+              >
+                Email
+              </button>
+              <button
+                type="button"
+                className={`px-3 py-1 rounded-md transition-colors ${mode === 'username' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
+                onClick={() => setMode('username')}
+              >
+                Username
+              </button>
             </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {mode === 'email' ? (
+              <div className="space-y-1.5">
+                <Label>Email</Label>
+                <Input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} autoComplete="email" />
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                <Label>Username</Label>
+                <Input value={form.username} onChange={e => setForm(f => ({ ...f, username: e.target.value }))} autoComplete="username" placeholder="joao_silva" />
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label>Telefone</Label>
               <Input value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />

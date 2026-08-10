@@ -16,7 +16,6 @@ import { Customer, Order } from '@/types/restaurant';
 import { maskMzPhone, maskNuit, validateMpesa, validateNuit } from '@/lib/validators';
 import { toast } from 'sonner';
 import { buildCustomerReport, exportCustomersCSV, exportCustomersPDF } from '@/lib/customerReport';
-import { syncQueue, flushQueue } from '@/lib/syncQueue';
 import { getLoyaltySettings, saveLoyaltySettings, tierFromPoints, LoyaltySettings } from '@/lib/loyaltySettings';
 import { useAuth } from '@/context/AuthContext';
 import { cn } from '@/lib/utils';
@@ -88,17 +87,16 @@ export default function CustomersPage() {
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
 
-  // Sync queue state
-  const [pendingSync, setPendingSync] = useState(syncQueue.pendingCount());
+  // Connectivity state
   const [online, setOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   useEffect(() => {
-    const unsub = syncQueue.subscribe(ops => setPendingSync(ops.filter(o => o.status !== 'error').length));
     const on = () => setOnline(true);
     const off = () => setOnline(false);
     window.addEventListener('online', on);
     window.addEventListener('offline', off);
-    return () => { unsub(); window.removeEventListener('online', on); window.removeEventListener('offline', off); };
+    return () => { window.removeEventListener('online', on); window.removeEventListener('offline', off); };
   }, []);
+
 
   const refresh = () => setCustomers(customerStore.getAll());
 
@@ -199,30 +197,17 @@ export default function CustomersPage() {
         </div>
       </div>
 
-      {/* Sync status */}
+      {/* Connectivity status */}
       <div className="flex items-center gap-2 mb-4 text-xs flex-wrap">
-        {!online && (
+        {!online ? (
           <Badge variant="outline" className="bg-warning/10 text-warning border-warning/30">
-            <CloudOff className="w-3 h-3 mr-1" /> Offline
+            <CloudOff className="w-3 h-3 mr-1" /> Offline — alterações sincronizam ao voltar a ligação
           </Badge>
-        )}
-        {pendingSync > 0 ? (
-          <>
-            <Badge variant="outline" className="bg-primary/10 text-primary border-primary/30">
-              {pendingSync} alteração(ões) por sincronizar
-            </Badge>
-            <Button size="sm" variant="ghost" className="h-6 px-2" onClick={async () => {
-              const r = await flushQueue();
-              if (r.skipped > 0) toast.message('Sem backend ligado', { description: `${r.skipped} op(s) aguardam ligação` });
-              else if (r.pushed > 0) toast.success(`${r.pushed} op(s) sincronizadas`);
-            }}>
-              <RefreshCw className="w-3 h-3 mr-1" /> Tentar agora
-            </Button>
-          </>
         ) : (
-          <Badge variant="outline" className="bg-success/10 text-success border-success/30">Tudo sincronizado localmente</Badge>
+          <Badge variant="outline" className="bg-success/10 text-success border-success/30">Sincronizado com a nuvem</Badge>
         )}
       </div>
+
 
 
       <Tabs defaultValue="all" className="space-y-4">

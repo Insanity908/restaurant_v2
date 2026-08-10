@@ -1,0 +1,155 @@
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
+
+/**
+ * Testes de integração: confirmam que a UI está de facto ligada à lógica de
+ * negócio certa (o botão certo chama a função certa, com os dados certos) —
+ * não redundam com store.test.ts, que já cobre a persistência em si.
+ */
+
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+
+// ---------------------------------------------------------------------------
+// StaffPage — "Novo funcionário"
+// ---------------------------------------------------------------------------
+describe('StaffPage — criar novo funcionário', () => {
+  const invokeMock = vi.fn();
+  const staffAddMock = vi.fn();
+
+  beforeEach(() => {
+    vi.resetModules();
+    invokeMock.mockReset().mockResolvedValue({ data: { ok: true, userId: 'new-user-id-123' }, error: null });
+    staffAddMock.mockReset();
+    localStorage.clear();
+    localStorage.setItem('current_tenant_id', 'tenant-1');
+
+    vi.doMock('@/context/AuthContext', () => ({
+      useAuth: () => ({ user: { id: 'admin-1', name: 'Admin', role: 'admin' } }),
+    }));
+    vi.doMock('@/lib/store', () => ({
+      staffStore: {
+        getAll: () => [],
+        add: staffAddMock,
+        update: vi.fn(),
+        remove: vi.fn(),
+      },
+    }));
+    vi.doMock('@/integrations/supabase/client', () => ({
+      supabase: { functions: { invoke: invokeMock } },
+    }));
+  });
+
+  it('preenche o formulário, cria a conta real via edge function e adiciona ao roster local', async () => {
+    const { default: StaffPage } = await import('@/pages/StaffPage');
+    const user = userEvent.setup();
+    render(<StaffPage />);
+
+    await user.click(screen.getByRole('button', { name: /novo funcionário/i }));
+
+    const dialog = await screen.findByRole('dialog');
+    await user.type(within(dialog).getByLabelText('Nome'), 'Maria João');
+    await user.type(within(dialog).getByLabelText('PIN (4 a 6 dígitos)'), '5678');
+    await user.type(within(dialog).getByLabelText('Username'), 'maria_caixa');
+    await user.type(within(dialog).getByLabelText('Email'), 'maria@restaurante.mz');
+    await user.type(within(dialog).getByLabelText('Password'), 'senhaforte123');
+
+    await user.click(within(dialog).getByRole('button', { name: /adicionar/i }));
+
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(1));
+    expect(invokeMock).toHaveBeenCalledWith('create-staff-account', {
+      body: expect.objectContaining({
+        tenantId: 'tenant-1',
+        name: 'Maria João',
+        username: 'maria_caixa',
+        email: 'maria@restaurante.mz',
+        password: 'senhaforte123',
+      }),
+    });
+
+    await waitFor(() => expect(staffAddMock).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'new-user-id-123', name: 'Maria João', pin: '5678' }),
+    ));
+  });
+
+  it('não chama a edge function se a password tiver menos de 8 caracteres', async () => {
+    const { default: StaffPage } = await import('@/pages/StaffPage');
+    const user = userEvent.setup();
+    render(<StaffPage />);
+
+    await user.click(screen.getByRole('button', { name: /novo funcionário/i }));
+    const dialog = await screen.findByRole('dialog');
+
+    await user.type(within(dialog).getByLabelText('Nome'), 'Teste Curto');
+    await user.type(within(dialog).getByLabelText('PIN (4 a 6 dígitos)'), '1111');
+    await user.type(within(dialog).getByLabelText('Username'), 'teste_curto');
+    await user.type(within(dialog).getByLabelText('Email'), 'teste@restaurante.mz');
+    await user.type(within(dialog).getByLabelText('Password'), '123');
+    await user.click(within(dialog).getByRole('button', { name: /adicionar/i }));
+
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TablesPage — criar e editar mesa
+// ---------------------------------------------------------------------------
+describe('TablesPage — criar e editar mesa', () => {
+  const addTableMock = vi.fn();
+  const updateTableMock = vi.fn();
+
+  beforeEach(() => {
+    vi.resetModules();
+    addTableMock.mockReset();
+    updateTableMock.mockReset();
+
+    vi.doMock('@/context/AuthContext', () => ({
+      useAuth: () => ({ hasRole: (roles: string[]) => roles.includes('admin') }),
+    }));
+  });
+
+  it('cria uma mesa nova com o número e lugares introduzidos', async () => {
+    vi.doMock('@/hooks/useRestaurant', () => ({
+      useRestaurant: () => ({
+        tables: [], orders: [], addTable: addTableMock, updateTable: updateTableMock,
+        deleteTable: vi.fn(), logPrint: vi.fn(),
+      }),
+    }));
+    const { default: TablesPage } = await import('@/pages/TablesPage');
+    const user = userEvent.setup();
+    render(<MemoryRouter><TablesPage /></MemoryRouter>);
+
+    await user.click(screen.getByRole('button', { name: /nova mesa/i }));
+
+    const seats = await screen.findByLabelText('Lugares');
+    await user.clear(seats);
+    await user.type(seats, '6');
+
+    await user.click(screen.getByRole('button', { name: /guardar/i }));
+
+    expect(addTableMock).toHaveBeenCalledWith({ number: 1, seats: 6, status: 'free' });
+  });
+
+  it('edita uma mesa existente ao clicar em "Editar mesa"', async () => {
+    vi.doMock('@/hooks/useRestaurant', () => ({
+      useRestaurant: () => ({
+        tables: [{ id: 't-1', number: 2, seats: 4, status: 'free' }],
+        orders: [], addTable: addTableMock, updateTable: updateTableMock,
+        deleteTable: vi.fn(), logPrint: vi.fn(),
+      }),
+    }));
+    const { default: TablesPage } = await import('@/pages/TablesPage');
+    const user = userEvent.setup();
+    render(<MemoryRouter><TablesPage /></MemoryRouter>);
+
+    await user.click(screen.getByTitle('Editar mesa'));
+
+    const seats = await screen.findByLabelText('Lugares');
+    await user.clear(seats);
+    await user.type(seats, '8');
+    await user.click(screen.getByRole('button', { name: /guardar/i }));
+
+    expect(updateTableMock).toHaveBeenCalledWith('t-1', { number: 2, seats: 8, status: 'free' });
+  });
+});

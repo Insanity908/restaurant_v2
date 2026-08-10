@@ -1,4 +1,5 @@
 import { supabase } from '@/integrations/supabase/client';
+import { cloud } from './outbox';
 import type { UserRole } from '@/types/restaurant';
 
 export type Permission =
@@ -104,8 +105,7 @@ export async function setStaffPermissions(staffId: string, perms: Permission[]):
   const tid = activeTenantId();
   if (!tid) throw new Error('Sem restaurante ativo');
   memCache.set(ckey(tid, staffId), perms);
-  const { error } = await supabase
-    .from('staff_permissions')
+  const { error } = await cloud('staff_permissions')
     .upsert({ tenant_id: tid, staff_id: staffId, permissions: perms }, { onConflict: 'tenant_id,staff_id' });
   if (error) throw new Error(error.message);
 }
@@ -115,8 +115,7 @@ export async function resetStaffPermissions(staffId: string): Promise<void> {
   const tid = activeTenantId();
   if (!tid) return;
   memCache.delete(ckey(tid, staffId));
-  const { error } = await supabase
-    .from('staff_permissions')
+  const { error } = await cloud('staff_permissions')
     .delete()
     .eq('tenant_id', tid)
     .eq('staff_id', staffId);
@@ -137,6 +136,11 @@ export async function fetchStaffPermissions(tenantId: string): Promise<void> {
   for (const row of data ?? []) {
     memCache.set(ckey(tenantId, row.staff_id), (row.permissions ?? []) as Permission[]);
   }
+}
+
+/** Limpa todas as permissões em memória (logout / troca de conta). */
+export function clearPermissionsCache(): void {
+  memCache.clear();
 }
 
 export function hasPermission(user: { id: string; role: UserRole } | null, perm: Permission): boolean {

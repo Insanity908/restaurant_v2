@@ -270,14 +270,15 @@ function TableFormDialog({ open, table, existingNumbers, onClose, onSubmit }: Ta
             <h2 className="text-lg font-bold text-foreground">
               {table ? `Editar Mesa ${table.number}` : 'Nova Mesa'}
             </h2>
-            <button onClick={onClose} className="p-1.5 rounded-md hover:bg-secondary/60">
+            <button onClick={onClose} aria-label="Fechar" className="p-1.5 rounded-md hover:bg-secondary/60">
               <X className="w-4 h-4" />
             </button>
           </div>
 
           <div className="space-y-3">
-            <Field label="Número da mesa">
+            <Field label="Número da mesa" htmlFor="table-number">
               <input
+                id="table-number"
                 type="number"
                 min={1}
                 value={number}
@@ -286,8 +287,9 @@ function TableFormDialog({ open, table, existingNumbers, onClose, onSubmit }: Ta
               />
               {numberConflict && <p className="text-xs text-destructive mt-1">Já existe uma mesa com este número.</p>}
             </Field>
-            <Field label="Lugares">
+            <Field label="Lugares" htmlFor="table-seats">
               <input
+                id="table-seats"
                 type="number"
                 min={1}
                 value={seats}
@@ -295,8 +297,9 @@ function TableFormDialog({ open, table, existingNumbers, onClose, onSubmit }: Ta
                 className="w-full bg-secondary/50 rounded-lg px-3 py-2 text-foreground border border-border focus:outline-none focus:border-primary"
               />
             </Field>
-            <Field label="Estado">
+            <Field label="Estado" htmlFor="table-status">
               <select
+                id="table-status"
                 value={status}
                 onChange={e => setStatus(e.target.value as TableType['status'])}
                 className="w-full bg-secondary/50 rounded-lg px-3 py-2 text-foreground border border-border focus:outline-none focus:border-primary"
@@ -329,10 +332,10 @@ function TableFormDialog({ open, table, existingNumbers, onClose, onSubmit }: Ta
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, htmlFor, children }: { label: string; htmlFor?: string; children: React.ReactNode }) {
   return (
     <div>
-      <label className="block text-xs font-medium text-muted-foreground mb-1.5">{label}</label>
+      <label htmlFor={htmlFor} className="block text-xs font-medium text-muted-foreground mb-1.5">{label}</label>
       {children}
     </div>
   );

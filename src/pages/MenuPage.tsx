@@ -12,6 +12,8 @@ import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import MenuItemDialog from '@/components/MenuItemDialog';
+import StorageImage from '@/components/StorageImage';
+import { MENU_BUCKET } from '@/lib/storage';
 import { printProforma } from '@/lib/proforma';
 import { loadSettings } from '@/lib/settings';
 import { useAuth } from '@/context/AuthContext';
@@ -203,7 +205,6 @@ export default function MenuPage() {
       {/* Menu Grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
         {filtered.map(item => {
-          const img = item.image || getMenuItemImage(item.name);
           return (
             <motion.div
               key={item.id}
@@ -217,12 +218,16 @@ export default function MenuPage() {
               onClick={() => addToCart(item)}
             >
               <div className="aspect-[4/3] bg-secondary overflow-hidden">
-                {img ? (
-                  <img src={img} alt={item.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform" loading="lazy" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-muted-foreground text-2xl">🍽️</div>
-                )}
+                <StorageImage
+                  bucket={MENU_BUCKET}
+                  path={item.image}
+                  fallbackSrc={getMenuItemImage(item.name)}
+                  alt={item.name}
+                  className="w-full h-full object-cover group-hover:scale-105 transition-transform"
+                  placeholder={<div className="w-full h-full flex items-center justify-center text-muted-foreground text-2xl">🍽️</div>}
+                />
               </div>
+
 
               {/* Unavailable badge */}
               {!item.available && (
@@ -239,7 +244,7 @@ export default function MenuPage() {
               )}
 
               <div className="p-3">
-                <h3 className="text-sm font-medium text-foreground line-clamp-2">{item.name}</h3>
+                <h2 className="text-sm font-medium text-foreground line-clamp-2">{item.name}</h2>
                 {item.description && (
                   <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{item.description}</p>
                 )}
@@ -254,16 +259,19 @@ export default function MenuPage() {
                         }}
                         className="scale-75"
                         onClick={e => e.stopPropagation()}
+                        aria-label={item.available ? `Marcar "${item.name}" como indisponível` : `Marcar "${item.name}" como disponível`}
                       />
                       <button
                         onClick={e => { e.stopPropagation(); handleEdit(item); }}
                         className="w-7 h-7 rounded-full bg-secondary hover:bg-secondary/80 flex items-center justify-center transition-colors"
+                        aria-label={`Editar ${item.name}`}
                       >
                         <Pencil className="w-3.5 h-3.5 text-foreground" />
                       </button>
                       <button
                         onClick={e => { e.stopPropagation(); deleteMenuItem(item.id); }}
                         className="w-7 h-7 rounded-full bg-destructive/20 hover:bg-destructive/30 flex items-center justify-center transition-colors"
+                        aria-label={`Remover ${item.name}`}
                       >
                         <Trash2 className="w-3.5 h-3.5 text-destructive" />
                       </button>

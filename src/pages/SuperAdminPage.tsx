@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import PageShell from '@/components/PageShell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,13 +12,12 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Lock, Unlock, Trash2, Clock, Search, Building2, TrendingUp, Users, BarChart3, Copy, Landmark, Save } from 'lucide-react';
+import { Lock, Unlock, Trash2, Clock, Search, Building2, TrendingUp, Users, BarChart3, Copy, Landmark, Save, CheckCircle2 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid } from 'recharts';
-import { tenantStore } from '@/lib/tenants';
-import { accountStore } from '@/lib/accounts';
+import { tenantStore, fetchTenants, fetchTenantTeams, type TenantTeam } from '@/lib/tenants';
 import { PLANS, formatMT } from '@/lib/billing';
 import { getPaymentAccounts, savePaymentAccounts, fetchPaymentAccounts, type PaymentAccounts } from '@/lib/paymentAccounts';
-import type { Tenant } from '@/types/restaurant';
+import type { Tenant, BillingPlan } from '@/types/restaurant';
 import { toast } from 'sonner';
 
 export default function SuperAdminPage() {
@@ -28,9 +27,24 @@ export default function SuperAdminPage() {
   const [blockReason, setBlockReason] = useState('');
   const [extendTarget, setExtendTarget] = useState<Tenant | null>(null);
   const [extendDays, setExtendDays] = useState(30);
+  const [activateTarget, setActivateTarget] = useState<Tenant | null>(null);
+  const [activatePlan, setActivatePlan] = useState<BillingPlan>('monthly');
+  const [activateRef, setActivateRef] = useState('');
 
-  const refresh = () => setTenants(tenantStore.getAll());
-  useEffect(() => { refresh(); }, []);
+  const [teams, setTeams] = useState<Record<string, TenantTeam>>({});
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    const [list, tm] = await Promise.all([
+      fetchTenants().catch(() => tenantStore.getAll()),
+      fetchTenantTeams().catch(() => ({} as Record<string, TenantTeam>)),
+    ]);
+    setTenants(list);
+    setTeams(tm);
+    setLoading(false);
+  }, []);
+  useEffect(() => { void refresh(); }, [refresh]);
 
   const filtered = useMemo(
     () => tenants.filter(t => !query || t.name.toLowerCase().includes(query.toLowerCase()) || t.ownerEmail.includes(query.toLowerCase())),
@@ -53,35 +67,38 @@ export default function SuperAdminPage() {
     return { active, trial, expired, mrr, expiringSoon, total: tenants.length };
   }, [tenants]);
 
-  const doBlock = () => {
+  const run = async (fn: () => Promise<{ ok: boolean; error?: string }>, okMsg: string) => {
+    const res = await fn();
+    if (!res.ok) { toast.error(res.error || 'Operação falhou'); return false; }
+    await refresh();
+    toast.success(okMsg);
+    return true;
+  };
+
+  const doBlock = async () => {
     if (!blockTarget) return;
-    tenantStore.block(blockTarget.id, blockReason || 'Bloqueado pelo administrador');
-    setBlockTarget(null);
-    setBlockReason('');
-    refresh();
-    toast.success('Restaurante bloqueado');
+    const ok = await run(() => tenantStore.block(blockTarget.id, blockReason || 'Bloqueado pelo administrador'), 'Restaurante bloqueado');
+    if (ok) { setBlockTarget(null); setBlockReason(''); }
   };
 
-  const doUnblock = (t: Tenant) => {
-    tenantStore.unblock(t.id);
-    refresh();
-    toast.success('Restaurante desbloqueado');
-  };
+  const doUnblock = (t: Tenant) => run(() => tenantStore.unblock(t.id), 'Restaurante desbloqueado');
 
-  const doExtend = () => {
+  const doExtend = async () => {
     if (!extendTarget) return;
-    tenantStore.extend(extendTarget.id, extendDays);
-    setExtendTarget(null);
-    refresh();
-    toast.success(`Subscrição estendida +${extendDays} dias`);
+    const ok = await run(() => tenantStore.extend(extendTarget.id, extendDays), `Subscrição estendida +${extendDays} dias`);
+    if (ok) setExtendTarget(null);
   };
 
-  const doDelete = (t: Tenant) => {
-    tenantStore.remove(t.id);
-    accountStore.removeByTenant(t.id);
-    refresh();
-    toast.success('Restaurante eliminado');
+  const doActivate = async () => {
+    if (!activateTarget) return;
+    const ok = await run(
+      () => tenantStore.activatePlan(activateTarget.id, activatePlan, activateRef.trim() || undefined),
+      'Plano ativado',
+    );
+    if (ok) { setActivateTarget(null); setActivateRef(''); }
   };
+
+  const doDelete = (t: Tenant) => run(() => tenantStore.remove(t.id), 'Restaurante eliminado');
 
   const statusBadge = (t: Tenant) => {
     const s = t.subscription.status;
@@ -152,7 +169,9 @@ export default function SuperAdminPage() {
             </div>
           </div>
 
-          {filtered.length === 0 ? (
+          {loading && tenants.length === 0 ? (
+            <div className="glass rounded-xl p-12 text-center text-muted-foreground">A carregar restaurantes...</div>
+          ) : filtered.length === 0 ? (
             <div className="glass rounded-xl p-12 text-center text-muted-foreground">
               <Users className="w-12 h-12 mx-auto opacity-30 mb-3" />
               Nenhum restaurante registado.
@@ -161,16 +180,13 @@ export default function SuperAdminPage() {
             <div className="grid gap-3">
               {filtered.map(t => {
                 const days = tenantStore.daysUntilExpiry(t);
-                const accs = accountStore.getAll().filter(a =>
-                  (a.tenantIds || []).includes(t.id) || a.tenantId === t.id,
-                );
-                const admin = accs.find(a => a.role === 'admin');
+                const admin = teams[t.id]?.admins[0];
                 return (
                   <div key={t.id} className="glass rounded-xl p-4 flex flex-col gap-3">
                     <div className="flex flex-col md:flex-row md:items-start gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="font-heading font-semibold">{t.name}</h3>
+                          <h2 className="font-heading font-semibold">{t.name}</h2>
                           {statusBadge(t)}
                           {t.subscription.plan && <Badge variant="outline">{PLANS[t.subscription.plan].label}</Badge>}
                         </div>
@@ -199,6 +215,9 @@ export default function SuperAdminPage() {
                         <Button size="sm" variant="outline" onClick={() => { setExtendTarget(t); setExtendDays(30); }}>
                           <Clock className="w-3.5 h-3.5" />+ Dias
                         </Button>
+                        <Button size="sm" variant="outline" onClick={() => { setActivateTarget(t); setActivatePlan(t.subscription.plan || 'monthly'); setActivateRef(''); }}>
+                          <CheckCircle2 className="w-3.5 h-3.5" />Ativar plano
+                        </Button>
                         {t.subscription.blockedByAdmin ? (
                           <Button size="sm" variant="outline" onClick={() => doUnblock(t)}>
                             <Unlock className="w-3.5 h-3.5" />Desbloquear
@@ -210,7 +229,7 @@ export default function SuperAdminPage() {
                         )}
                         <AlertDialog>
                           <AlertDialogTrigger asChild>
-                            <Button size="sm" variant="ghost"><Trash2 className="w-3.5 h-3.5 text-destructive" /></Button>
+                            <Button size="sm" variant="ghost" aria-label="Eliminar restaurante"><Trash2 className="w-3.5 h-3.5 text-destructive" /></Button>
                           </AlertDialogTrigger>
                           <AlertDialogContent>
                             <AlertDialogHeader>
@@ -259,7 +278,7 @@ export default function SuperAdminPage() {
         </TabsContent>
 
         <TabsContent value="system">
-          <SystemReports tenants={tenants} />
+          <SystemReports tenants={tenants} teams={teams} />
         </TabsContent>
       </Tabs>
 
@@ -294,13 +313,46 @@ export default function SuperAdminPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <Dialog open={!!activateTarget} onOpenChange={o => !o && setActivateTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Ativar plano — {activateTarget?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <Label>Plano pago</Label>
+              <div className="grid grid-cols-2 gap-2">
+                {(Object.keys(PLANS) as BillingPlan[]).map(k => (
+                  <Button
+                    key={k}
+                    type="button"
+                    size="sm"
+                    variant={activatePlan === k ? 'default' : 'outline'}
+                    onClick={() => setActivatePlan(k)}
+                  >
+                    {PLANS[k].label} — {formatMT(PLANS[k].price)}
+                  </Button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Referência do pagamento (opcional)</Label>
+              <Input value={activateRef} onChange={e => setActivateRef(e.target.value)} placeholder="Nº do comprovativo / transferência" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setActivateTarget(null)}>Cancelar</Button>
+            <Button onClick={doActivate}>Confirmar ativação</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PageShell>
   );
 }
 
 const CHART_COLORS = ['hsl(var(--primary))', 'hsl(var(--success))', 'hsl(var(--destructive))', 'hsl(var(--muted-foreground))'];
 
-function SystemReports({ tenants }: { tenants: Tenant[] }) {
+function SystemReports({ tenants, teams }: { tenants: Tenant[]; teams: Record<string, TenantTeam> }) {
   const growthData = useMemo(() => {
     const buckets: { month: string; count: number }[] = [];
     const now = new Date();
@@ -358,25 +410,18 @@ function SystemReports({ tenants }: { tenants: Tenant[] }) {
   }, [tenants]);
 
   const teamRows = useMemo(() => {
-    const accounts = accountStore.getAll();
-    return tenants.map(t => {
-      const tenantAccounts = accounts.filter(a =>
-        (a.tenantIds || []).includes(t.id) || a.tenantId === t.id,
-      );
-      const admins = tenantAccounts.filter(a => a.role === 'admin').map(a => a.name || a.email);
-      return {
-        tenant: t,
-        managers: admins,
-        accountsCount: tenantAccounts.length,
-      };
-    }).sort((a, b) => b.accountsCount - a.accountsCount);
-  }, [tenants]);
+    return tenants.map(t => ({
+      tenant: t,
+      managers: (teams[t.id]?.admins ?? []).map(a => a.name || a.email),
+      accountsCount: teams[t.id]?.membersCount ?? 0,
+    })).sort((a, b) => b.accountsCount - a.accountsCount);
+  }, [tenants, teams]);
 
   return (
     <div className="space-y-4 mt-4">
       <div className="grid md:grid-cols-2 gap-4">
         <div className="glass rounded-xl p-5">
-          <h3 className="font-heading font-semibold mb-3">Crescimento de restaurantes (6 meses)</h3>
+          <h2 className="font-heading font-semibold mb-3">Crescimento de restaurantes (6 meses)</h2>
           <div className="h-56">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={growthData}>
@@ -391,7 +436,7 @@ function SystemReports({ tenants }: { tenants: Tenant[] }) {
         </div>
 
         <div className="glass rounded-xl p-5">
-          <h3 className="font-heading font-semibold mb-3">Distribuição por plano</h3>
+          <h2 className="font-heading font-semibold mb-3">Distribuição por plano</h2>
           <div className="h-56">
             {planDist.length === 0 ? (
               <p className="text-sm text-muted-foreground text-center pt-12">Sem dados.</p>
@@ -410,7 +455,7 @@ function SystemReports({ tenants }: { tenants: Tenant[] }) {
       </div>
 
       <div className="glass rounded-xl p-5">
-        <h3 className="font-heading font-semibold mb-3">Receita por mês (6 meses)</h3>
+        <h2 className="font-heading font-semibold mb-3">Receita por mês (6 meses)</h2>
         <div className="h-56">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={revenueData}>
@@ -429,7 +474,7 @@ function SystemReports({ tenants }: { tenants: Tenant[] }) {
 
       <div className="grid md:grid-cols-2 gap-4">
         <div className="glass rounded-xl p-5">
-          <h3 className="font-heading font-semibold mb-3">Top restaurantes (receita acumulada)</h3>
+          <h2 className="font-heading font-semibold mb-3">Top restaurantes (receita acumulada)</h2>
           {topByRevenue.length === 0 ? (
             <p className="text-sm text-muted-foreground">Sem pagamentos ainda.</p>
           ) : (
@@ -448,7 +493,7 @@ function SystemReports({ tenants }: { tenants: Tenant[] }) {
         </div>
 
         <div className="glass rounded-xl p-5">
-          <h3 className="font-heading font-semibold mb-3">Gestão de equipas</h3>
+          <h2 className="font-heading font-semibold mb-3">Gestão de equipas</h2>
           {teamRows.length === 0 ? (
             <p className="text-sm text-muted-foreground">Sem restaurantes.</p>
           ) : (
@@ -484,7 +529,7 @@ function PaymentAccountsForm() {
   return (
     <div className="glass rounded-xl p-5 mt-4 space-y-4 max-w-2xl">
       <div>
-        <h3 className="font-heading font-semibold">Dados de recebimento</h3>
+        <h2 className="font-heading font-semibold">Dados de recebimento</h2>
         <p className="text-xs text-muted-foreground mt-1">Mostrados aos administradores na página de faturação para pagamento manual.</p>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

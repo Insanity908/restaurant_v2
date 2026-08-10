@@ -13,6 +13,11 @@ import type { BillingPlan } from '@/types/restaurant';
 export default function BillingPage() {
   const { tenant, status, daysLeft, refresh } = useLicense();
 
+  const totalPaid = useMemo(
+    () => (tenant?.subscription.history || []).reduce((s, h) => s + PLANS[h.plan].price, 0),
+    [tenant?.subscription.history],
+  );
+
   if (!tenant) {
     return (
       <PageShell title="Faturação" subtitle="Sessão inválida">
@@ -29,11 +34,6 @@ export default function BillingPage() {
     expired: 'bg-destructive/15 text-destructive border-destructive/30',
     blocked: 'bg-destructive/15 text-destructive border-destructive/30',
   };
-
-  const totalPaid = useMemo(
-    () => (sub.history || []).reduce((s, h) => s + PLANS[h.plan].price, 0),
-    [sub.history],
-  );
 
   const copyKey = async () => {
     await navigator.clipboard.writeText(tenant.licenseKey);

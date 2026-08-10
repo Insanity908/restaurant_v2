@@ -330,6 +330,7 @@ export type Database = {
         Row: {
           cancelled_at: string | null
           cancelled_by: Json | null
+          client_updated_at: string
           closed_at: string | null
           closed_by: Json | null
           created_at: string
@@ -353,6 +354,7 @@ export type Database = {
         Insert: {
           cancelled_at?: string | null
           cancelled_by?: Json | null
+          client_updated_at?: string
           closed_at?: string | null
           closed_by?: Json | null
           created_at?: string
@@ -376,6 +378,7 @@ export type Database = {
         Update: {
           cancelled_at?: string | null
           cancelled_by?: Json | null
+          client_updated_at?: string
           closed_at?: string | null
           closed_by?: Json | null
           created_at?: string
@@ -428,6 +431,7 @@ export type Database = {
           name: string | null
           phone: string | null
           updated_at: string
+          username: string | null
         }
         Insert: {
           created_at?: string
@@ -436,6 +440,7 @@ export type Database = {
           name?: string | null
           phone?: string | null
           updated_at?: string
+          username?: string | null
         }
         Update: {
           created_at?: string
@@ -444,11 +449,13 @@ export type Database = {
           name?: string | null
           phone?: string | null
           updated_at?: string
+          username?: string | null
         }
         Relationships: []
       }
       restaurant_tables: {
         Row: {
+          client_updated_at: string
           current_order_id: string | null
           id: string
           number: number
@@ -458,6 +465,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          client_updated_at?: string
           current_order_id?: string | null
           id?: string
           number: number
@@ -467,6 +475,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          client_updated_at?: string
           current_order_id?: string | null
           id?: string
           number?: number
@@ -572,7 +581,7 @@ export type Database = {
           created_at: string
           id: string
           name: string
-          pin_hash: string | null
+          pin: string | null
           role: Database["public"]["Enums"]["app_role"]
           tenant_id: string
           updated_at: string
@@ -582,7 +591,7 @@ export type Database = {
           created_at?: string
           id?: string
           name: string
-          pin_hash?: string | null
+          pin?: string | null
           role: Database["public"]["Enums"]["app_role"]
           tenant_id: string
           updated_at?: string
@@ -592,7 +601,7 @@ export type Database = {
           created_at?: string
           id?: string
           name?: string
-          pin_hash?: string | null
+          pin?: string | null
           role?: Database["public"]["Enums"]["app_role"]
           tenant_id?: string
           updated_at?: string
@@ -716,26 +725,47 @@ export type Database = {
       system_payment_accounts: {
         Row: {
           bank_account: string | null
+          bank_holder: string | null
           bank_name: string | null
           id: number
           mobile_money: string | null
           mobile_money_provider: string | null
+          notes: string | null
+          stripe_link_annual: string | null
+          stripe_link_monthly: string | null
+          stripe_link_quarterly: string | null
+          stripe_link_semiannual: string | null
+          stripe_publishable_key: string | null
           updated_at: string
         }
         Insert: {
           bank_account?: string | null
+          bank_holder?: string | null
           bank_name?: string | null
           id?: number
           mobile_money?: string | null
           mobile_money_provider?: string | null
+          notes?: string | null
+          stripe_link_annual?: string | null
+          stripe_link_monthly?: string | null
+          stripe_link_quarterly?: string | null
+          stripe_link_semiannual?: string | null
+          stripe_publishable_key?: string | null
           updated_at?: string
         }
         Update: {
           bank_account?: string | null
+          bank_holder?: string | null
           bank_name?: string | null
           id?: number
           mobile_money?: string | null
           mobile_money_provider?: string | null
+          notes?: string | null
+          stripe_link_annual?: string | null
+          stripe_link_monthly?: string | null
+          stripe_link_quarterly?: string | null
+          stripe_link_semiannual?: string | null
+          stripe_publishable_key?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -844,6 +874,7 @@ export type Database = {
       is_superadmin: { Args: { _user_id: string }; Returns: boolean }
       is_tenant_admin: { Args: { _tenant_id: string }; Returns: boolean }
       is_tenant_member: { Args: { _tenant_id: string }; Returns: boolean }
+      resolve_login_email: { Args: { identifier: string }; Returns: string }
     }
     Enums: {
       app_role:

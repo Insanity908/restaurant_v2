@@ -9,8 +9,18 @@ interface RequireAuthProps {
   children: ReactNode;
 }
 
+// Rotas cujo acesso pode ser estendido a papéis normalmente não incluídos em
+// ROUTE_PERMISSIONS, desde que o utilizador tenha a permissão indicada
+// (atribuída pelo administrador em Funcionários > Permissões).
+//
+// Vazio de propósito: no fluxo oficial, /settings, /billing, /pricing e
+// /onboarding são exclusivos do admin (ver ROUTE_PERMISSIONS). O mecanismo
+// fica pronto para o dia em que quiseres reabrir /billing ao gerente — basta
+// voltar a adicionar '/billing': 'billing.manage' aqui.
+const PERMISSION_OVERRIDES: Partial<Record<string, Parameters<ReturnType<typeof useAuth>['hasPermission']>[0]>> = {};
+
 export default function RequireAuth({ children }: RequireAuthProps) {
-  const { user, loading, logout } = useAuth();
+  const { user, loading, logout, hasPermission } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -26,7 +36,10 @@ export default function RequireAuth({ children }: RequireAuthProps) {
   }
 
   const allowed = ROUTE_PERMISSIONS[location.pathname];
-  if (allowed && !allowed.includes(user.role)) {
+  const overridePerm = PERMISSION_OVERRIDES[location.pathname];
+  const allowedByRole = !allowed || allowed.includes(user.role);
+  const allowedByPermission = !!overridePerm && hasPermission(overridePerm);
+  if (!allowedByRole && !allowedByPermission) {
     return (
       <div className="ml-16 lg:ml-56 min-h-screen p-6 flex items-center justify-center">
         <div className="max-w-md text-center space-y-4 glass-strong p-8 rounded-xl">

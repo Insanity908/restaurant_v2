@@ -10,6 +10,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Plus, Trash2, ImagePlus, ChefHat, Package, AlertCircle } from 'lucide-react';
 import { validateQtyAgainstUnit } from '@/lib/units';
 import { toast } from 'sonner';
+import { uploadTenantImage, MENU_BUCKET } from '@/lib/storage';
+import { useStorageImage } from '@/hooks/useStorageImage';
 
 const CATEGORIES = ['Popular', 'Entradas', 'Pratos Principais', 'Bebidas', 'Sobremesas'];
 
@@ -32,6 +34,8 @@ export default function MenuItemDialog({ open, onClose, onSave, item, inventory 
   const [ingredients, setIngredients] = useState<RecipeIngredient[]>([]);
   const [steps, setSteps] = useState<RecipeStep[]>([]);
   const [temp, setTemp] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const imageUrl = useStorageImage(MENU_BUCKET, image);
   const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -86,13 +90,22 @@ export default function MenuItemDialog({ open, onClose, onSave, item, inventory 
     });
   };
 
-  const handleImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setImage(reader.result as string);
-    reader.readAsDataURL(file);
+    if (file.size > 3 * 1024 * 1024) { toast.error('Imagem muito grande (máx 3MB)'); return; }
+    setUploading(true);
+    try {
+      const path = await uploadTenantImage(MENU_BUCKET, file);
+      setImage(path);
+    } catch (err) {
+      toast.error(`Falha ao carregar imagem: ${(err as Error).message}`);
+    } finally {
+      setUploading(false);
+    }
   };
+
 
   // Per-ingredient unit validation (only for linked ingredients)
   const ingredientErrors: (string | null)[] = ingredients.map(ing => {
@@ -148,15 +161,17 @@ export default function MenuItemDialog({ open, onClose, onSave, item, inventory 
             onClick={() => fileRef.current?.click()}
             className="relative w-full aspect-video rounded-xl bg-secondary border-2 border-dashed border-border hover:border-primary/50 cursor-pointer flex items-center justify-center overflow-hidden transition-colors group"
           >
-            {image ? (
-              <img src={image} alt="Preview" className="w-full h-full object-cover" />
+            {imageUrl ? (
+              <img src={imageUrl} alt="Preview" className="w-full h-full object-cover" />
             ) : (
               <div className="flex flex-col items-center gap-2 text-muted-foreground group-hover:text-primary transition-colors">
                 <ImagePlus className="w-8 h-8" />
-                <span className="text-sm font-medium">Carregar Imagem</span>
+                <span className="text-sm font-medium">{uploading ? 'A carregar…' : 'Carregar Imagem'}</span>
               </div>
             )}
-            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleImage} />
+            {uploading && <div className="absolute inset-0 bg-background/60 flex items-center justify-center text-xs text-muted-foreground">A carregar…</div>}
+            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleImage} disabled={uploading} />
+
           </div>
 
           {/* Name & Price */}

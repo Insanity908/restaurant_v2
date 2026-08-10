@@ -10,7 +10,6 @@ import { Building2, Users, Plus, Trash2, ArrowRight, Check } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext';
 import { useLicense } from '@/hooks/useLicense';
 import { tenantStore } from '@/lib/tenants';
-import { accountStore } from '@/lib/accounts';
 import { staffStore, seedData } from '@/lib/store';
 import type { UserRole } from '@/types/restaurant';
 import { toast } from 'sonner';
@@ -35,16 +34,17 @@ export default function OnboardingPage() {
     { name: '', role: 'cashier', pin: '' },
   ]);
 
-  const addExtraTenant = () => {
+  const addExtraTenant = async () => {
     if (!user?.email || !user?.authUserId || !extraName.trim()) return;
-    const t = tenantStore.create({ name: extraName.trim(), ownerEmail: user.email });
-    accountStore.attachTenant(user.authUserId, t.id);
+    const t = await tenantStore.create({ name: extraName.trim(), ownerEmail: user.email, ownerName: user.name });
+    if (!t) { toast.error('Não foi possível criar o restaurante'); return; }
     tenantStore.setCurrent(t.id);
     seedData();
     setExtraName('');
     toast.success(`Restaurante "${t.name}" criado`);
     setTimeout(() => window.location.reload(), 400);
   };
+
 
   const switchTenant = (id: string) => {
     tenantStore.setCurrent(id);

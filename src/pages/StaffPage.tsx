@@ -15,15 +15,19 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Plus, Pencil, Trash2, Users, ShieldCheck, KeyRound } from 'lucide-react';
-import { SecurityAlert, Staff, UserRole } from '@/types/restaurant';
-import { securityAlertStore, staffStore } from '@/lib/store';
+import { Staff, UserRole } from '@/types/restaurant';
+import { staffStore } from '@/lib/store';
 import { useAuth } from '@/context/AuthContext';
 import { ALL_PERMISSIONS, DEFAULT_PERMISSIONS, PERMISSION_LABELS, getStaffPermissions, setStaffPermissions, resetStaffPermissions, type Permission } from '@/lib/permissions';
+import { validateUsername } from '@/lib/validators';
+import { supabase } from '@/integrations/supabase/client';
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 
+// Nota: 'superadmin' é um papel de plataforma (gestão de todos os
+// restaurantes), nunca um funcionário de uma unidade — por isso não aparece
+// aqui nem é atribuível a partir desta página.
 const ROLES: { value: UserRole; label: string; tone: string }[] = [
-  { value: 'superadmin', label: 'Super Admin', tone: 'bg-destructive/15 text-destructive border-destructive/30' },
   { value: 'admin', label: 'Administrador', tone: 'bg-primary/15 text-primary border-primary/30' },
   { value: 'manager', label: 'Gerente', tone: 'bg-success/15 text-success border-success/30' },
   { value: 'cashier', label: 'Caixa', tone: 'bg-blue-500/15 text-blue-400 border-blue-500/30' },
@@ -31,20 +35,22 @@ const ROLES: { value: UserRole; label: string; tone: string }[] = [
   { value: 'kitchen', label: 'Cozinha', tone: 'bg-orange-500/15 text-orange-400 border-orange-500/30' },
 ];
 
-const roleMeta = (role: UserRole) => ROLES.find(r => r.value === role)!;
+const roleMeta = (role: UserRole) => ROLES.find(r => r.value === role) ?? { value: role, label: role, tone: '' };
 
 interface FormState {
   name: string;
   role: UserRole;
   pin: string;
+  username: string;
+  email: string;
+  password: string;
 }
 
-const empty: FormState = { name: '', role: 'waiter', pin: '' };
+const empty: FormState = { name: '', role: 'waiter', pin: '', username: '', email: '', password: '' };
 
 export default function StaffPage() {
   const { user } = useAuth();
   const [staff, setStaff] = useState<Staff[]>([]);
-  const [securityAlerts, setSecurityAlerts] = useState<SecurityAlert[]>([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Staff | null>(null);
   const [form, setForm] = useState<FormState>(empty);
@@ -54,7 +60,6 @@ export default function StaffPage() {
 
   const refresh = () => {
     setStaff(staffStore.getAll());
-    setSecurityAlerts(securityAlertStore.getAll());
   };
   useEffect(() => { refresh(); }, []);
 
@@ -78,9 +83,11 @@ export default function StaffPage() {
     setOpen(true);
   };
 
+  const [saving, setSaving] = useState(false);
+
   const openEdit = (s: Staff) => {
     setEditing(s);
-    setForm({ name: s.name, role: s.role, pin: s.pin || '' });
+    setForm({ name: s.name, role: s.role, pin: s.pin || '', username: '', email: '', password: '' });
     setOpen(true);
   };
 
@@ -91,19 +98,65 @@ export default function StaffPage() {
     if (!assignableRoles.some(r => r.value === form.role)) return 'Não tem permissão para atribuir este papel';
     const conflict = staffStore.getAll().find(s => s.pin === form.pin && s.id !== editing?.id);
     if (conflict) return 'PIN já em uso';
+    // Login credentials (username/email/password) are only required when
+    // creating a new member — editing keeps the existing login untouched.
+    if (!editing) {
+      const usernameErr = validateUsername(form.username);
+      if (usernameErr) return usernameErr;
+      if (!/^\S+@\S+\.\S+$/.test(form.email)) return 'Email inválido';
+      if (form.password.length < 8) return 'Password deve ter pelo menos 8 caracteres';
+    }
     return null;
   };
 
-  const save = () => {
+  const save = async () => {
     const err = validate();
     if (err) { toast.error(err); return; }
     if (editing) {
       staffStore.update(editing.id, { name: form.name.trim(), role: form.role, pin: form.pin });
       toast.success('Funcionário atualizado');
-    } else {
-      staffStore.add({ name: form.name.trim(), role: form.role, pin: form.pin });
-      toast.success('Funcionário adicionado');
+      refresh();
+      setOpen(false);
+      return;
     }
+
+    setSaving(true);
+    const tenantId = localStorage.getItem('current_tenant_id');
+    if (!tenantId) { toast.error('Sem restaurante ativo'); setSaving(false); return; }
+
+    // Provision the real login (username/email/password) first — this is
+    // the account the person actually uses to enter the sistema. The PIN
+    // stays for fast clock-in/POS on shared terminals and is linked to the
+    // same id.
+    const { data, error } = await supabase.functions.invoke('create-staff-account', {
+      body: {
+        tenantId,
+        name: form.name.trim(),
+        role: form.role,
+        username: form.username.trim(),
+        email: form.email.trim(),
+        password: form.password,
+      },
+    });
+    setSaving(false);
+    if (error || !data?.userId) {
+      // For a non-2xx response, supabase-js's FunctionsHttpError.message is
+      // always the generic "Edge Function returned a non-2xx status code" —
+      // the function's actual JSON error body only lives in error.context
+      // (the raw Response), so it has to be parsed out explicitly to show
+      // the real reason (e.g. "Username já está em uso").
+      let serverMessage: string | undefined;
+      if (error && error.context instanceof Response) {
+        serverMessage = await error.context.clone().json()
+          .then((body: { error?: string }) => body?.error)
+          .catch(() => undefined);
+      }
+      toast.error(serverMessage || (data as { error?: string } | null)?.error || error?.message || 'Falha ao criar conta do funcionário');
+      return;
+    }
+
+    staffStore.add({ id: data.userId as string, name: form.name.trim(), role: form.role, pin: form.pin });
+    toast.success('Funcionário adicionado');
     refresh();
     setOpen(false);
   };
@@ -122,17 +175,6 @@ export default function StaffPage() {
     refresh();
   };
 
-  const confirmAlerts = () => {
-    securityAlertStore.clearAll();
-    refresh();
-    toast.success('Alertas confirmados e removidos');
-  };
-
-  const dismissAlert = (id: string) => {
-    securityAlertStore.remove(id);
-    refresh();
-  };
-
   return (
     <PageShell
       title="Funcionários"
@@ -143,31 +185,6 @@ export default function StaffPage() {
         </Button>
       }
     >
-      {securityAlerts.length > 0 && (
-        <div className="glass rounded-xl p-4 mb-6 border border-destructive/30">
-          <div className="flex items-start justify-between gap-3 mb-3">
-            <div>
-              <p className="font-heading font-semibold text-destructive">Alertas de segurança</p>
-              <p className="text-xs text-muted-foreground">Tentativas falhadas de PIN para revisão do gerente e administrador.</p>
-            </div>
-            <Button size="sm" variant="outline" onClick={confirmAlerts}>Confirmar e remover</Button>
-          </div>
-          <div className="space-y-2">
-            {securityAlerts.slice(0, 5).map(alert => (
-              <div key={alert.id} className="flex items-start justify-between gap-3 rounded-lg bg-secondary/40 p-3 text-sm">
-                <div className="flex-1">
-                  <p className="text-foreground">{alert.message}</p>
-                  <p className="text-xs text-muted-foreground">{new Date(alert.createdAt).toLocaleString('pt-MZ')}</p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {!alert.read && <Badge variant="destructive">Novo</Badge>}
-                  <Button size="sm" variant="ghost" onClick={() => dismissAlert(alert.id)}>Confirmar</Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Role summary */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
@@ -275,11 +292,35 @@ export default function StaffPage() {
                 onChange={e => setForm(f => ({ ...f, pin: e.target.value.replace(/\D/g, '').slice(0, 6) }))}
                 placeholder="••••"
               />
+              <p className="text-xs text-muted-foreground">Usado para acesso rápido no POS/cozinha num terminal partilhado.</p>
             </div>
+            {!editing && (
+              <>
+                <div className="pt-2 border-t border-border">
+                  <p className="text-xs font-medium text-muted-foreground mb-3">Acesso ao sistema (login)</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="username">Username</Label>
+                  <Input id="username" value={form.username}
+                    onChange={e => setForm(f => ({ ...f, username: e.target.value }))} placeholder="ex: maria_caixa" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="staff-email">Email</Label>
+                  <Input id="staff-email" type="email" value={form.email}
+                    onChange={e => setForm(f => ({ ...f, email: e.target.value }))} autoComplete="email" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="staff-password">Password</Label>
+                  <Input id="staff-password" type="password" value={form.password}
+                    onChange={e => setForm(f => ({ ...f, password: e.target.value }))} autoComplete="new-password" />
+                  <p className="text-xs text-muted-foreground">Mínimo 8 caracteres. Pode entrar com o username ou o email.</p>
+                </div>
+              </>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>
-            <Button onClick={save}>{editing ? 'Guardar' : 'Adicionar'}</Button>
+            <Button onClick={save} disabled={saving}>{saving ? 'A guardar…' : editing ? 'Guardar' : 'Adicionar'}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

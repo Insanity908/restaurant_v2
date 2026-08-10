@@ -1,4 +1,7 @@
 import { supabase } from '@/integrations/supabase/client';
+import { cloud } from './outbox';
+import { warmStorageUrls, LOGO_BUCKET } from './storage';
+import { tenantScopedKey } from './localCache';
 
 export interface AppSettings {
   brandName: string;
@@ -24,7 +27,8 @@ export interface AppSettings {
   phone: string;
 }
 
-const CACHE_KEY = 'app_settings_v1';
+const CACHE_BASE = 'app_settings_v1';
+const CACHE_KEY = () => tenantScopedKey(CACHE_BASE);
 
 export const DEFAULT_SETTINGS: AppSettings = {
   brandName: 'SABOR DE NAMPULA',
@@ -55,7 +59,7 @@ let cache: AppSettings = readLocalCache();
 
 function readLocalCache(): AppSettings {
   try {
-    const raw = localStorage.getItem(CACHE_KEY);
+    const raw = localStorage.getItem(CACHE_KEY());
     if (!raw) return { ...DEFAULT_SETTINGS };
     return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
   } catch {
@@ -65,7 +69,13 @@ function readLocalCache(): AppSettings {
 
 function writeLocalCache(s: AppSettings) {
   cache = s;
-  try { localStorage.setItem(CACHE_KEY, JSON.stringify(s)); } catch { /* quota */ }
+  try { localStorage.setItem(CACHE_KEY(), JSON.stringify(s)); } catch { /* quota */ }
+}
+
+/** Reset da cache em memória (troca de conta / restaurante). */
+export function resetSettingsCache(): void {
+  cache = readLocalCache();
+  applyTheme(cache);
 }
 
 /** Sync read from cache. Safe to call at boot. */
@@ -80,8 +90,7 @@ export function saveSettings(s: AppSettings): void {
   window.dispatchEvent(new CustomEvent('app-settings-changed', { detail: s }));
   const tenantId = localStorage.getItem('current_tenant_id');
   if (tenantId) {
-    void supabase
-      .from('app_settings')
+    void cloud('app_settings')
       .upsert({ tenant_id: tenantId, data: s as never }, { onConflict: 'tenant_id' })
       .then(({ error }) => { if (error) console.warn('saveSettings upsert failed', error.message); });
   }
@@ -101,6 +110,7 @@ export async function fetchSettings(tenantId: string): Promise<AppSettings> {
   const remote = (data?.data ?? null) as Partial<AppSettings> | null;
   const merged: AppSettings = { ...DEFAULT_SETTINGS, ...(remote ?? {}) };
   writeLocalCache(merged);
+  void warmStorageUrls(LOGO_BUCKET, [merged.iconUrl, merged.receiptLogo]);
   applyTheme(merged);
   window.dispatchEvent(new CustomEvent('app-settings-changed', { detail: merged }));
   return merged;
