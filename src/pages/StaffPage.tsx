@@ -48,7 +48,7 @@ interface FormState {
 const empty: FormState = { name: '', role: 'waiter', username: '', email: '', password: '' };
 
 export default function StaffPage() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const [staff, setStaff] = useState<Staff[]>([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Staff | null>(null);
@@ -56,6 +56,7 @@ export default function StaffPage() {
   const [permsTarget, setPermsTarget] = useState<Staff | null>(null);
   const [permsSel, setPermsSel] = useState<Set<Permission>>(new Set());
   const canManagePerms = user?.role === 'admin' || user?.role === 'superadmin';
+  const canManageStaff = hasPermission('staff.manage');
 
   const refresh = () => {
     setStaff(staffStore.getAll());
@@ -172,9 +173,11 @@ export default function StaffPage() {
       title="Funcionários"
       subtitle="Gerir equipa e acessos"
       actions={
-        <Button onClick={openNew}>
-          <Plus className="w-4 h-4" /> Novo funcionário
-        </Button>
+        canManageStaff ? (
+          <Button onClick={openNew}>
+            <Plus className="w-4 h-4" /> Novo funcionário
+          </Button>
+        ) : undefined
       }
     >
 
@@ -218,28 +221,32 @@ export default function StaffPage() {
                         <KeyRound className="w-4 h-4" />
                       </Button>
                     )}
-                    <Button size="icon" variant="ghost" onClick={() => openEdit(s)} aria-label="Editar">
-                      <Pencil className="w-4 h-4" />
-                    </Button>
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button size="icon" variant="ghost" aria-label="Remover">
-                          <Trash2 className="w-4 h-4 text-destructive" />
+                    {canManageStaff && (
+                      <>
+                        <Button size="icon" variant="ghost" onClick={() => openEdit(s)} aria-label="Editar">
+                          <Pencil className="w-4 h-4" />
                         </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Remover {s.name}?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Esta ação é permanente e o funcionário perderá acesso ao sistema.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => remove(s)}>Remover</AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button size="icon" variant="ghost" aria-label="Remover">
+                              <Trash2 className="w-4 h-4 text-destructive" />
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Remover {s.name}?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Esta ação é permanente e o funcionário perderá acesso ao sistema.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => remove(s)}>Remover</AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>

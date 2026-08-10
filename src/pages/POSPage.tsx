@@ -11,12 +11,15 @@ import { customerStore } from '@/lib/store';
 import { Customer, Order } from '@/types/restaurant';
 import { maskMzPhone } from '@/lib/validators';
 import { getLoyaltySettings, LoyaltySettings } from '@/lib/loyaltySettings';
+import { useAuth } from '@/context/AuthContext';
 
 
 type POSTab = 'payments' | 'receipts';
 
 export default function POSPage() {
   const { activeOrders, orders, completeOrder, cancelOrder, logPrint } = useRestaurant();
+  const { hasPermission } = useAuth();
+  const canDiscount = hasPermission('pos.discount');
   const [tab, setTab] = useState<POSTab>('payments');
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [tip, setTip] = useState(0);
@@ -70,7 +73,7 @@ export default function POSPage() {
   }, [linkedCustomer, orders, loyalty.enabled, POINTS_PER_MT]);
 
   const subtotal = selectedOrder?.total ?? 0;
-  const redeemAllowed = loyalty.enabled && loyalty.allowDiscounts;
+  const redeemAllowed = loyalty.enabled && loyalty.allowDiscounts && canDiscount;
   const rawRedeemPts = redeemAllowed ? Math.max(0, Math.min(
     parseInt(redeemInput || '0', 10) || 0,
     customerStats?.points ?? 0,
@@ -251,19 +254,23 @@ export default function POSPage() {
                         <div className="text-[10px] uppercase text-muted-foreground">A ganhar</div>
                       </div>
                     </div>
-                    <div className="flex gap-2 items-center">
-                      <input
-                        type="text" inputMode="numeric" placeholder="Pontos a resgatar"
-                        value={redeemInput}
-                        onChange={e => setRedeemInput(e.target.value.replace(/\D/g, ''))}
-                        className="flex-1 bg-secondary/60 rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
-                      />
-                      <button
-                        onClick={() => setRedeemInput(String(Math.min(customerStats?.points ?? 0, Math.floor(subtotal / MT_PER_POINT))))}
-                        className="text-xs px-2 py-2 rounded-md bg-secondary text-secondary-foreground hover:bg-secondary/80"
-                      >Máx</button>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">1 ponto = {MT_PER_POINT} MT de desconto · ganha 1 ponto por cada 10 MT.</p>
+                    {canDiscount && (
+                      <>
+                        <div className="flex gap-2 items-center">
+                          <input
+                            type="text" inputMode="numeric" placeholder="Pontos a resgatar"
+                            value={redeemInput}
+                            onChange={e => setRedeemInput(e.target.value.replace(/\D/g, ''))}
+                            className="flex-1 bg-secondary/60 rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+                          />
+                          <button
+                            onClick={() => setRedeemInput(String(Math.min(customerStats?.points ?? 0, Math.floor(subtotal / MT_PER_POINT))))}
+                            className="text-xs px-2 py-2 rounded-md bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                          >Máx</button>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">1 ponto = {MT_PER_POINT} MT de desconto · ganha 1 ponto por cada 10 MT.</p>
+                      </>
+                    )}
                   </>
                 ) : (
                   <div className="flex gap-2">

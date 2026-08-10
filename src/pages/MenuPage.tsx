@@ -42,6 +42,7 @@ export default function MenuPage() {
   const navigate = useNavigate();
   const { hasPermission } = useAuth();
   const canProforma = hasPermission('proforma.print');
+  const canEditMenu = hasPermission('menu.edit');
 
   useEffect(() => {
     if (navState.tableId) setSelectedTable(navState.tableId);
@@ -181,20 +182,22 @@ export default function MenuPage() {
               Proforma
             </Button>
           )}
-          <Button
-            variant={manageMode ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setManageMode(!manageMode)}
-            className="shrink-0 gap-1.5"
-          >
-            <Settings2 className="w-4 h-4" />
-            {manageMode ? 'Fechar' : 'Gerir'}
-          </Button>
+          {canEditMenu && (
+            <Button
+              variant={manageMode ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setManageMode(!manageMode)}
+              className="shrink-0 gap-1.5"
+            >
+              <Settings2 className="w-4 h-4" />
+              {manageMode ? 'Fechar' : 'Gerir'}
+            </Button>
+          )}
         </div>
       </div>
 
       {/* Add new item button in manage mode */}
-      {manageMode && (
+      {manageMode && canEditMenu && (
         <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="mb-4">
           <Button onClick={handleCreate} className="gap-2">
             <Plus className="w-4 h-4" /> Novo Item

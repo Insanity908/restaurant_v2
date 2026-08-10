@@ -31,13 +31,13 @@ function shiftSeconds(s: Shift, now: Date): number {
 }
 
 export default function ShiftsPage() {
-  const { user, hasRole } = useAuth();
+  const { user, hasPermission } = useAuth();
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [now, setNow] = useState(new Date());
   const [scope, setScope] = useState<'me' | 'all'>('me');
 
-  const isManager = hasRole(['admin', 'manager']);
+  const isManager = hasPermission('shifts.manage');
 
   const refresh = () => {
     setShifts(shiftStore.getAll());

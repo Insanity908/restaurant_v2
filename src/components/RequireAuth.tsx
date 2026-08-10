@@ -19,6 +19,22 @@ interface RequireAuthProps {
 // voltar a adicionar '/billing': 'billing.manage' aqui.
 const PERMISSION_OVERRIDES: Partial<Record<string, Parameters<ReturnType<typeof useAuth>['hasPermission']>[0]>> = {};
 
+// Rotas cujo acesso, mesmo permitido pelo papel, pode ser revogado a um
+// funcionário específico se o admin desligar a permissão correspondente em
+// Funcionários > Permissões (staff_permissions). Admin/superadmin nunca são
+// bloqueados aqui — hasPermission() devolve sempre true para eles.
+const ROUTE_VIEW_PERMISSION: Partial<Record<string, Parameters<ReturnType<typeof useAuth>['hasPermission']>[0]>> = {
+  '/menu': 'menu.view',
+  '/inventory': 'inventory.view',
+  '/pos': 'pos.use',
+  '/reports': 'reports.view',
+  '/staff': 'staff.view',
+  '/customers': 'customers.view',
+  '/shifts': 'shifts.view',
+  '/tables': 'tables.view',
+  '/kitchen': 'kitchen.view',
+};
+
 export default function RequireAuth({ children }: RequireAuthProps) {
   const { user, loading, logout, hasPermission } = useAuth();
   const location = useLocation();
@@ -49,7 +65,9 @@ export default function RequireAuth({ children }: RequireAuthProps) {
   const overridePerm = PERMISSION_OVERRIDES[location.pathname];
   const allowedByRole = !allowed || allowed.includes(user.role);
   const allowedByPermission = !!overridePerm && hasPermission(overridePerm);
-  if (!allowedByRole && !allowedByPermission) {
+  const requiredViewPerm = ROUTE_VIEW_PERMISSION[location.pathname];
+  const revokedForThisStaff = !!requiredViewPerm && !hasPermission(requiredViewPerm);
+  if ((!allowedByRole && !allowedByPermission) || revokedForThisStaff) {
     return (
       <div className="ml-16 lg:ml-56 min-h-screen p-6 flex items-center justify-center">
         <div className="max-w-md text-center space-y-4 glass-strong p-8 rounded-xl">

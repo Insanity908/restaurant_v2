@@ -72,8 +72,9 @@ export default function CustomersPage() {
   const [editing, setEditing] = useState<Customer | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Customer | null>(null);
   const [detail, setDetail] = useState<Customer | null>(null);
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const isManager = user?.role === 'manager' || user?.role === 'admin';
+  const canEditCustomers = hasPermission('customers.edit');
 
   // Loyalty settings (per tenant, off by default)
   const [loyalty, setLoyalty] = useState<LoyaltySettings>(() => getLoyaltySettings());
@@ -148,9 +149,11 @@ export default function CustomersPage() {
       title="Clientes"
       subtitle="CRM, histórico de pedidos e fidelidade"
       actions={
-        <Button onClick={openCreate}>
-          <Plus className="w-4 h-4" /> Novo cliente
-        </Button>
+        canEditCustomers ? (
+          <Button onClick={openCreate}>
+            <Plus className="w-4 h-4" /> Novo cliente
+          </Button>
+        ) : undefined
       }
     >
       {/* KPIs */}
@@ -219,7 +222,7 @@ export default function CustomersPage() {
         </TabsList>
 
         <TabsContent value="all">
-          <CustomerGrid items={filtered} onView={setDetail} onEdit={openEdit} onDelete={setConfirmDelete} loyaltyEnabled={loyalty.enabled} />
+          <CustomerGrid items={filtered} onView={setDetail} onEdit={openEdit} onDelete={setConfirmDelete} loyaltyEnabled={loyalty.enabled} canEdit={canEditCustomers} />
         </TabsContent>
 
         <TabsContent value="loyalty">
@@ -250,7 +253,7 @@ export default function CustomersPage() {
                   </span>
                 </div>
               </Card>
-              <CustomerGrid items={loyaltyList} onView={setDetail} onEdit={openEdit} onDelete={setConfirmDelete} loyaltyEnabled />
+              <CustomerGrid items={loyaltyList} onView={setDetail} onEdit={openEdit} onDelete={setConfirmDelete} loyaltyEnabled canEdit={canEditCustomers} />
             </>
           )}
         </TabsContent>
@@ -259,7 +262,7 @@ export default function CustomersPage() {
           {birthdays.length === 0 ? (
             <EmptyState icon={<Cake className="w-8 h-8" />} text="Nenhum aniversariante este mês" />
           ) : (
-            <CustomerGrid items={birthdays} onView={setDetail} onEdit={openEdit} onDelete={setConfirmDelete} showBirthday loyaltyEnabled={loyalty.enabled} />
+            <CustomerGrid items={birthdays} onView={setDetail} onEdit={openEdit} onDelete={setConfirmDelete} showBirthday loyaltyEnabled={loyalty.enabled} canEdit={canEditCustomers} />
           )}
         </TabsContent>
 
@@ -284,6 +287,7 @@ export default function CustomersPage() {
           customer={detail}
           stats={computeStats(detail, orders, loyalty)}
           loyalty={loyalty}
+          canEdit={canEditCustomers}
           onClose={() => setDetail(null)}
           onChanged={() => { refresh(); setDetail(customerStore.getAll().find(c => c.id === detail.id) || null); }}
         />
@@ -330,7 +334,7 @@ function EmptyState({ icon, text }: { icon: React.ReactNode; text: string }) {
 }
 
 function CustomerGrid({
-  items, onView, onEdit, onDelete, showBirthday, loyaltyEnabled,
+  items, onView, onEdit, onDelete, showBirthday, loyaltyEnabled, canEdit,
 }: {
   items: { customer: Customer; stats: CustomerStats }[];
   onView: (c: Customer) => void;
@@ -338,6 +342,7 @@ function CustomerGrid({
   onDelete: (c: Customer) => void;
   showBirthday?: boolean;
   loyaltyEnabled?: boolean;
+  canEdit?: boolean;
 }) {
   if (items.length === 0) {
     return <EmptyState icon={<UsersIcon className="w-8 h-8" />} text="Nenhum cliente encontrado" />;
@@ -363,14 +368,16 @@ function CustomerGrid({
                 </p>
               )}
             </div>
-            <div className="flex gap-1 shrink-0">
-              <Button size="icon" variant="ghost" onClick={() => onEdit(customer)} aria-label="Editar">
-                <Pencil className="w-4 h-4" />
-              </Button>
-              <Button size="icon" variant="ghost" onClick={() => onDelete(customer)} aria-label="Remover">
-                <Trash2 className="w-4 h-4 text-destructive" />
-              </Button>
-            </div>
+            {canEdit && (
+              <div className="flex gap-1 shrink-0">
+                <Button size="icon" variant="ghost" onClick={() => onEdit(customer)} aria-label="Editar">
+                  <Pencil className="w-4 h-4" />
+                </Button>
+                <Button size="icon" variant="ghost" onClick={() => onDelete(customer)} aria-label="Remover">
+                  <Trash2 className="w-4 h-4 text-destructive" />
+                </Button>
+              </div>
+            )}
           </div>
           <div className={cn('grid gap-2 mt-4 text-center', loyaltyEnabled ? 'grid-cols-3' : 'grid-cols-2')}>
             <Stat label="Pedidos" value={String(stats.orderCount)} />
@@ -567,9 +574,9 @@ function FieldRow({ label, error, children }: { label: string; error?: string | 
 /* ------------------------------ Detail dialog ----------------------------- */
 
 function CustomerDetailDialog({
-  customer, stats, loyalty, onClose, onChanged,
+  customer, stats, loyalty, canEdit, onClose, onChanged,
 }: {
-  customer: Customer; stats: CustomerStats; loyalty: LoyaltySettings; onClose: () => void; onChanged: () => void;
+  customer: Customer; stats: CustomerStats; loyalty: LoyaltySettings; canEdit?: boolean; onClose: () => void; onChanged: () => void;
 }) {
   const [redeemQty, setRedeemQty] = useState('');
 
@@ -617,17 +624,23 @@ function CustomerDetailDialog({
             <h4 className="font-heading text-sm font-semibold mb-2 flex items-center gap-2">
               <Gift className="w-4 h-4 text-primary" /> Fidelidade
             </h4>
-            <div className="flex flex-wrap items-end gap-2">
-              <div className="flex-1 min-w-[140px]">
-                <Label className="text-xs">Resgatar pontos</Label>
-                <Input value={redeemQty} onChange={e => setRedeemQty(e.target.value.replace(/\D/g, ''))} placeholder="0" inputMode="numeric" />
-              </div>
-              <Button onClick={redeem} variant="outline" disabled={!loyalty.allowDiscounts}>Resgatar</Button>
-              <Button onClick={() => addBonus(10)} variant="ghost" size="sm">+10 bónus</Button>
-              <Button onClick={() => addBonus(50)} variant="ghost" size="sm">+50 bónus</Button>
-            </div>
-            {!loyalty.allowDiscounts && (
-              <p className="text-[11px] text-muted-foreground mt-1">Resgate desativado nas configurações.</p>
+            {canEdit ? (
+              <>
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="flex-1 min-w-[140px]">
+                    <Label className="text-xs">Resgatar pontos</Label>
+                    <Input value={redeemQty} onChange={e => setRedeemQty(e.target.value.replace(/\D/g, ''))} placeholder="0" inputMode="numeric" />
+                  </div>
+                  <Button onClick={redeem} variant="outline" disabled={!loyalty.allowDiscounts}>Resgatar</Button>
+                  <Button onClick={() => addBonus(10)} variant="ghost" size="sm">+10 bónus</Button>
+                  <Button onClick={() => addBonus(50)} variant="ghost" size="sm">+50 bónus</Button>
+                </div>
+                {!loyalty.allowDiscounts && (
+                  <p className="text-[11px] text-muted-foreground mt-1">Resgate desativado nas configurações.</p>
+                )}
+              </>
+            ) : (
+              <p className="text-[11px] text-muted-foreground mt-1">Sem permissão para gerir pontos deste cliente.</p>
             )}
           </div>
         )}

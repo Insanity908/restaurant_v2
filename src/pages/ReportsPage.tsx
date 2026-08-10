@@ -95,7 +95,8 @@ const COLORS = [
 ];
 
 export default function ReportsPage() {
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
+  const canFinancial = hasPermission('reports.financial');
   if (user?.role === 'superadmin') return <Navigate to="/admin" replace />;
   const { orders, inventory, menuItems } = useRestaurant();
   const [period, setPeriod] = useState<'daily' | 'monthly'>('daily');
@@ -523,13 +524,15 @@ export default function ReportsPage() {
               accent="text-accent"
               compare={compareActive ? { previous: formatMT(prevStats.avgTicket), change: pctChange(stats.avgTicket, prevStats.avgTicket) } : undefined}
             />
-            <KpiCard
-              icon={<Award className="w-4 h-4" />}
-              label={`Lucro (${stats.margin.toFixed(1)}%)`}
-              value={formatMT(stats.profit)}
-              accent={stats.profit >= 0 ? 'text-success' : 'text-destructive'}
-              compare={compareActive ? { previous: formatMT(prevStats.profit), change: pctChange(stats.profit, prevStats.profit) } : undefined}
-            />
+            {canFinancial && (
+              <KpiCard
+                icon={<Award className="w-4 h-4" />}
+                label={`Lucro (${stats.margin.toFixed(1)}%)`}
+                value={formatMT(stats.profit)}
+                accent={stats.profit >= 0 ? 'text-success' : 'text-destructive'}
+                compare={compareActive ? { previous: formatMT(prevStats.profit), change: pctChange(stats.profit, prevStats.profit) } : undefined}
+              />
+            )}
           </div>
 
           {/* Revenue chart */}
@@ -537,7 +540,7 @@ export default function ReportsPage() {
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-base flex items-center gap-2">
                 <CalendarIcon className="w-4 h-4 text-primary" />
-                Receita & Lucro
+                {canFinancial ? 'Receita & Lucro' : 'Receita'}
               </CardTitle>
               <Tabs value={period} onValueChange={(v) => setPeriod(v as 'daily' | 'monthly')}>
                 <TabsList className="h-8">
@@ -564,7 +567,9 @@ export default function ReportsPage() {
                     />
                     <Legend wrapperStyle={{ fontSize: '12px' }} />
                     <Line type="monotone" dataKey="revenue" name="Receita" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3 }} />
-                    <Line type="monotone" dataKey="profit" name="Lucro" stroke="hsl(var(--success))" strokeWidth={2} dot={{ r: 3 }} />
+                    {canFinancial && (
+                      <Line type="monotone" dataKey="profit" name="Lucro" stroke="hsl(var(--success))" strokeWidth={2} dot={{ r: 3 }} />
+                    )}
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -644,24 +649,26 @@ export default function ReportsPage() {
 
           {/* Profit & Payment */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">Análise de Lucro</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <Row label="Receita Bruta" value={formatMT(stats.totalRevenue)} />
-                <Row label="Custo de Ingredientes" value={`-${formatMT(stats.totalCost)}`} negative />
-                <div className="border-t border-border pt-3">
-                  <Row label="Lucro Líquido" value={formatMT(stats.profit)} bold positive={stats.profit >= 0} />
-                </div>
-                <div className="flex items-center justify-between pt-2">
-                  <span className="text-sm text-muted-foreground">Margem</span>
-                  <Badge variant={stats.margin >= 30 ? 'default' : stats.margin >= 15 ? 'secondary' : 'destructive'}>
-                    {stats.margin.toFixed(1)}%
-                  </Badge>
-                </div>
-              </CardContent>
-            </Card>
+            {canFinancial && (
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Análise de Lucro</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <Row label="Receita Bruta" value={formatMT(stats.totalRevenue)} />
+                  <Row label="Custo de Ingredientes" value={`-${formatMT(stats.totalCost)}`} negative />
+                  <div className="border-t border-border pt-3">
+                    <Row label="Lucro Líquido" value={formatMT(stats.profit)} bold positive={stats.profit >= 0} />
+                  </div>
+                  <div className="flex items-center justify-between pt-2">
+                    <span className="text-sm text-muted-foreground">Margem</span>
+                    <Badge variant={stats.margin >= 30 ? 'default' : stats.margin >= 15 ? 'secondary' : 'destructive'}>
+                      {stats.margin.toFixed(1)}%
+                    </Badge>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             <Card>
               <CardHeader className="pb-2">

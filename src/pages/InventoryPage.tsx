@@ -11,12 +11,15 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useAuth } from '@/context/AuthContext';
 
 export default function InventoryPage() {
   const {
     inventory, lowStockItems, menuItems,
     addInventoryItem, updateInventoryItem, deleteInventoryItem,
   } = useRestaurant();
+  const { hasPermission } = useAuth();
+  const canEdit = hasPermission('inventory.edit');
 
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<'all' | 'low'>('all');
@@ -122,9 +125,11 @@ export default function InventoryPage() {
             </button>
           ))}
         </div>
-        <Button onClick={openCreate} className="gap-1.5">
-          <Plus className="w-4 h-4" /> Novo
-        </Button>
+        {canEdit && (
+          <Button onClick={openCreate} className="gap-1.5">
+            <Plus className="w-4 h-4" /> Novo
+          </Button>
+        )}
       </div>
 
       {/* Inventory table */}
@@ -138,7 +143,7 @@ export default function InventoryPage() {
                 <th className="text-left p-3 font-medium hidden md:table-cell">Mín.</th>
                 <th className="text-left p-3 font-medium hidden md:table-cell">Custo/Un.</th>
                 <th className="text-left p-3 font-medium hidden lg:table-cell">Valor</th>
-                <th className="text-right p-3 font-medium">Acções</th>
+                {canEdit && <th className="text-right p-3 font-medium">Acções</th>}
               </tr>
             </thead>
             <tbody>
@@ -177,22 +182,24 @@ export default function InventoryPage() {
                       <td className="p-3 hidden lg:table-cell text-foreground font-medium">
                         {formatPrice(item.currentStock * item.costPerUnit)}
                       </td>
-                      <td className="p-3 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <button
-                            onClick={() => openEdit(item)}
-                            className="w-7 h-7 rounded-full bg-secondary hover:bg-secondary/80 flex items-center justify-center"
-                          >
-                            <Pencil className="w-3.5 h-3.5 text-foreground" />
-                          </button>
-                          <button
-                            onClick={() => deleteInventoryItem(item.id)}
-                            className="w-7 h-7 rounded-full bg-destructive/20 hover:bg-destructive/30 flex items-center justify-center"
-                          >
-                            <Trash2 className="w-3.5 h-3.5 text-destructive" />
-                          </button>
-                        </div>
-                      </td>
+                      {canEdit && (
+                        <td className="p-3 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <button
+                              onClick={() => openEdit(item)}
+                              className="w-7 h-7 rounded-full bg-secondary hover:bg-secondary/80 flex items-center justify-center"
+                            >
+                              <Pencil className="w-3.5 h-3.5 text-foreground" />
+                            </button>
+                            <button
+                              onClick={() => deleteInventoryItem(item.id)}
+                              className="w-7 h-7 rounded-full bg-destructive/20 hover:bg-destructive/30 flex items-center justify-center"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 text-destructive" />
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </motion.tr>
                   );
                 })}
