@@ -35,6 +35,16 @@ export default function RequireAuth({ children }: RequireAuthProps) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
 
+  // Google Sign-In (unlike email signup) never calls bootstrap-tenant, so a
+  // brand-new Google user has a role (defaults to 'admin') but zero
+  // tenants — every tenant-scoped feature then breaks ("sem restaurante
+  // ativo", brand name stuck on the placeholder, faturação "sessão
+  // inválida") even though the route itself was reachable. Send them to
+  // onboarding to create their first restaurant, same as email signup does.
+  if (user.role !== 'superadmin' && user.tenantIds.length === 0 && location.pathname !== '/onboarding') {
+    return <Navigate to="/onboarding" replace />;
+  }
+
   const allowed = ROUTE_PERMISSIONS[location.pathname];
   const overridePerm = PERMISSION_OVERRIDES[location.pathname];
   const allowedByRole = !allowed || allowed.includes(user.role);

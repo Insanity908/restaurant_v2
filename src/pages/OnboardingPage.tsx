@@ -10,11 +10,30 @@ import { Building2, Users, Plus, Trash2, ArrowRight, Check } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext';
 import { useLicense } from '@/hooks/useLicense';
 import { tenantStore } from '@/lib/tenants';
-import { staffStore, seedData } from '@/lib/store';
+import { staffStore } from '@/lib/store';
+import { validateUsername } from '@/lib/validators';
+import { supabase } from '@/integrations/supabase/client';
 import type { UserRole } from '@/types/restaurant';
 import { toast } from 'sonner';
 
-type Invite = { name: string; role: Exclude<UserRole, 'admin' | 'manager' | 'superadmin'>; pin: string };
+type Invite = {
+  name: string;
+  role: Exclude<UserRole, 'admin' | 'manager' | 'superadmin'>;
+  username: string;
+  email: string;
+  password: string;
+};
+
+const emptyInvite = (): Invite => ({ name: '', role: 'cashier', username: '', email: '', password: '' });
+
+async function extractFunctionErrorMessage(error: unknown): Promise<string | undefined> {
+  if (error && typeof error === 'object' && 'context' in error && (error as { context: unknown }).context instanceof Response) {
+    return (error as { context: Response }).context.clone().json()
+      .then((body: { error?: string }) => body?.error)
+      .catch(() => undefined);
+  }
+  return undefined;
+}
 
 export default function OnboardingPage() {
   const navigate = useNavigate();
@@ -30,16 +49,14 @@ export default function OnboardingPage() {
   const [extraName, setExtraName] = useState('');
 
   // Step 2: invite team members
-  const [invites, setInvites] = useState<Invite[]>([
-    { name: '', role: 'cashier', pin: '' },
-  ]);
+  const [invites, setInvites] = useState<Invite[]>([emptyInvite()]);
+  const [inviting, setInviting] = useState(false);
 
   const addExtraTenant = async () => {
     if (!user?.email || !user?.authUserId || !extraName.trim()) return;
     const t = await tenantStore.create({ name: extraName.trim(), ownerEmail: user.email, ownerName: user.name });
     if (!t) { toast.error('Não foi possível criar o restaurante'); return; }
     tenantStore.setCurrent(t.id);
-    seedData();
     setExtraName('');
     toast.success(`Restaurante "${t.name}" criado`);
     setTimeout(() => window.location.reload(), 400);
@@ -48,7 +65,6 @@ export default function OnboardingPage() {
 
   const switchTenant = (id: string) => {
     tenantStore.setCurrent(id);
-    seedData();
     toast.success('Restaurante selecionado');
     // force refresh of license
     setTimeout(() => window.location.reload(), 200);
@@ -58,23 +74,58 @@ export default function OnboardingPage() {
     setInvites(prev => prev.map((v, idx) => idx === i ? { ...v, ...patch } : v));
 
   const addInviteRow = () =>
-    setInvites(prev => [...prev, { name: '', role: 'waiter', pin: '' }]);
+    setInvites(prev => [...prev, emptyInvite()]);
 
   const removeInvite = (i: number) =>
     setInvites(prev => prev.filter((_, idx) => idx !== i));
 
-  const finishOnboarding = () => {
-    const valid = invites.filter(v => v.name.trim() && /^\d{4}$/.test(v.pin));
-    const pins = new Set<string>();
-    for (const v of valid) {
-      if (pins.has(v.pin) || staffStore.findByPin(v.pin)) {
-        toast.error(`PIN ${v.pin} duplicado ou já em uso`);
-        return;
-      }
-      pins.add(v.pin);
+  const inviteErrors = (v: Invite): string | null => {
+    if (!v.name.trim()) return null; // linha vazia — ignorada, não é erro
+    const usernameErr = validateUsername(v.username);
+    if (usernameErr) return usernameErr;
+    if (!/^\S+@\S+\.\S+$/.test(v.email)) return 'Email inválido';
+    if (v.password.length < 8) return 'Password deve ter pelo menos 8 caracteres';
+    return null;
+  };
+
+  const finishOnboarding = async () => {
+    const withContent = invites.filter(v => v.name.trim());
+    if (withContent.length === 0) { navigate('/pricing', { replace: true }); return; }
+
+    for (const v of withContent) {
+      const err = inviteErrors(v);
+      if (err) { toast.error(`${v.name.trim()}: ${err}`); return; }
     }
-    valid.forEach(v => staffStore.add({ name: v.name.trim(), role: v.role, pin: v.pin }));
-    if (valid.length > 0) toast.success(`${valid.length} membro(s) adicionado(s)`);
+    const usernames = withContent.map(v => v.username.trim().toLowerCase());
+    const emails = withContent.map(v => v.email.trim().toLowerCase());
+    if (new Set(usernames).size !== usernames.length) { toast.error('Há usernames repetidos entre os membros'); return; }
+    if (new Set(emails).size !== emails.length) { toast.error('Há emails repetidos entre os membros'); return; }
+
+    const tenantId = localStorage.getItem('current_tenant_id');
+    if (!tenantId) { toast.error('Sem restaurante ativo'); return; }
+
+    setInviting(true);
+    let created = 0;
+    const failed: string[] = [];
+    for (const v of withContent) {
+      const { data, error } = await supabase.functions.invoke('create-staff-account', {
+        body: {
+          tenantId, name: v.name.trim(), role: v.role,
+          username: v.username.trim(), email: v.email.trim(), password: v.password,
+        },
+      });
+      if (error || !data?.userId) {
+        const serverMessage = await extractFunctionErrorMessage(error);
+        failed.push(`${v.name.trim()} (${serverMessage || (data as { error?: string } | null)?.error || error?.message || 'erro desconhecido'})`);
+        continue;
+      }
+      staffStore.add({ id: data.userId as string, name: v.name.trim(), role: v.role });
+      created++;
+    }
+    setInviting(false);
+
+    if (created > 0) toast.success(`${created} membro(s) adicionado(s)`);
+    if (failed.length > 0) toast.error(`Falhou para: ${failed.join(', ')}`);
     navigate('/pricing', { replace: true });
   };
 
@@ -121,7 +172,10 @@ export default function OnboardingPage() {
           </div>
 
           <div className="glass rounded-xl p-5">
-            <h3 className="font-semibold mb-3 flex items-center gap-2"><Plus className="w-4 h-4" />Adicionar outra unidade</h3>
+            <h3 className="font-semibold mb-3 flex items-center gap-2">
+              <Plus className="w-4 h-4" />
+              {myTenants.length === 0 ? 'Criar o seu restaurante' : 'Adicionar outra unidade'}
+            </h3>
             <div className="flex gap-2">
               <Input
                 placeholder="Ex: Sabor de Maputo"
@@ -147,39 +201,46 @@ export default function OnboardingPage() {
               <Users className="w-4 h-4" />Convidar membros da equipa
             </h2>
             <p className="text-xs text-muted-foreground mt-1">
-              Cada membro entra com PIN de 4 dígitos. Pode adicionar mais tarde em Equipa.
+              Cada membro entra com o seu próprio username/email e password. Pode adicionar mais tarde em Equipa.
             </p>
-            <div className="space-y-2 mt-4">
+            <div className="space-y-3 mt-4">
               {invites.map((v, i) => (
-                <div key={i} className="grid grid-cols-12 gap-2 items-end">
-                  <div className="col-span-5">
-                    <Label className="text-[11px]">Nome</Label>
-                    <Input value={v.name} onChange={e => updateInvite(i, { name: e.target.value })} placeholder="Maria João" />
+                <div key={i} className="rounded-lg border border-border/60 p-3 space-y-2">
+                  <div className="grid grid-cols-12 gap-2">
+                    <div className="col-span-7">
+                      <Label className="text-[11px]">Nome</Label>
+                      <Input value={v.name} onChange={e => updateInvite(i, { name: e.target.value })} placeholder="Maria João" />
+                    </div>
+                    <div className="col-span-4">
+                      <Label className="text-[11px]">Função</Label>
+                      <Select value={v.role} onValueChange={(val: Invite['role']) => updateInvite(i, { role: val })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="cashier">Caixa</SelectItem>
+                          <SelectItem value="waiter">Garçom</SelectItem>
+                          <SelectItem value="kitchen">Cozinha</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="col-span-1 flex items-end justify-end">
+                      <Button size="icon" variant="ghost" onClick={() => removeInvite(i)}>
+                        <Trash2 className="w-4 h-4 text-destructive" />
+                      </Button>
+                    </div>
                   </div>
-                  <div className="col-span-4">
-                    <Label className="text-[11px]">Função</Label>
-                    <Select value={v.role} onValueChange={(val: Invite['role']) => updateInvite(i, { role: val })}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="cashier">Caixa</SelectItem>
-                        <SelectItem value="waiter">Garçom</SelectItem>
-                        <SelectItem value="kitchen">Cozinha</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="col-span-2">
-                    <Label className="text-[11px]">PIN</Label>
-                    <Input
-                      value={v.pin}
-                      onChange={e => updateInvite(i, { pin: e.target.value.replace(/\D/g, '').slice(0, 4) })}
-                      placeholder="0000"
-                      inputMode="numeric"
-                    />
-                  </div>
-                  <div className="col-span-1">
-                    <Button size="icon" variant="ghost" onClick={() => removeInvite(i)}>
-                      <Trash2 className="w-4 h-4 text-destructive" />
-                    </Button>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <Label className="text-[11px]">Username</Label>
+                      <Input value={v.username} onChange={e => updateInvite(i, { username: e.target.value })} placeholder="maria_caixa" />
+                    </div>
+                    <div>
+                      <Label className="text-[11px]">Email</Label>
+                      <Input type="email" value={v.email} onChange={e => updateInvite(i, { email: e.target.value })} placeholder="maria@restaurante.mz" />
+                    </div>
+                    <div>
+                      <Label className="text-[11px]">Password</Label>
+                      <Input type="password" value={v.password} onChange={e => updateInvite(i, { password: e.target.value })} placeholder="mín. 8 caracteres" />
+                    </div>
                   </div>
                 </div>
               ))}
@@ -193,8 +254,8 @@ export default function OnboardingPage() {
             <Button variant="outline" onClick={() => setStep(1)}>Voltar</Button>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => navigate('/pricing', { replace: true })}>Saltar</Button>
-              <Button onClick={finishOnboarding}>
-                <Check className="w-4 h-4" />Concluir
+              <Button onClick={finishOnboarding} disabled={inviting}>
+                <Check className="w-4 h-4" />{inviting ? 'A criar...' : 'Concluir'}
               </Button>
             </div>
           </div>

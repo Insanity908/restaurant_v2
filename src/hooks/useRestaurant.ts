@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { MenuItem, Table, Order, OrderItem, InventoryItem, AuditActor } from '@/types/restaurant';
-import { menuStore, tableStore, orderStore, inventoryStore, customerStore, seedData, subscribeOperations } from '@/lib/store';
+import { menuStore, tableStore, orderStore, inventoryStore, customerStore, subscribeOperations } from '@/lib/store';
 import { useAuth } from '@/context/AuthContext';
 import { parseQty, areUnitsCompatible, convertQty } from '@/lib/units';
 
@@ -30,7 +30,6 @@ export function useRestaurant() {
   // with empty/stale data until a Supabase Realtime event happens to fire
   // (which may be never, e.g. in tests, or slow on a poor connection).
   useEffect(() => {
-    seedData();
     setMenuItems(menuStore.getAll());
     setTables(tableStore.getAll());
     setOrders(orderStore.getAll());

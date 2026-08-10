@@ -12,6 +12,7 @@ import { validateQtyAgainstUnit } from '@/lib/units';
 import { toast } from 'sonner';
 import { uploadTenantImage, MENU_BUCKET } from '@/lib/storage';
 import { useStorageImage } from '@/hooks/useStorageImage';
+import { PRESET_MENU_IMAGES } from '@/lib/helpers';
 
 const CATEGORIES = ['Popular', 'Entradas', 'Pratos Principais', 'Bebidas', 'Sobremesas'];
 
@@ -172,6 +173,26 @@ export default function MenuItemDialog({ open, onClose, onSave, item, inventory 
             {uploading && <div className="absolute inset-0 bg-background/60 flex items-center justify-center text-xs text-muted-foreground">A carregar…</div>}
             <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleImage} disabled={uploading} />
 
+          </div>
+
+          {/* Preset images — quick pick instead of uploading */}
+          <div className="space-y-1.5">
+            <Label className="text-muted-foreground text-xs">Ou escolha uma imagem padrão</Label>
+            <div className="flex gap-2">
+              {PRESET_MENU_IMAGES.map(preset => (
+                <button
+                  key={preset.url}
+                  type="button"
+                  onClick={() => setImage(preset.url)}
+                  title={preset.label}
+                  className={`relative w-14 h-14 rounded-lg overflow-hidden border-2 transition-colors ${
+                    image === preset.url ? 'border-primary' : 'border-border hover:border-primary/50'
+                  }`}
+                >
+                  <img src={preset.url} alt={preset.label} className="w-full h-full object-cover" />
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Name & Price */}

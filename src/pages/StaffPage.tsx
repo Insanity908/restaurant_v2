@@ -14,7 +14,7 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Plus, Pencil, Trash2, Users, ShieldCheck, KeyRound } from 'lucide-react';
+import { Plus, Pencil, Trash2, Users, KeyRound } from 'lucide-react';
 import { Staff, UserRole } from '@/types/restaurant';
 import { staffStore } from '@/lib/store';
 import { useAuth } from '@/context/AuthContext';
@@ -40,13 +40,12 @@ const roleMeta = (role: UserRole) => ROLES.find(r => r.value === role) ?? { valu
 interface FormState {
   name: string;
   role: UserRole;
-  pin: string;
   username: string;
   email: string;
   password: string;
 }
 
-const empty: FormState = { name: '', role: 'waiter', pin: '', username: '', email: '', password: '' };
+const empty: FormState = { name: '', role: 'waiter', username: '', email: '', password: '' };
 
 export default function StaffPage() {
   const { user } = useAuth();
@@ -87,17 +86,14 @@ export default function StaffPage() {
 
   const openEdit = (s: Staff) => {
     setEditing(s);
-    setForm({ name: s.name, role: s.role, pin: s.pin || '', username: '', email: '', password: '' });
+    setForm({ name: s.name, role: s.role, username: '', email: '', password: '' });
     setOpen(true);
   };
 
   const validate = (): string | null => {
     if (!form.name.trim()) return 'Nome obrigatório';
     if (form.name.trim().length > 60) return 'Nome demasiado longo';
-    if (!/^\d{4,6}$/.test(form.pin)) return 'PIN deve ter 4 a 6 dígitos';
     if (!assignableRoles.some(r => r.value === form.role)) return 'Não tem permissão para atribuir este papel';
-    const conflict = staffStore.getAll().find(s => s.pin === form.pin && s.id !== editing?.id);
-    if (conflict) return 'PIN já em uso';
     // Login credentials (username/email/password) are only required when
     // creating a new member — editing keeps the existing login untouched.
     if (!editing) {
@@ -113,7 +109,7 @@ export default function StaffPage() {
     const err = validate();
     if (err) { toast.error(err); return; }
     if (editing) {
-      staffStore.update(editing.id, { name: form.name.trim(), role: form.role, pin: form.pin });
+      staffStore.update(editing.id, { name: form.name.trim(), role: form.role });
       toast.success('Funcionário atualizado');
       refresh();
       setOpen(false);
@@ -124,10 +120,6 @@ export default function StaffPage() {
     const tenantId = localStorage.getItem('current_tenant_id');
     if (!tenantId) { toast.error('Sem restaurante ativo'); setSaving(false); return; }
 
-    // Provision the real login (username/email/password) first — this is
-    // the account the person actually uses to enter the sistema. The PIN
-    // stays for fast clock-in/POS on shared terminals and is linked to the
-    // same id.
     const { data, error } = await supabase.functions.invoke('create-staff-account', {
       body: {
         tenantId,
@@ -155,7 +147,7 @@ export default function StaffPage() {
       return;
     }
 
-    staffStore.add({ id: data.userId as string, name: form.name.trim(), role: form.role, pin: form.pin });
+    staffStore.add({ id: data.userId as string, name: form.name.trim(), role: form.role });
     toast.success('Funcionário adicionado');
     refresh();
     setOpen(false);
@@ -178,7 +170,7 @@ export default function StaffPage() {
   return (
     <PageShell
       title="Funcionários"
-      subtitle="Gerir equipa e controlo de acesso por PIN"
+      subtitle="Gerir equipa e acessos"
       actions={
         <Button onClick={openNew}>
           <Plus className="w-4 h-4" /> Novo funcionário
@@ -250,10 +242,6 @@ export default function StaffPage() {
                     </AlertDialog>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <ShieldCheck className="w-3.5 h-3.5" />
-                  PIN: <code className="text-foreground">{'•'.repeat((s.pin || '').length)}</code>
-                </div>
               </div>
             );
           })}
@@ -281,18 +269,6 @@ export default function StaffPage() {
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="pin">PIN (4 a 6 dígitos)</Label>
-              <Input
-                id="pin"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                value={form.pin}
-                onChange={e => setForm(f => ({ ...f, pin: e.target.value.replace(/\D/g, '').slice(0, 6) }))}
-                placeholder="••••"
-              />
-              <p className="text-xs text-muted-foreground">Usado para acesso rápido no POS/cozinha num terminal partilhado.</p>
             </div>
             {!editing && (
               <>

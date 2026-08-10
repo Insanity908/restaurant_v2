@@ -180,9 +180,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Supabase Auth only stores an email, so a username-only signup gets a
     // synthetic placeholder email (never shown to the user, never emailed);
     // its local-part is the chosen username so bootstrap-tenant's
-    // email-prefix-as-username fallback recovers it automatically.
+    // email-prefix-as-username fallback recovers it automatically. The
+    // domain has to be a real, DNS-resolvable one — GoTrue rejects made-up
+    // domains as "invalid" (confirmed: users.saborpos.app doesn't exist and
+    // was bouncing every username-only signup).
     const username = input.username?.trim().toLowerCase();
-    const authEmail = input.email?.trim() || `${username}@users.saborpos.app`;
+    const authEmail = input.email?.trim() || `${username}@users.jsetra.com`;
     const { data, error } = await supabase.auth.signUp({
       email: authEmail,
       password: input.password,
