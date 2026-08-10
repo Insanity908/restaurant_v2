@@ -9,6 +9,10 @@ const BodySchema = z.object({
   restaurantName: z.string().min(1).max(120),
   ownerName: z.string().min(1).max(120).optional(),
   ownerPhone: z.string().max(40).optional(),
+  // Quando true, cria sempre um NOVO tenant mesmo que o utilizador já seja
+  // membro de outro (fluxo "Adicionar outra unidade"). Quando false/omitido,
+  // mantém o comportamento original de signup (idempotente).
+  additional: z.boolean().optional(),
 });
 
 Deno.serve(async (req) => {
@@ -44,20 +48,24 @@ Deno.serve(async (req) => {
         status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
-    const { restaurantName, ownerName, ownerPhone } = parsed.data;
+    const { restaurantName, ownerName, ownerPhone, additional } = parsed.data;
 
     const admin = createClient(supabaseUrl, serviceKey);
 
-    // If the user is already a tenant member somewhere, don't auto-create a new one.
-    const { data: existing } = await admin
-      .from('tenant_members')
-      .select('tenant_id')
-      .eq('user_id', user.id)
-      .limit(1);
-    if (existing && existing.length > 0) {
-      return new Response(JSON.stringify({ ok: true, tenantId: existing[0].tenant_id, existed: true }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      });
+    // If the user is already a tenant member somewhere, don't auto-create a new
+    // one — UNLESS this call is explicitly asking for an additional unit
+    // (e.g. "Adicionar outra unidade" in Onboarding/Sidebar).
+    if (!additional) {
+      const { data: existing } = await admin
+        .from('tenant_members')
+        .select('tenant_id')
+        .eq('user_id', user.id)
+        .limit(1);
+      if (existing && existing.length > 0) {
+        return new Response(JSON.stringify({ ok: true, tenantId: existing[0].tenant_id, existed: true }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
     }
 
     // 1) tenant
@@ -74,11 +82,25 @@ Deno.serve(async (req) => {
       .single();
     if (tenantErr || !tenant) throw tenantErr ?? new Error('Tenant creation failed');
 
-    // 2) profile fields (in case trigger already ran, patch phone/name)
-    await admin.from('profiles').update({
+    // 2) profile fields (in case trigger already ran, patch phone/name).
+    // Also default a username (email local-part) so the owner can log in
+    // with either email or username; only set it the first time (never
+    // overwrite a username the user may have already chosen).
+    const { data: existingProfile } = await admin
+      .from('profiles').select('username').eq('id', user.id).maybeSingle();
+    const profilePatch: Record<string, unknown> = {
       name: ownerName?.trim() || user.user_metadata?.name || user.email,
       phone: ownerPhone?.trim() ?? null,
-    }).eq('id', user.id);
+    };
+    if (!existingProfile?.username && user.email) {
+      const base = user.email.split('@')[0].toLowerCase().replace(/[^a-z0-9_]/g, '') || 'user';
+      const { data: taken } = await admin
+        .from('profiles').select('id').ilike('username', base).limit(1);
+      profilePatch.username = (taken && taken.length > 0)
+        ? `${base}${Math.random().toString(36).slice(2, 5)}`
+        : base;
+    }
+    await admin.from('profiles').update(profilePatch).eq('id', user.id);
 
     // 3) membership + admin role
     await admin.from('tenant_members').insert({ tenant_id: tenant.id, user_id: user.id });
@@ -95,6 +117,14 @@ Deno.serve(async (req) => {
       expires_at: expires.toISOString(),
       blocked_by_admin: false,
     });
+
+    // 5) seed app_settings so the brand name shown across the UI (sidebar,
+    // Settings > Marca, receipts) matches what was typed at signup, instead
+    // of the placeholder default.
+    await admin.from('app_settings').upsert(
+      { tenant_id: tenant.id, data: { brandName: restaurantName.trim() } },
+      { onConflict: 'tenant_id' },
+    );
 
     return new Response(JSON.stringify({ ok: true, tenantId: tenant.id }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
