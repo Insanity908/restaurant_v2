@@ -55,7 +55,7 @@ describe('MenuPage — alternar disponibilidade de um prato', () => {
     vi.resetModules();
     updateMenuItemMock.mockReset();
     vi.doMock('@/context/AuthContext', () => ({
-      useAuth: () => ({ hasPermission: () => false }),
+      useAuth: () => ({ hasPermission: () => true }),
     }));
     vi.doMock('@/hooks/useRestaurant', () => ({
       useRestaurant: () => ({

@@ -93,17 +93,25 @@ export default function POSPage() {
     else { toast.message('Cliente não encontrado', { description: 'Crie um novo registo abaixo.' }); setCreateOpen(true); }
   };
 
-  const handlePayment = () => {
+  const [confirmingPayment, setConfirmingPayment] = useState(false);
+
+  const handlePayment = async () => {
     if (!selectedOrderId) return;
-    const result = completeOrder(selectedOrderId, paymentMethod, tip, {
+    setConfirmingPayment(true);
+    const result = await completeOrder(selectedOrderId, paymentMethod, tip, {
       customerId: linkedCustomer?.id,
       discount,
       redeemedPoints: redeemPts,
     });
+    setConfirmingPayment(false);
     if (!result.ok) {
       if (result.reason === 'unserved-items') {
         toast.error('Não é possível encerrar: há pratos por servir', {
           description: `${result.pending.length} item(s) ainda não foram servidos.`,
+        });
+      } else if (result.reason === 'sync-failed') {
+        toast.error('Falha ao confirmar pagamento', {
+          description: 'O servidor rejeitou a operação. O pedido continua na lista — tente novamente.',
         });
       }
       return;
@@ -385,11 +393,11 @@ export default function POSPage() {
                 </button>
                 <button
                   onClick={handlePayment}
-                  disabled={!allServed}
+                  disabled={!allServed || confirmingPayment}
                   title={!allServed ? 'Todos os pratos devem ser servidos antes' : undefined}
                   className="flex-1 bg-success text-success-foreground py-3.5 rounded-xl font-bold text-sm hover:bg-success/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  Confirmar Pagamento
+                  {confirmingPayment ? 'A confirmar…' : 'Confirmar Pagamento'}
                 </button>
               </div>
             </>

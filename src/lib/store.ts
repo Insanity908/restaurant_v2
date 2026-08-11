@@ -300,6 +300,42 @@ export const orderStore = {
     return orders[idx];
   },
   getActive: (): Order[] => orderStore.getAll().filter(o => !o.paid && o.status !== 'cancelled'),
+  /**
+   * Dedicated write path for payment completion. Unlike `update()`, this
+   * awaits the cloud write and rolls back the optimistic local patch when it
+   * is permanently rejected (not merely queued for offline retry) — a
+   * financial action must not silently vanish from the active list while
+   * the server never actually recorded the payment.
+   */
+  completePayment: async (id: string, updates: Partial<Order>): Promise<{ ok: true } | { ok: false; error: string }> => {
+    const orders = orderStore.getAll();
+    const idx = orders.findIndex(o => o.id === id);
+    if (idx === -1) return { ok: false, error: 'not-found' };
+    const previous = orders[idx];
+    const patched = { ...previous, ...updates, updatedAt: new Date().toISOString() };
+    orders[idx] = patched;
+    orderStore.save(orders);
+
+    const t = tenantId();
+    if (!t || !isUuid(id)) return { ok: true };
+
+    const row = orderRow(updates);
+    row.updated_at = patched.updatedAt;
+    row.client_updated_at = patched.updatedAt;
+    const { error } = await cloud('orders').update(row as never)
+      .eq('id', id).eq('tenant_id', t)
+      .guard('client_updated_at', previous.updatedAt)
+      .resource(id);
+
+    if (error) {
+      const rollback = orderStore.getAll();
+      const ridx = rollback.findIndex(o => o.id === id);
+      if (ridx !== -1) { rollback[ridx] = previous; orderStore.save(rollback); }
+      warn('orders.completePayment', error);
+      return { ok: false, error: error.message };
+    }
+    return { ok: true };
+  },
 };
 
 

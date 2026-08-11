@@ -40,8 +40,10 @@ describe('POS', () => {
     cy.loginAs('waiter');
     cy.visit('/pos');
     cy.contains(/mesa 5/i).click();
-    cy.contains('button', /confirmar pagamento/i).click();
+    // O botão vem desativado proactivamente (mais seguro do que deixar
+    // clicar e só mostrar o erro depois) — a app já avisa antes do clique.
     cy.contains(/itens (ainda )?não servidos|por servir/i).should('be.visible');
+    cy.contains('button', /confirmar pagamento/i).should('be.disabled');
     cy.get('@patchSpy').should('not.have.been.called');
   });
 
@@ -64,7 +66,12 @@ describe('POS', () => {
     cy.contains(/mesa 5/i).click();
     cy.contains('button', /confirmar pagamento/i).click();
     cy.wait('@patchFail');
+    // A rejeição permanente do servidor (não uma falha transitória de rede)
+    // tem de reverter o estado local optimista: o pedido continua na lista
+    // de activos e o utilizador é avisado — nunca desaparece em silêncio.
+    cy.contains(/falha ao confirmar pagamento/i).should('be.visible');
     cy.contains(/mesa 5/i).should('be.visible');
+    cy.contains('button', /confirmar pagamento/i).should('not.be.disabled');
   });
 });
 

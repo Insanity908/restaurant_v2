@@ -26,7 +26,7 @@ describe('StaffPage — criar novo funcionário', () => {
     localStorage.setItem('current_tenant_id', 'tenant-1');
 
     vi.doMock('@/context/AuthContext', () => ({
-      useAuth: () => ({ user: { id: 'admin-1', name: 'Admin', role: 'admin' } }),
+      useAuth: () => ({ user: { id: 'admin-1', name: 'Admin', role: 'admin' }, hasPermission: () => true }),
     }));
     vi.doMock('@/lib/store', () => ({
       staffStore: {
@@ -50,7 +50,6 @@ describe('StaffPage — criar novo funcionário', () => {
 
     const dialog = await screen.findByRole('dialog');
     await user.type(within(dialog).getByLabelText('Nome'), 'Maria João');
-    await user.type(within(dialog).getByLabelText('PIN (4 a 6 dígitos)'), '5678');
     await user.type(within(dialog).getByLabelText('Username'), 'maria_caixa');
     await user.type(within(dialog).getByLabelText('Email'), 'maria@restaurante.mz');
     await user.type(within(dialog).getByLabelText('Password'), 'senhaforte123');
@@ -69,7 +68,7 @@ describe('StaffPage — criar novo funcionário', () => {
     });
 
     await waitFor(() => expect(staffAddMock).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'new-user-id-123', name: 'Maria João', pin: '5678' }),
+      expect.objectContaining({ id: 'new-user-id-123', name: 'Maria João' }),
     ));
   });
 
@@ -82,7 +81,6 @@ describe('StaffPage — criar novo funcionário', () => {
     const dialog = await screen.findByRole('dialog');
 
     await user.type(within(dialog).getByLabelText('Nome'), 'Teste Curto');
-    await user.type(within(dialog).getByLabelText('PIN (4 a 6 dígitos)'), '1111');
     await user.type(within(dialog).getByLabelText('Username'), 'teste_curto');
     await user.type(within(dialog).getByLabelText('Email'), 'teste@restaurante.mz');
     await user.type(within(dialog).getByLabelText('Password'), '123');

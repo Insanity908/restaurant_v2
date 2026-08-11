@@ -34,7 +34,7 @@ describe('Acessibilidade — StaffPage (dialog "Novo funcionário")', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.doMock('@/context/AuthContext', () => ({
-      useAuth: () => ({ user: { id: 'admin-1', name: 'Admin', role: 'admin' } }),
+      useAuth: () => ({ user: { id: 'admin-1', name: 'Admin', role: 'admin' }, hasPermission: () => true }),
     }));
     vi.doMock('@/lib/store', () => ({
       staffStore: { getAll: () => [], add: vi.fn(), update: vi.fn(), remove: vi.fn() },
@@ -114,7 +114,7 @@ describe('Acessibilidade — KitchenPage', () => {
 describe('Acessibilidade — MenuPage (modo de gestão)', () => {
   beforeEach(() => {
     vi.resetModules();
-    vi.doMock('@/context/AuthContext', () => ({ useAuth: () => ({ hasPermission: () => false }) }));
+    vi.doMock('@/context/AuthContext', () => ({ useAuth: () => ({ hasPermission: () => true }) }));
     vi.doMock('@/hooks/useRestaurant', () => ({
       useRestaurant: () => ({
         menuItems: [{ id: 'm-1', name: 'Pizza Pepperoni', price: 500, category: 'Popular', available: true }],
@@ -240,7 +240,7 @@ describe('Acessibilidade — ReportsPage', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.doMock('@/context/AuthContext', () => ({
-      useAuth: () => ({ user: { id: 'admin-1', name: 'Admin', role: 'admin' } }),
+      useAuth: () => ({ user: { id: 'admin-1', name: 'Admin', role: 'admin' }, hasPermission: () => true }),
     }));
     vi.doMock('@/hooks/useRestaurant', () => ({
       useRestaurant: () => ({

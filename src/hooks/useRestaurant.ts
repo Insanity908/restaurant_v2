@@ -139,7 +139,7 @@ export function useRestaurant() {
     refresh();
   }, [refresh, appendEventsForItemChanges]);
 
-  const completeOrder = useCallback((
+  const completeOrder = useCallback(async (
     orderId: string,
     paymentMethod: Order['paymentMethod'],
     tip?: number,
@@ -154,7 +154,7 @@ export function useRestaurant() {
     const discount = Math.max(0, loyalty?.discount ?? 0);
     const originalSubtotal = order.items.reduce((s, i) => s + i.price * i.quantity, 0);
     const newTotal = Math.max(0, originalSubtotal - discount);
-    orderStore.update(orderId, {
+    const result = await orderStore.completePayment(orderId, {
       status: 'completed',
       paid: true,
       paymentMethod,
@@ -165,6 +165,10 @@ export function useRestaurant() {
       closedBy: actorFrom(user),
       closedAt: new Date().toISOString(),
     });
+    if (!result.ok) {
+      refresh();
+      return { ok: false as const, reason: 'sync-failed' as const, error: result.error };
+    }
     if (order.tableId) {
       tableStore.update(order.tableId, { status: 'free', currentOrderId: undefined });
     }
