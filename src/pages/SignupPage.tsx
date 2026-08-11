@@ -60,7 +60,7 @@ export default function SignupPage() {
           <h1 className="font-heading text-xl font-bold">Criar conta de Administrador</h1>
           <p className="text-xs text-muted-foreground">7 dias grátis. Sem cartão.</p>
         </div>
-        <form onSubmit={submit} className="space-y-3">
+        <form onSubmit={submit} noValidate className="space-y-3">
           <div className="space-y-1.5">
             <Label>Nome do restaurante</Label>
             <Input value={form.restaurant} onChange={e => setForm(f => ({ ...f, restaurant: e.target.value }))} placeholder="Sabor de Nampula" />

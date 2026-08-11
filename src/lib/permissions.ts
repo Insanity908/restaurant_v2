@@ -60,7 +60,7 @@ export const DEFAULT_PERMISSIONS: Record<UserRole, Permission[]> = {
     'inventory.view', 'inventory.edit',
     'pos.use', 'pos.discount',
     'reports.view',
-    'staff.view',
+    'staff.view', 'staff.manage',
     'customers.view', 'customers.edit',
     'shifts.view', 'shifts.manage',
     'tables.view', 'kitchen.view',

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import PageShell from '@/components/PageShell';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -11,9 +11,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Search, Plus, Pencil, Trash2, Phone, Cake, Award, TrendingUp, Gift, Users as UsersIcon, AlertCircle, Download, FileText, CloudOff, RefreshCw, Settings2 } from 'lucide-react';
-import { customerStore, orderStore } from '@/lib/store';
+import { customerStore, orderStore, subscribeOperations } from '@/lib/store';
 import { Customer, Order } from '@/types/restaurant';
-import { maskMzPhone, maskNuit, validateMpesa, validateNuit } from '@/lib/validators';
+import { maskMzPhone, maskNuit, validateMzMobile, validateNuit } from '@/lib/validators';
 import { toast } from 'sonner';
 import { buildCustomerReport, exportCustomersCSV, exportCustomersPDF } from '@/lib/customerReport';
 import { getLoyaltySettings, saveLoyaltySettings, tierFromPoints, LoyaltySettings } from '@/lib/loyaltySettings';
@@ -66,13 +66,13 @@ function tierBadge(tier: CustomerStats['tier']) {
 
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>(() => customerStore.getAll());
-  const [orders] = useState<Order[]>(() => orderStore.getAll());
+  const [orders, setOrders] = useState<Order[]>(() => orderStore.getAll());
   const [query, setQuery] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<Customer | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Customer | null>(null);
   const [detail, setDetail] = useState<Customer | null>(null);
-  const { user, hasPermission } = useAuth();
+  const { user, hasPermission, catalogVersion } = useAuth();
   const isManager = user?.role === 'manager' || user?.role === 'admin';
   const canEditCustomers = hasPermission('customers.edit');
 
@@ -99,7 +99,22 @@ export default function CustomersPage() {
   }, []);
 
 
-  const refresh = () => setCustomers(customerStore.getAll());
+  const refresh = useCallback(() => {
+    setCustomers(customerStore.getAll());
+    setOrders(orderStore.getAll());
+  }, []);
+
+  // Without this, a page that mounts before AuthContext's background
+  // tenant-catalog fetch lands reads localStorage too early and is stuck
+  // with empty/stale data (see the same pattern in useRestaurant.ts).
+  useEffect(() => { refresh(); }, [refresh, catalogVersion]);
+
+  const tenantId = user?.tenantId;
+  useEffect(() => {
+    if (!tenantId) return;
+    const unsubscribe = subscribeOperations(tenantId, refresh);
+    return unsubscribe;
+  }, [tenantId, refresh]);
 
   const enriched = useMemo(
     () => customers.map(c => ({ customer: c, stats: computeStats(c, orders, loyalty) })),
@@ -493,7 +508,7 @@ function CustomerDialog({
 
   const errors = {
     name: form.name.trim().length < 2 ? 'Nome obrigatório' : null,
-    phone: validateMpesa(form.phone), // mesmo formato 8X XXX XXXX
+    phone: validateMzMobile(form.phone),
     nuit: form.nuit ? validateNuit(form.nuit) : null,
     birthday: form.birthday && !/^\d{2}-\d{2}$/.test(form.birthday)
       ? 'Use o formato MM-DD (ex: 03-15)' : null,

@@ -241,16 +241,16 @@ export default function InventoryPage() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-muted-foreground text-xs">Stock Actual</Label>
-                <Input type="number" value={form.currentStock} onChange={e => setForm(f => ({ ...f, currentStock: +e.target.value }))} className="bg-secondary border-border mt-1" />
+                <Input type="number" value={form.currentStock === 0 ? '' : form.currentStock} onChange={e => setForm(f => ({ ...f, currentStock: e.target.value === '' ? 0 : +e.target.value }))} className="bg-secondary border-border mt-1" />
               </div>
               <div>
                 <Label className="text-muted-foreground text-xs">Stock Mínimo</Label>
-                <Input type="number" value={form.minStock} onChange={e => setForm(f => ({ ...f, minStock: +e.target.value }))} className="bg-secondary border-border mt-1" />
+                <Input type="number" value={form.minStock === 0 ? '' : form.minStock} onChange={e => setForm(f => ({ ...f, minStock: e.target.value === '' ? 0 : +e.target.value }))} className="bg-secondary border-border mt-1" />
               </div>
             </div>
             <div>
               <Label className="text-muted-foreground text-xs">Custo por Unidade (MT)</Label>
-              <Input type="number" value={form.costPerUnit} onChange={e => setForm(f => ({ ...f, costPerUnit: +e.target.value }))} className="bg-secondary border-border mt-1" />
+              <Input type="number" value={form.costPerUnit === 0 ? '' : form.costPerUnit} onChange={e => setForm(f => ({ ...f, costPerUnit: e.target.value === '' ? 0 : +e.target.value }))} className="bg-secondary border-border mt-1" />
             </div>
             <p className="text-[11px] text-muted-foreground">
               A ligação a pratos e o uso por porção são definidos na receita de cada prato em <strong>Menu</strong>.

@@ -53,6 +53,15 @@ export function validateMpesa(raw: string): ValidationResult {
   return null;
 }
 
+/** Any Mozambican mobile network (Tmcel 82/83, Vodacom 84/85, Movitel 86/87) — for general contact numbers, not tied to a specific mobile-money provider. */
+export function validateMzMobile(raw: string): ValidationResult {
+  if (!raw.trim()) return null;
+  const d = digits(raw);
+  if (d.length !== 9) return 'Deve ter 9 dígitos (ex: 84 123 4567)';
+  if (!/^8[2-7]/.test(d)) return 'Número inválido';
+  return null;
+}
+
 export function validateEmola(raw: string): ValidationResult {
   if (!raw.trim()) return null;
   const d = digits(raw);

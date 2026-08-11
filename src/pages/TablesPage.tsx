@@ -244,7 +244,12 @@ function TableFormDialog({ open, table, existingNumbers, onClose, onSubmit }: Ta
       setSeats(4);
       setStatus('free');
     }
-  }, [table, open, existingNumbers]);
+    // existingNumbers is deliberately excluded: it's a fresh array every
+    // parent render (tables.map(...)), and the parent re-renders every
+    // second via its own clock tick — including it here would reset
+    // whatever the user is mid-typing roughly once per second.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [table, open]);
 
   if (!open) return null;
 
@@ -281,8 +286,8 @@ function TableFormDialog({ open, table, existingNumbers, onClose, onSubmit }: Ta
                 id="table-number"
                 type="number"
                 min={1}
-                value={number}
-                onChange={e => setNumber(parseInt(e.target.value) || 0)}
+                value={number === 0 ? '' : number}
+                onChange={e => setNumber(e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
                 className="w-full bg-secondary/50 rounded-lg px-3 py-2 text-foreground border border-border focus:outline-none focus:border-primary"
               />
               {numberConflict && <p className="text-xs text-destructive mt-1">Já existe uma mesa com este número.</p>}
@@ -292,8 +297,8 @@ function TableFormDialog({ open, table, existingNumbers, onClose, onSubmit }: Ta
                 id="table-seats"
                 type="number"
                 min={1}
-                value={seats}
-                onChange={e => setSeats(parseInt(e.target.value) || 0)}
+                value={seats === 0 ? '' : seats}
+                onChange={e => setSeats(e.target.value === '' ? 0 : parseInt(e.target.value) || 0)}
                 className="w-full bg-secondary/50 rounded-lg px-3 py-2 text-foreground border border-border focus:outline-none focus:border-primary"
               />
             </Field>

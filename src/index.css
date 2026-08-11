@@ -4,6 +4,13 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Radix Dialog/AlertDialog overlays sit at z-50; an error toast fired while
+   a dialog is open must still be readable, so force it above every overlay
+   regardless of DOM/portal mount order. */
+[data-sonner-toaster] {
+  z-index: 2147483647 !important;
+}
+
 @layer base {
   :root {
     --background: 220 20% 10%;

@@ -305,7 +305,12 @@ export default function SuperAdminPage() {
           </DialogHeader>
           <div className="space-y-2">
             <Label>Dias a adicionar</Label>
-            <Input type="number" value={extendDays} onChange={e => setExtendDays(Number(e.target.value))} min={1} />
+            <Input
+              type="number"
+              value={extendDays === 0 ? '' : extendDays}
+              onChange={e => setExtendDays(e.target.value === '' ? 0 : Number(e.target.value))}
+              min={1}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setExtendTarget(null)}>Cancelar</Button>
