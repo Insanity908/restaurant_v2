@@ -17,8 +17,13 @@ describe('Configurações', () => {
     // O botão principal "Guardar" fica nas acções do cabeçalho da página
     // (PageShell), distinto do botão "Guardar" ao lado do campo de
     // username mais abaixo — por isso usa-se o primeiro da DOM.
-    cy.contains('button', /^guardar$/i).first().click();
-    cy.wait('@patchSettings').its('request.body').should('include', { data: Cypress.sinon.match.has('brandName', 'Sabor de Maputo') });
+    cy.contains('button', /guardar/i).first().click();
+    // Sem registo prévio em app_settings (GET devolve []), a app faz um
+    // upsert (POST .../app_settings?on_conflict=tenant_id) em vez de PATCH.
+    // request.body é {tenant_id, data: {...}} — `.include()` num objecto faz
+    // subset match, mas comparar o `data` directamente evita qualquer
+    // ambiguidade com as chaves extra (tenant_id) ao lado dele.
+    cy.wait('@postSettings').its('request.body.data').should('include', { brandName: 'Sabor de Maputo' });
   });
 
   it('admin: define um username e usa-o para entrar da próxima vez', () => {

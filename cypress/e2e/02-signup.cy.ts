@@ -15,7 +15,7 @@ describe('Registo de conta (Signup)', () => {
 
   it('DADOS INCORRECTOS: email inválido é rejeitado antes de chamar o Supabase', () => {
     const signUp = cy.spy().as('signUpSpy');
-    cy.intercept('POST', '**/auth/v1/signup', signUp);
+    cy.intercept('POST', '**/auth/v1/signup*', signUp);
     fillValid();
     cy.fieldByLabel('Email').clear().type('nao-e-um-email');
     cy.contains('button', /criar conta/i).click();
@@ -39,7 +39,10 @@ describe('Registo de conta (Signup)', () => {
   });
 
   it('sucesso: cria a conta, chama bootstrap-tenant e navega para /onboarding', () => {
-    cy.intercept('POST', '**/auth/v1/signup', {
+    // '*' à direita é obrigatório: o pedido real leva sempre
+    // "?redirect_to=..." — sem o wildcard o intercept nunca casa e o
+    // pedido escapa para o Supabase real.
+    cy.intercept('POST', '**/auth/v1/signup*', {
       statusCode: 200,
       body: {
         access_token: 'a.b.c', token_type: 'bearer', expires_in: 3600,
@@ -66,7 +69,10 @@ describe('Registo de conta (Signup)', () => {
   });
 
   it('FALHA: se o bootstrap-tenant falhar, mostra erro e NÃO avança para onboarding', () => {
-    cy.intercept('POST', '**/auth/v1/signup', {
+    // '*' à direita é obrigatório: o pedido real leva sempre
+    // "?redirect_to=..." — sem o wildcard o intercept nunca casa e o
+    // pedido escapa para o Supabase real.
+    cy.intercept('POST', '**/auth/v1/signup*', {
       statusCode: 200,
       body: {
         access_token: 'a.b.c', token_type: 'bearer', expires_in: 3600,

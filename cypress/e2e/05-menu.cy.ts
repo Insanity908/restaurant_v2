@@ -1,7 +1,11 @@
 const MENU_ITEM = {
-  id: 'm-0000-0000-0000-000000000001',
+  // Tem de ser um UUID válido: store.ts só sincroniza (PATCH) quando
+  // isUuid(id) é verdadeiro, senão cy.wait('@patchMenu') nunca vê nada.
+  id: 'a0000000-0000-0000-0000-000000000001',
   tenant_id: '11111111-1111-1111-1111-111111111111',
-  name: 'Frango Grelhado', price: 350, category: 'Pratos Principais',
+  // 'Popular' porque é a categoria activa por omissão em MenuPage — um
+  // item noutra categoria nunca aparece sem primeiro clicar no separador.
+  name: 'Frango Grelhado', price: 350, category: 'Popular',
   description: 'Servido com arroz e salada', image_path: null, available: true,
   modifiers: [], recipe: null,
 };

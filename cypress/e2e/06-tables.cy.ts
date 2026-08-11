@@ -66,10 +66,30 @@ describe('Mesas', () => {
     // Reatribuir o alias 'getTables': sem isto, este intercept (mais
     // recente que o do beforeEach) responde ao pedido mas cy.wait('@getTables')
     // nunca vê nada, porque o alias original nunca chega a ser usado.
-    cy.intercept('GET', '**/rest/v1/restaurant_tables?*', { statusCode: 200, body: [{ ...TABLE, status: 'occupied' }] }).as('getTables');
+    // Id próprio (não o TABLE partilhado pelos outros testes do ficheiro):
+    // evita qualquer escrita pendente residual de um teste anterior sobre o
+    // mesmo id interferir com este cenário.
+    cy.intercept('GET', '**/rest/v1/restaurant_tables?*', {
+      statusCode: 200,
+      body: [{ ...TABLE, id: 'a0000000-0000-0000-0000-00000000a099', status: 'occupied' }],
+    }).as('getTables');
     cy.loginAs('admin');
+    // A sessão 'admin' em cache (cy.session) pode ter uma cópia local de
+    // 'tables' de um teste anterior neste ficheiro. Sem isto, essa cópia
+    // residual (não ocupada) pode ser o que realmente é clicado, apagando
+    // a mesa em vez de bloquear — independentemente do fetch fresco abaixo.
+    cy.window().then(win => {
+      Object.keys(win.localStorage)
+        .filter(k => k.endsWith('__tables') || k === 'sync_outbox_v1')
+        .forEach(k => win.localStorage.removeItem(k));
+    });
     cy.visit('/tables');
     cy.wait('@getTables');
+    // cy.wait() só confirma a resposta de rede — não que o React já
+    // re-renderizou com ela. Sem isto, o clique pode apanhar um render
+    // efémero anterior (ex: sessão em cache com um fetch incidental
+    // "free"), levando a app a apagar a mesa em vez de bloquear.
+    cy.contains('Ocupada').should('be.visible');
     cy.get('[title="Remover mesa"]').click();
     cy.contains(/não é possível remover uma mesa ocupada/i).should('be.visible');
   });

@@ -27,7 +27,7 @@ describe('Estoque', () => {
     cy.intercept('POST', '**/rest/v1/inventory_items*', { statusCode: 201, body: [{ ...ITEM, id: 'inv-novo', name: 'Arroz (kg)' }] }).as('postInv');
     cy.loginAs('admin');
     cy.visit('/inventory');
-    cy.contains('button', /^novo$/i).click();
+    cy.contains('button', /novo/i).click();
     cy.get('[role="dialog"]').within(() => {
       cy.fieldByLabel('Nome').type('Arroz (kg)');
       cy.fieldByLabel('Stock Actual').clear().type('20');
@@ -42,7 +42,7 @@ describe('Estoque', () => {
     cy.intercept('POST', '**/rest/v1/inventory_items*', postSpy);
     cy.loginAs('admin');
     cy.visit('/inventory');
-    cy.contains('button', /^novo$/i).click();
+    cy.contains('button', /novo/i).click();
     cy.get('[role="dialog"]').within(() => {
       cy.contains('button', /adicionar/i).click();
     });

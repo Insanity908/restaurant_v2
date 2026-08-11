@@ -66,7 +66,12 @@ describe('Funcionários', () => {
       cy.contains('button', /adicionar/i).click();
     });
     cy.wait('@createFail');
-    cy.contains(/username já está em uso/i).should('be.visible');
+    // Não usar .should('be.visible') aqui: com o diálogo ainda aberto,
+    // Cypress considera o toast "coberto" pelo overlay do diálogo mesmo
+    // quando pinta visualmente por cima (paint order vs. o cálculo de
+    // cobertura do Cypress divergem neste caso) — confirmar via conteúdo
+    // da região do toast evita esse falso negativo.
+    cy.get('[data-sonner-toaster]').should('contain.text', 'Username já está em uso');
   });
 
   it('manager: "Novo funcionário" não oferece os papéis Administrador/Gerente/Super Admin', () => {
