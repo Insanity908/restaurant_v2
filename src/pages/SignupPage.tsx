@@ -70,22 +70,7 @@ export default function SignupPage() {
             <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
           </div>
           <div className="space-y-1.5">
-            <div className="inline-flex rounded-lg border border-border/60 p-0.5 text-xs">
-              <button
-                type="button"
-                className={`px-3 py-1 rounded-md transition-colors ${mode === 'email' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
-                onClick={() => setMode('email')}
-              >
-                Email
-              </button>
-              <button
-                type="button"
-                className={`px-3 py-1 rounded-md transition-colors ${mode === 'username' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground'}`}
-                onClick={() => setMode('username')}
-              >
-                Username
-              </button>
-            </div>
+            
           </div>
           <div className="grid grid-cols-2 gap-2">
             {mode === 'email' ? (
