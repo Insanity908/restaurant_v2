@@ -40,7 +40,7 @@ export default function LandingPage() {
         </p>
         <div className="flex flex-wrap justify-center gap-3 mt-8">
           <Link to="/signup"><Button size="lg">Começar grátis (7 dias)</Button></Link>
-          <Link to="/pricing"><Button size="lg" variant="outline">Ver pacotes</Button></Link>
+          <a href="#pricing"><Button size="lg" variant="outline">Ver pacotes</Button></a>
         </div>
       </section>
 

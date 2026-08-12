@@ -1,6 +1,6 @@
 // Single source of truth for tenant licence state.
 // - `status`: any tenant member (or super-admin) — recomputes and persists expiry.
-// - `block` / `unblock` / `extend` / `activate` / `delete`: super-admin only.
+// - `block` / `unblock` / `extend` / `reduce` / `activate` / `delete`: super-admin only.
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
@@ -10,7 +10,7 @@ const PLAN_MONTHS: Record<string, number> = { monthly: 1, quarterly: 3, semiannu
 const TRIAL_DAYS = 7;
 
 const BodySchema = z.object({
-  action: z.enum(['status', 'block', 'unblock', 'extend', 'activate', 'delete']),
+  action: z.enum(['status', 'block', 'unblock', 'extend', 'reduce', 'activate', 'delete']),
   tenantId: z.string().uuid(),
   reason: z.string().max(300).optional(),
   days: z.number().int().min(1).max(3650).optional(),
@@ -112,6 +112,14 @@ Deno.serve(async (req) => {
       patch.blocked_by_admin = false;
       patch.block_reason = null;
       patch.status = 'active';
+    } else if (action === 'reduce') {
+      // Ao contrário de 'extend', parte sempre da data de expiração actual
+      // (mesmo que já tenha passado) — reduzir dias a partir de "agora"
+      // quando já está expirado não faria sentido.
+      const base = sub.expires_at ? new Date(sub.expires_at) : now;
+      patch.expires_at = new Date(base.getTime() - (days ?? 30) * 86400000).toISOString();
+      // Não mexe em blocked_by_admin/status aqui — o recomputo abaixo já
+      // marca "expired" sozinho se a nova data ficar no passado.
     } else if (action === 'activate') {
       if (!plan) return json({ error: 'Plano em falta.' }, 400);
       const base = sub.expires_at && new Date(sub.expires_at) > now && sub.status === 'active'

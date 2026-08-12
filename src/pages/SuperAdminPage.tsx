@@ -27,9 +27,14 @@ export default function SuperAdminPage() {
   const [blockReason, setBlockReason] = useState('');
   const [extendTarget, setExtendTarget] = useState<Tenant | null>(null);
   const [extendDays, setExtendDays] = useState(30);
+  const [reduceTarget, setReduceTarget] = useState<Tenant | null>(null);
+  const [reduceDays, setReduceDays] = useState(30);
   const [activateTarget, setActivateTarget] = useState<Tenant | null>(null);
   const [activatePlan, setActivatePlan] = useState<BillingPlan>('monthly');
   const [activateRef, setActivateRef] = useState('');
+  const [confirmAction, setConfirmAction] = useState<{
+    title: string; description: string; confirmLabel: string; onConfirm: () => void;
+  } | null>(null);
 
   const [teams, setTeams] = useState<Record<string, TenantTeam>>({});
   const [loading, setLoading] = useState(true);
@@ -87,6 +92,12 @@ export default function SuperAdminPage() {
     if (!extendTarget) return;
     const ok = await run(() => tenantStore.extend(extendTarget.id, extendDays), `Subscrição estendida +${extendDays} dias`);
     if (ok) setExtendTarget(null);
+  };
+
+  const doReduce = async () => {
+    if (!reduceTarget) return;
+    const ok = await run(() => tenantStore.reduce(reduceTarget.id, reduceDays), `Subscrição reduzida -${reduceDays} dias`);
+    if (ok) setReduceTarget(null);
   };
 
   const doActivate = async () => {
@@ -215,11 +226,23 @@ export default function SuperAdminPage() {
                         <Button size="sm" variant="outline" onClick={() => { setExtendTarget(t); setExtendDays(30); }}>
                           <Clock className="w-3.5 h-3.5" />+ Dias
                         </Button>
+                        <Button size="sm" variant="outline" onClick={() => { setReduceTarget(t); setReduceDays(30); }}>
+                          <Clock className="w-3.5 h-3.5" />- Dias
+                        </Button>
                         <Button size="sm" variant="outline" onClick={() => { setActivateTarget(t); setActivatePlan(t.subscription.plan || 'monthly'); setActivateRef(''); }}>
                           <CheckCircle2 className="w-3.5 h-3.5" />Ativar plano
                         </Button>
                         {t.subscription.blockedByAdmin ? (
-                          <Button size="sm" variant="outline" onClick={() => doUnblock(t)}>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setConfirmAction({
+                              title: `Desbloquear ${t.name}?`,
+                              description: 'O restaurante e toda a equipa voltam a ter acesso normal imediatamente.',
+                              confirmLabel: 'Desbloquear',
+                              onConfirm: () => doUnblock(t),
+                            })}
+                          >
                             <Unlock className="w-3.5 h-3.5" />Desbloquear
                           </Button>
                         ) : (
@@ -282,7 +305,7 @@ export default function SuperAdminPage() {
         </TabsContent>
       </Tabs>
 
-      <Dialog open={!!blockTarget} onOpenChange={o => !o && setBlockTarget(null)}>
+      <Dialog open={!!blockTarget && !confirmAction} onOpenChange={o => !o && setBlockTarget(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Bloquear {blockTarget?.name}</DialogTitle>
@@ -293,12 +316,21 @@ export default function SuperAdminPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setBlockTarget(null)}>Cancelar</Button>
-            <Button onClick={doBlock}>Bloquear</Button>
+            <Button
+              onClick={() => setConfirmAction({
+                title: `Bloquear ${blockTarget?.name}?`,
+                description: `O restaurante e toda a equipa ficam sem acesso imediatamente${blockReason ? ` — motivo: "${blockReason}"` : ''}.`,
+                confirmLabel: 'Bloquear',
+                onConfirm: doBlock,
+              })}
+            >
+              Bloquear
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!extendTarget} onOpenChange={o => !o && setExtendTarget(null)}>
+      <Dialog open={!!extendTarget && !confirmAction} onOpenChange={o => !o && setExtendTarget(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Estender subscrição — {extendTarget?.name}</DialogTitle>
@@ -314,11 +346,50 @@ export default function SuperAdminPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setExtendTarget(null)}>Cancelar</Button>
-            <Button onClick={doExtend}>Estender</Button>
+            <Button
+              onClick={() => setConfirmAction({
+                title: `Estender subscrição — ${extendTarget?.name}?`,
+                description: `A subscrição fica válida por mais ${extendDays} dia(s).`,
+                confirmLabel: 'Estender',
+                onConfirm: doExtend,
+              })}
+            >
+              Estender
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      <Dialog open={!!activateTarget} onOpenChange={o => !o && setActivateTarget(null)}>
+      <Dialog open={!!reduceTarget && !confirmAction} onOpenChange={o => !o && setReduceTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reduzir subscrição — {reduceTarget?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label>Dias a remover</Label>
+            <Input
+              type="number"
+              value={reduceDays === 0 ? '' : reduceDays}
+              onChange={e => setReduceDays(e.target.value === '' ? 0 : Number(e.target.value))}
+              min={1}
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReduceTarget(null)}>Cancelar</Button>
+            <Button
+              variant="destructive"
+              onClick={() => setConfirmAction({
+                title: `Reduzir subscrição — ${reduceTarget?.name}?`,
+                description: `Remove ${reduceDays} dia(s) da subscrição. Se a data de expiração ficar no passado, a conta passa a "expirado".`,
+                confirmLabel: 'Reduzir',
+                onConfirm: doReduce,
+              })}
+            >
+              Reduzir
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!activateTarget && !confirmAction} onOpenChange={o => !o && setActivateTarget(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Ativar plano — {activateTarget?.name}</DialogTitle>
@@ -347,10 +418,40 @@ export default function SuperAdminPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setActivateTarget(null)}>Cancelar</Button>
-            <Button onClick={doActivate}>Confirmar ativação</Button>
+            <Button
+              onClick={() => setConfirmAction({
+                title: `Ativar plano — ${activateTarget?.name}?`,
+                description: `Activa o plano ${PLANS[activatePlan].label} (${formatMT(PLANS[activatePlan].price)}).`,
+                confirmLabel: 'Confirmar ativação',
+                onConfirm: doActivate,
+              })}
+            >
+              Confirmar ativação
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Confirmação genérica — toda a operação que afecta outra conta passa por aqui. */}
+      <AlertDialog open={!!confirmAction} onOpenChange={o => !o && setConfirmAction(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{confirmAction?.title}</AlertDialogTitle>
+            <AlertDialogDescription>{confirmAction?.description}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                confirmAction?.onConfirm();
+                setConfirmAction(null);
+              }}
+            >
+              {confirmAction?.confirmLabel}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </PageShell>
   );
 }

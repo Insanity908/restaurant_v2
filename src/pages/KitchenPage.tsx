@@ -8,8 +8,15 @@ import { cn } from '@/lib/utils';
 import { Clock, AlertTriangle, X, HandPlatter } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
+import type { Order, OrderItem } from '@/types/restaurant';
 
 const STATUS_CYCLE: Array<'pending' | 'preparing' | 'ready'> = ['pending', 'preparing', 'ready'];
+const DELAY_THRESHOLD_MIN = 15;
+
+function orderLabel(order: { type: 'dine-in' | 'takeaway' | 'delivery'; tableNumber?: number }): string {
+  if (order.type === 'dine-in') return `Mesa ${order.tableNumber}`;
+  return order.type === 'takeaway' ? 'Takeaway' : 'Entrega';
+}
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Pendente',
   preparing: 'Preparando',
@@ -22,6 +29,8 @@ export default function KitchenPage() {
   const { user } = useAuth();
   const [now, setNow] = useState(new Date());
   const [alertedReadyOrders, setAlertedReadyOrders] = useState<string[]>([]);
+  const [alertedPendingDelayOrders, setAlertedPendingDelayOrders] = useState<string[]>([]);
+  const [alertedReadyDelayItems, setAlertedReadyDelayItems] = useState<string[]>([]);
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
   const isKitchen = user?.role === 'kitchen';
   const isWaiterOrCashier = user?.role === 'waiter' || user?.role === 'cashier';
@@ -29,13 +38,20 @@ export default function KitchenPage() {
   const canServe = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'waiter' || user?.role === 'cashier';
   const shouldReceiveReadyAlerts = isWaiterOrCashier;
 
+  // Todos os pedidos ainda em curso, independentemente do que cada papel vê
+  // no board — os alertas de atraso não devem depender de o pedido já ter
+  // (ou não) um item "pronto" a aparecer no ecrã de quem os recebe.
+  const activeOrders = useMemo(
+    () => orders.filter(o => !o.paid && o.status !== 'cancelled' && o.status !== 'completed'),
+    [orders],
+  );
+
   // Build the list of orders visible based on role.
   // - Kitchen: only orders with at least one pending/preparing item (hide ready ones).
   // - Waiter/Cashier: only orders with at least one ready item to serve.
   // - Admin/Manager: see everything that's not yet fully served/paid.
   const kitchenOrders = useMemo(() => {
-    return orders.filter(o => {
-      if (o.paid || o.status === 'cancelled' || o.status === 'completed') return false;
+    return activeOrders.filter(o => {
       const hasPendingPrep = o.items.some(i => i.status === 'pending' || i.status === 'preparing');
       const hasReadyToServe = o.items.some(i => i.status === 'ready');
       if (isKitchen) return hasPendingPrep;
@@ -43,9 +59,10 @@ export default function KitchenPage() {
       // admin/manager
       return hasPendingPrep || hasReadyToServe;
     });
-  }, [orders, isKitchen, isWaiterOrCashier]);
+  }, [activeOrders, isKitchen, isWaiterOrCashier]);
 
   const detailOrder = kitchenOrders.find(o => o.id === detailOrderId) ?? null;
+  const getElapsedMin = (createdAt: string) => Math.floor((now.getTime() - new Date(createdAt).getTime()) / 60000);
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 30000);
@@ -62,7 +79,7 @@ export default function KitchenPage() {
 
     newReadyOrders.forEach(order => {
       toast.success('Prato completo', {
-        description: `${order.type === 'dine-in' ? `Mesa ${order.tableNumber}` : order.type === 'takeaway' ? 'Takeaway' : 'Entrega'} está pronto para servir.`,
+        description: `${orderLabel(order)} está pronto para servir.`,
       });
     });
 
@@ -71,8 +88,56 @@ export default function KitchenPage() {
     }
   }, [alertedReadyOrders, kitchenOrders, shouldReceiveReadyAlerts]);
 
-  const getElapsedMin = (createdAt: string) => Math.floor((now.getTime() - new Date(createdAt).getTime()) / 60000);
-  const delayedCount = kitchenOrders.filter(o => getElapsedMin(o.createdAt) > 15).length;
+  // Cozinha: prato ainda não iniciado (pendente) há demasiado tempo.
+  useEffect(() => {
+    if (!isKitchen) return;
+
+    const stalePendingOrders = activeOrders.filter(order =>
+      getElapsedMin(order.createdAt) > DELAY_THRESHOLD_MIN && order.items.some(i => i.status === 'pending')
+    );
+    const newStale = stalePendingOrders.filter(order => !alertedPendingDelayOrders.includes(order.id));
+
+    newStale.forEach(order => {
+      toast.warning('Prato por iniciar', {
+        description: `${orderLabel(order)} está há mais de ${DELAY_THRESHOLD_MIN} min à espera — comece a preparar.`,
+      });
+    });
+
+    if (newStale.length > 0) {
+      setAlertedPendingDelayOrders(prev => [...prev, ...newStale.map(order => order.id)]);
+    }
+  }, [activeOrders, alertedPendingDelayOrders, isKitchen, now]);
+
+  // Garçom/Caixa: um prato específico ficou "pronto" há demasiado tempo sem
+  // ser servido (não o pedido inteiro desde a criação — o que interessa aqui
+  // é o tempo que o prato já pronto está a arrefecer à espera de ser levado).
+  useEffect(() => {
+    if (!isWaiterOrCashier) return;
+
+    const staleReadyItems: { order: Order; item: OrderItem }[] = [];
+    activeOrders.forEach(order => {
+      order.items.forEach(item => {
+        if (item.status !== 'ready') return;
+        const readyEvent = [...(order.events ?? [])].reverse().find(e => e.type === 'item-ready' && e.itemId === item.id);
+        if (!readyEvent) return;
+        const elapsed = Math.floor((now.getTime() - new Date(readyEvent.at).getTime()) / 60000);
+        if (elapsed > DELAY_THRESHOLD_MIN) staleReadyItems.push({ order, item });
+      });
+    });
+    const newStale = staleReadyItems.filter(({ item }) => !alertedReadyDelayItems.includes(item.id));
+
+    newStale.forEach(({ order, item }) => {
+      toast.warning('Prato pronto por servir', {
+        description: `${item.name} (${orderLabel(order)}) está pronto há mais de ${DELAY_THRESHOLD_MIN} min — sirva antes que arrefeça.`,
+      });
+    });
+
+    if (newStale.length > 0) {
+      setAlertedReadyDelayItems(prev => [...prev, ...newStale.map(({ item }) => item.id)]);
+    }
+  }, [activeOrders, alertedReadyDelayItems, isWaiterOrCashier, now]);
+
+  const delayedCount = kitchenOrders.filter(o => getElapsedMin(o.createdAt) > DELAY_THRESHOLD_MIN).length;
 
   const cycleItemStatus = (orderId: string, itemId: string, currentStatus: string) => {
     const idx = STATUS_CYCLE.indexOf(currentStatus as any);
@@ -109,7 +174,7 @@ export default function KitchenPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {kitchenOrders.map(order => {
             const elapsed = getElapsedMin(order.createdAt);
-            const isDelayed = elapsed > 15;
+            const isDelayed = elapsed > DELAY_THRESHOLD_MIN;
             const allReady = order.items.every(i => i.status === 'ready');
             // Items visíveis por papel
             const visibleItems = isKitchen

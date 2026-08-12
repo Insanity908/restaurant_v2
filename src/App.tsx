@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Route, Routes, useLocation } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -24,8 +24,6 @@ import CustomersPage from "@/pages/CustomersPage";
 import LoginPage from "@/pages/LoginPage";
 import LandingPage from "@/pages/LandingPage";
 import SignupPage from "@/pages/SignupPage";
-import PricingPage from "@/pages/PricingPage";
-import BillingPage from "@/pages/BillingPage";
 import BillingSuccessPage from "@/pages/BillingSuccessPage";
 import BlockedPage from "@/pages/BlockedPage";
 import SuperAdminPage from "@/pages/SuperAdminPage";
@@ -80,8 +78,10 @@ const App = () => (
             <Route path="/shifts" element={<RequireAuth><ShiftsPage /></RequireAuth>} />
             <Route path="/customers" element={<RequireAuth><CustomersPage /></RequireAuth>} />
             <Route path="/settings" element={<RequireAuth><SettingsPage /></RequireAuth>} />
-            <Route path="/pricing" element={<RequireAuth><PricingPage /></RequireAuth>} />
-            <Route path="/billing" element={<RequireAuth><BillingPage /></RequireAuth>} />
+            {/* Facturação/planos ainda não estão prontos para produção — bloqueados
+                por agora, a reactivar quando essa área estiver concluída. */}
+            <Route path="/pricing" element={<Navigate to="/" replace />} />
+            <Route path="/billing" element={<Navigate to="/" replace />} />
             <Route path="/onboarding" element={<RequireAuth><OnboardingPage /></RequireAuth>} />
             <Route path="/admin" element={<RequireSuperAdmin><SuperAdminPage /></RequireSuperAdmin>} />
             <Route path="*" element={<NotFound />} />

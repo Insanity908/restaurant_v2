@@ -105,6 +105,7 @@ type Action =
   | { action: 'block'; tenantId: string; reason?: string }
   | { action: 'unblock'; tenantId: string }
   | { action: 'extend'; tenantId: string; days: number }
+  | { action: 'reduce'; tenantId: string; days: number }
   | { action: 'activate'; tenantId: string; plan: BillingPlan; ref?: string }
   | { action: 'delete'; tenantId: string };
 
@@ -188,6 +189,7 @@ export const tenantStore = {
   block: (id: string, reason: string) => callSubscription({ action: 'block', tenantId: id, reason }),
   unblock: (id: string) => callSubscription({ action: 'unblock', tenantId: id }),
   extend: (id: string, days: number) => callSubscription({ action: 'extend', tenantId: id, days }),
+  reduce: (id: string, days: number) => callSubscription({ action: 'reduce', tenantId: id, days }),
   activatePlan: (id: string, plan: BillingPlan, ref?: string) =>
     callSubscription({ action: 'activate', tenantId: id, plan, ref }),
   remove: (id: string) => callSubscription({ action: 'delete', tenantId: id }),

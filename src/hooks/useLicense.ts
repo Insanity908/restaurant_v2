@@ -36,7 +36,12 @@ export function useLicense() {
 
   const status = tenant?.subscription.status ?? null;
   const isActive = status === 'active' || status === 'trial';
-  const isBlocked = status === 'blocked' || status === 'expired';
+  // Temporariamente só o bloqueio manual do superadmin restringe o acesso —
+  // a expiração automática fica desligada enquanto a área de facturação
+  // não estiver pronta (sem isto, uma conta "expired" ficaria bloqueada sem
+  // nenhuma forma de pagar/renovar, já que /billing e /pricing também
+  // estão bloqueados por agora).
+  const isBlocked = status === 'blocked';
   const daysLeft = tenant ? tenantStore.daysUntilExpiry(tenant) : 0;
 
   return { tenant, status, isActive, isBlocked, daysLeft, refresh, syncFromServer };

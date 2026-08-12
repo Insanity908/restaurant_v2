@@ -90,7 +90,7 @@ export default function OnboardingPage() {
 
   const finishOnboarding = async () => {
     const withContent = invites.filter(v => v.name.trim());
-    if (withContent.length === 0) { navigate('/pricing', { replace: true }); return; }
+    if (withContent.length === 0) { navigate('/', { replace: true }); return; }
 
     for (const v of withContent) {
       const err = inviteErrors(v);
@@ -126,7 +126,7 @@ export default function OnboardingPage() {
 
     if (created > 0) toast.success(`${created} membro(s) adicionado(s)`);
     if (failed.length > 0) toast.error(`Falhou para: ${failed.join(', ')}`);
-    navigate('/pricing', { replace: true });
+    navigate('/', { replace: true });
   };
 
   return (
@@ -253,7 +253,7 @@ export default function OnboardingPage() {
           <div className="flex justify-between">
             <Button variant="outline" onClick={() => setStep(1)}>Voltar</Button>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => navigate('/pricing', { replace: true })}>Saltar</Button>
+              <Button variant="outline" onClick={() => navigate('/', { replace: true })}>Saltar</Button>
               <Button onClick={finishOnboarding} disabled={inviting}>
                 <Check className="w-4 h-4" />{inviting ? 'A criar...' : 'Concluir'}
               </Button>

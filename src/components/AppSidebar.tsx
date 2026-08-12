@@ -1,5 +1,5 @@
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutGrid, UtensilsCrossed, ChefHat, CreditCard, BarChart3, Settings, Coffee, Package, LogOut, Users, Clock, UserCircle, Receipt, ShieldCheck, MoreHorizontal, ChevronsUpDown, Plus, Check } from 'lucide-react';
+import { LayoutGrid, UtensilsCrossed, ChefHat, CreditCard, BarChart3, Settings, Coffee, Package, LogOut, Users, Clock, UserCircle, ShieldCheck, MoreHorizontal, ChevronsUpDown, Plus, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useOptionalAuth, ROUTE_PERMISSIONS } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -23,7 +23,6 @@ const navItems = [
   { path: '/staff', icon: Users, label: 'Funcionários' },
   { path: '/customers', icon: UserCircle, label: 'Clientes' },
   { path: '/shifts', icon: Clock, label: 'Turnos' },
-  { path: '/billing', icon: Receipt, label: 'Faturação' },
   { path: '/settings', icon: Settings, label: 'Configurações' },
 ];
 
@@ -157,7 +156,7 @@ export default function AppSidebar() {
             <span className="hidden lg:inline">Sair</span>
           </Button>
           {tenant && user.role === 'admin' && (
-            <Link to="/billing" className={cn(
+            <div className={cn(
               'hidden lg:flex items-center gap-2 px-2 py-1.5 rounded-lg border',
               status === 'active' ? 'bg-success/10 border-success/20 text-success' :
               status === 'trial' ? 'bg-primary/10 border-primary/20 text-primary' :
@@ -169,7 +168,7 @@ export default function AppSidebar() {
                  status === 'active' ? `Ativo · ${Math.max(0, daysLeft)}d` :
                  status === 'expired' ? 'Expirado' : 'Bloqueado'}
               </span>
-            </Link>
+            </div>
           )}
         </div>
       </aside>

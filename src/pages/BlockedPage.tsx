@@ -1,11 +1,10 @@
-import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Lock, CreditCard, LogOut } from 'lucide-react';
+import { Lock, LogOut } from 'lucide-react';
 import { useLicense } from '@/hooks/useLicense';
 import { useAuth } from '@/context/AuthContext';
 
 export default function BlockedPage() {
-  const { tenant, status } = useLicense();
+  const { tenant } = useLicense();
   const { logout } = useAuth();
   const sub = tenant?.subscription;
 
@@ -17,19 +16,9 @@ export default function BlockedPage() {
         </div>
         <h1 className="font-heading text-2xl font-bold">Acesso bloqueado</h1>
         <p className="text-sm text-muted-foreground">
-          {status === 'blocked'
-            ? sub?.blockReason || 'A sua conta foi bloqueada pelo administrador. Contacte-o para regularizar.'
-            : 'A sua subscrição expirou. Renove o seu pacote para continuar a usar o sistema.'}
+          {sub?.blockReason || 'A sua conta foi bloqueada pelo administrador. Contacte-o para regularizar.'}
         </p>
-        {tenant?.subscription.expiresAt && (
-          <p className="text-xs text-muted-foreground">
-            Expirou em: {new Date(tenant.subscription.expiresAt).toLocaleDateString('pt-MZ')}
-          </p>
-        )}
         <div className="flex flex-col gap-2 pt-2">
-          {status !== 'blocked' && (
-            <Link to="/pricing"><Button className="w-full"><CreditCard className="w-4 h-4" />Renovar agora</Button></Link>
-          )}
           <Button variant="outline" onClick={logout}><LogOut className="w-4 h-4" />Sair</Button>
         </div>
       </div>

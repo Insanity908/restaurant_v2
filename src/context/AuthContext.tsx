@@ -282,8 +282,9 @@ export const ROUTE_PERMISSIONS: Record<string, UserRole[]> = {
   '/staff': ['admin', 'manager'],
   '/customers': ['admin', 'manager', 'cashier', 'waiter'],
   '/shifts': ['admin', 'manager', 'cashier', 'waiter', 'kitchen'],
-  '/billing': ['admin'],
-  '/pricing': ['admin'],
+  // '/billing' e '/pricing' saíram daqui de propósito: App.tsx redirecciona-as
+  // sempre para "/" (facturação ainda não está pronta para produção), antes
+  // sequer de chegarem ao RequireAuth — mantê-las aqui seria código morto.
   '/onboarding': ['admin'],
   '/admin': ['superadmin'],
 };
