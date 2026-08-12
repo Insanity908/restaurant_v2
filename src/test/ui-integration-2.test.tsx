@@ -1,5 +1,5 @@
 import { describe, it, beforeEach, expect, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
@@ -189,6 +189,9 @@ describe('SuperAdminPage — desbloquear restaurante', () => {
 
     const unblockBtn = await screen.findByRole('button', { name: /desbloquear/i });
     await user.click(unblockBtn);
+
+    const confirmDialog = await screen.findByRole('alertdialog');
+    await user.click(within(confirmDialog).getByRole('button', { name: /desbloquear/i }));
 
     await waitFor(() => expect(unblockMock).toHaveBeenCalledWith('tenant-1'));
   });

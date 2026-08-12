@@ -19,7 +19,7 @@ export default defineConfig(({ mode }) => ({
       injectRegister: null,
       filename: "sw.js",
       devOptions: { enabled: false },
-      includeAssets: ["favicon.png", "icons/apple-touch-icon.png", "robots.txt"],
+      includeAssets: ["favicon.png", "icons/apple-touch-icon.png", "icons/icon-512-maskable.png", "robots.txt"],
       manifest: {
         name: "Sabor POS — Gestão de Restaurantes",
         short_name: "Sabor POS",
@@ -34,7 +34,10 @@ export default defineConfig(({ mode }) => ({
         icons: [
           { src: "/icons/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
           { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
-          { src: "/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+          // Ficheiro dedicado (não o icon-512 "any"): o desenho vai até à
+          // borda, e o Android recorta ícones maskable numa forma — sem
+          // margem própria, a asa da chávena ficava cortada em alguns launchers.
+          { src: "/icons/icon-512-maskable.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
         ],
       },
       workbox: {
