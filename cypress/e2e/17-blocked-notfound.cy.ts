@@ -23,7 +23,28 @@ describe('Conta bloqueada / expirada', () => {
     cy.contains('a', /renovar agora/i).should('not.exist'); // status "blocked" não mostra renovar, só "expired"
   });
 
-  it('admin com subscrição "expired": vê o botão de renovar', () => {
+  it('bloqueio afecta toda a equipa, não só o admin: waiter também é redireccionado para /blocked', () => {
+    cy.loginAs('waiter');
+    cy.intercept('GET', '**/rest/v1/tenants?*', {
+      statusCode: 200,
+      body: [{
+        id: '11111111-1111-1111-1111-111111111111', name: 'Restaurante de Teste',
+        owner_email: 'dono@teste.mz', owner_phone: null, license_key: 'lic_teste_0001',
+        created_at: new Date().toISOString(),
+        subscriptions: [{
+          plan: 'monthly', status: 'blocked',
+          started_at: new Date().toISOString(), expires_at: new Date(Date.now() - 86400000).toISOString(),
+          last_payment_ref: null, blocked_by_admin: true, block_reason: 'Pagamento em atraso',
+        }],
+        subscription_history: [],
+      }],
+    });
+    cy.visit('/tables');
+    cy.location('pathname', { timeout: 10000 }).should('eq', '/blocked');
+    cy.contains('Pagamento em atraso').should('be.visible');
+  });
+
+  it('admin com subscrição "expired": NÃO é bloqueado (só o bloqueio manual do superadmin restringe acesso, por agora)', () => {
     cy.loginAs('admin');
     cy.intercept('GET', '**/rest/v1/tenants?*', {
       statusCode: 200,
@@ -40,29 +61,7 @@ describe('Conta bloqueada / expirada', () => {
       }],
     });
     cy.visit('/tables');
-    cy.location('pathname', { timeout: 10000 }).should('eq', '/blocked');
-    cy.contains('a', /renovar agora/i).should('be.visible').click();
-    cy.location('pathname').should('eq', '/pricing');
-  });
-
-  it('/billing continua acessível mesmo com a conta bloqueada (para poder pagar)', () => {
-    cy.loginAs('admin');
-    cy.intercept('GET', '**/rest/v1/tenants?*', {
-      statusCode: 200,
-      body: [{
-        id: '11111111-1111-1111-1111-111111111111', name: 'Restaurante de Teste',
-        owner_email: 'dono@teste.mz', owner_phone: null, license_key: 'lic_teste_0001',
-        created_at: new Date().toISOString(),
-        subscriptions: [{
-          plan: 'monthly', status: 'blocked', started_at: new Date().toISOString(),
-          expires_at: new Date().toISOString(), last_payment_ref: null,
-          blocked_by_admin: true, block_reason: 'x',
-        }],
-        subscription_history: [],
-      }],
-    });
-    cy.visit('/billing');
-    cy.location('pathname').should('eq', '/billing');
+    cy.location('pathname').should('eq', '/tables');
     cy.contains('Acesso restrito').should('not.exist');
   });
 });

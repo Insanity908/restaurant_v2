@@ -33,6 +33,8 @@ describe('SuperAdmin', () => {
     cy.wait('@getTenants');
     cy.contains('Restaurante Bloqueado').should('be.visible');
     cy.contains('button', /desbloquear/i).click();
+    // Toda a operação que afecta outra conta pede confirmação explícita.
+    cy.get('[role="alertdialog"]').contains('button', /desbloquear/i).click();
     cy.wait('@unblock');
   });
 
@@ -48,10 +50,12 @@ describe('SuperAdmin', () => {
     cy.visit('/admin');
     cy.contains('Restaurante Activo').should('be.visible');
     cy.contains('button', /bloquear/i).click();
-    cy.get('[role="dialog"], [role="alertdialog"]').within(() => {
+    cy.get('[role="dialog"]').within(() => {
       cy.get('textarea, input').first().type('Falta de pagamento há 2 meses');
       cy.contains('button', /bloquear|confirmar/i).click();
     });
+    // Passo de confirmação explícita antes de afectar a conta.
+    cy.get('[role="alertdialog"]').contains('button', /bloquear/i).click();
     cy.wait('@block');
   });
 
@@ -83,7 +87,26 @@ describe('SuperAdmin', () => {
       cy.get('input[type="number"]').clear().type('15');
       cy.contains('button', /^estender$/i).click();
     });
+    cy.get('[role="alertdialog"]').contains('button', /^estender$/i).click();
     cy.wait('@extend');
+  });
+
+  it('superadmin: reduz a subscrição em -10 dias', () => {
+    cy.intercept('GET', '**/rest/v1/tenants?*', { statusCode: 200, body: [tenant()] });
+    cy.intercept('POST', '**/functions/v1/subscription-status', (req) => {
+      expect(req.body).to.include({ action: 'reduce', tenantId: 'tenant-abc', days: 10 });
+      req.reply({ statusCode: 200, body: { ok: true } });
+    }).as('reduce');
+
+    cy.loginAs('superadmin');
+    cy.visit('/admin');
+    cy.contains('button', /^- dias$/i).click();
+    cy.get('[role="dialog"]').within(() => {
+      cy.get('input[type="number"]').clear().type('10');
+      cy.contains('button', /^reduzir$/i).click();
+    });
+    cy.get('[role="alertdialog"]').contains('button', /^reduzir$/i).click();
+    cy.wait('@reduce');
   });
 
   it('DADOS INCORRECTOS/FALHA: erro do servidor ao desbloquear mostra mensagem e mantém o estado anterior', () => {
@@ -93,6 +116,7 @@ describe('SuperAdmin', () => {
     cy.loginAs('superadmin');
     cy.visit('/admin');
     cy.contains('button', /desbloquear/i).click();
+    cy.get('[role="alertdialog"]').contains('button', /desbloquear/i).click();
     cy.wait('@unblockFail');
     cy.contains(/erro/i).should('be.visible');
     cy.contains('Restaurante Bloqueado').should('be.visible'); // continua na lista

@@ -44,7 +44,7 @@ describe('Onboarding (admin, pós-signup)', () => {
     cy.location('pathname').should('eq', '/onboarding'); // não avançou
   });
 
-  it('admin: convida um membro válido e conclui, terminando em /pricing', () => {
+  it('admin: convida um membro válido e conclui, terminando no dashboard', () => {
     const NEW_STAFF_ID = 'a1000000-0000-0000-0000-00000000a998';
     cy.intercept('POST', '**/functions/v1/create-staff-account', {
       statusCode: 200, body: { ok: true, userId: NEW_STAFF_ID },
@@ -62,15 +62,15 @@ describe('Onboarding (admin, pós-signup)', () => {
     cy.contains('button', /concluir/i).click();
     cy.wait('@createAccount').its('request.body').should('include', { name: 'Carla Cozinha', username: 'carla_cozinha', email: 'carla@teste.mz' });
     cy.wait('@postStaff').its('request.body').should('include', { id: NEW_STAFF_ID, name: 'Carla Cozinha' });
-    cy.location('pathname', { timeout: 10000 }).should('eq', '/pricing');
+    cy.location('pathname', { timeout: 10000 }).should('eq', '/');
   });
 
-  it('admin: "Saltar" no passo 2 vai directo para /pricing sem convidar ninguém', () => {
+  it('admin: "Saltar" no passo 2 vai directo para o dashboard sem convidar ninguém', () => {
     cy.loginAs('admin');
     cy.visit('/onboarding');
     cy.contains('button', /continuar/i).click();
     cy.contains('button', /^saltar$/i).click();
-    cy.location('pathname').should('eq', '/pricing');
+    cy.location('pathname').should('eq', '/');
   });
 });
 

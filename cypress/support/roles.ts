@@ -74,8 +74,7 @@ export const ROUTE_PERMISSIONS: Record<string, Role[]> = {
   '/staff': ['admin', 'manager'],
   '/customers': ['admin', 'manager', 'cashier', 'waiter'],
   '/shifts': ['admin', 'manager', 'cashier', 'waiter', 'kitchen'],
-  '/billing': ['admin'],
-  '/pricing': ['admin'],
+  // '/billing' e '/pricing' saíram daqui de propósito — ver AuthContext.tsx.
   '/onboarding': ['admin'],
   '/admin': ['superadmin'],
 };

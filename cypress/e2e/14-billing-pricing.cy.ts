@@ -1,40 +1,25 @@
-describe('Faturação', () => {
-  (['manager', 'cashier', 'waiter', 'kitchen'] as const).forEach(role => {
-    it(`${role}: SEM acesso a Faturação`, () => {
+// Facturação/planos ainda não estão prontos para produção — /billing e
+// /pricing ficam bloqueados (redireccionam para "/") para todos os papéis,
+// incluindo admin, até essa área ser reactivada.
+describe('Faturação e Preços (bloqueados temporariamente)', () => {
+  (['admin', 'manager', 'cashier', 'waiter', 'kitchen'] as const).forEach(role => {
+    it(`${role}: /billing redirecciona para "/"`, () => {
       cy.loginAs(role);
       cy.visit('/billing', { failOnStatusCode: false });
-      cy.contains('Acesso restrito').should('be.visible');
+      cy.location('pathname').should('eq', '/');
+    });
+
+    it(`${role}: /pricing redirecciona para "/"`, () => {
+      cy.loginAs(role);
+      cy.visit('/pricing', { failOnStatusCode: false });
+      cy.location('pathname').should('eq', '/');
     });
   });
 
-  it('admin: vê o estado do trial e os dias restantes', () => {
+  it('a barra lateral não mostra "Faturação"', () => {
     cy.loginAs('admin');
-    cy.visit('/billing');
-    cy.contains(/trial|período experimental/i).should('be.visible');
-  });
-
-  it('admin: "Mudar plano" navega para /pricing', () => {
-    cy.loginAs('admin');
-    cy.visit('/billing');
-    cy.contains('a, button', /mudar plano/i).click();
-    cy.location('pathname').should('eq', '/pricing');
-  });
-});
-
-describe('Preços (Pricing)', () => {
-  it('manager: SEM acesso a /pricing', () => {
-    cy.loginAs('manager');
-    cy.visit('/pricing', { failOnStatusCode: false });
-    cy.contains('Acesso restrito').should('be.visible');
-  });
-
-  it('admin: vê os 4 planos disponíveis', () => {
-    cy.loginAs('admin');
-    cy.visit('/pricing');
-    cy.contains(/mensal/i).should('be.visible');
-    cy.contains(/trimestral/i).should('be.visible');
-    cy.contains(/semestral/i).should('be.visible');
-    cy.contains(/anual/i).should('be.visible');
+    cy.visit('/');
+    cy.contains('Faturação').should('not.exist');
   });
 });
 
