@@ -269,13 +269,13 @@ export default function SettingsPage() {
           <Card className="p-6 space-y-5">
             <h2 className="font-heading text-lg font-semibold">Carteira móvel</h2>
             <div className="grid sm:grid-cols-2 gap-4">
-              <Field label="Número M-Pesa" value={local.mpesaNumber}
+              <Field label="Número" value={local.mpesaNumber}
                 onChange={v => set('mpesaNumber', maskMzPhone(v))}
                 placeholder="84 123 4567" error={errors.mpesaNumber}
                 hint="Vodacom: começa por 84 ou 85" inputMode="numeric" />
-              <Field label="Nome do titular M-Pesa" value={local.mpesaName}
+              <Field label="Nome do titular" value={local.mpesaName}
                 onChange={v => set('mpesaName', v)} placeholder="Nome registado" />
-              <Field label="Número e-Mola" value={local.emolaNumber}
+              <Field label="Número" value={local.emolaNumber}
                 onChange={v => set('emolaNumber', maskMzPhone(v))}
                 placeholder="86 123 4567" error={errors.emolaNumber}
                 hint="Movitel: começa por 86 ou 87" inputMode="numeric" />

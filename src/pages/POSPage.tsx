@@ -326,7 +326,7 @@ export default function POSPage() {
                   {[
                     { key: 'cash' as const, icon: Banknote, label: 'Dinheiro' },
                     { key: 'card' as const, icon: CreditCard, label: 'Cartão' },
-                    { key: 'mobile-money' as const, icon: Smartphone, label: 'M-Pesa' },
+                    { key: 'mobile-money' as const, icon: Smartphone, label: 'Carteira-Móvel' },
                   ].map(({ key, icon: Icon, label }) => (
                     <button
                       key={key}
