@@ -50,6 +50,11 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 const CURRENT_TENANT_KEY = 'current_tenant_id';
+// Com a confirmação de email ativa, signUp() não recebe sessão de imediato
+// (só depois de a pessoa clicar no link do email) — por isso o pedido de
+// criação do restaurante fica guardado aqui e só é enviado quando a sessão
+// confirmada aparecer (ver hydrate() abaixo).
+const PENDING_ONBOARDING_KEY = 'pending_onboarding';
 
 async function loadSessionUser(authUser: User): Promise<SessionUser | null> {
   // Fetch profile, roles and memberships in parallel.
@@ -104,7 +109,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const hydrate = useCallback(async (s: Session | null) => {
     if (!s?.user) { setUser(null); return; }
     try {
-      const u = await loadSessionUser(s.user);
+      let u = await loadSessionUser(s.user);
+      if (u && u.tenantIds.length === 0) {
+        const pendingRaw = localStorage.getItem(PENDING_ONBOARDING_KEY);
+        if (pendingRaw) {
+          const pending = JSON.parse(pendingRaw) as { restaurantName: string; ownerName?: string; ownerPhone?: string };
+          const { error: fnError } = await supabase.functions.invoke('bootstrap-tenant', {
+            body: pending,
+          });
+          if (!fnError) {
+            localStorage.removeItem(PENDING_ONBOARDING_KEY);
+            u = await loadSessionUser(s.user);
+          }
+        }
+      }
       setUser(u);
       if (u?.tenantId) {
         // Prefetch tenant-scoped caches in parallel; failures fall back to
@@ -200,17 +218,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       return { ok: false, error: error.message };
     }
+    const pending = { restaurantName: input.restaurantName, ownerName: input.name, ownerPhone: input.phone };
     if (!data.session) {
-      // Email confirmation required (unlikely because auto_confirm is on).
+      // Confirmação de email pendente — sem sessão ainda não há como chamar
+      // bootstrap-tenant (a função exige um utilizador autenticado). Fica
+      // guardado e hydrate() trata disto quando a pessoa confirmar o email.
+      localStorage.setItem(PENDING_ONBOARDING_KEY, JSON.stringify(pending));
       return { ok: false, error: 'Verifique o seu email para confirmar a conta.' };
     }
     // Provision tenant + admin role + trial.
     const { error: fnError } = await supabase.functions.invoke('bootstrap-tenant', {
-      body: {
-        restaurantName: input.restaurantName,
-        ownerName: input.name,
-        ownerPhone: input.phone,
-      },
+      body: pending,
     });
     if (fnError) return { ok: false, error: `Conta criada mas falhou provisionar restaurante: ${fnError.message}` };
     // Re-hydrate to pick up new tenant + role.

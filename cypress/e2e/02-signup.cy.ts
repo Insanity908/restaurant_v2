@@ -92,6 +92,27 @@ describe('Registo de conta (Signup)', () => {
     cy.contains(/falhou provisionar restaurante/i).should('be.visible');
     cy.location('pathname').should('eq', '/signup');
   });
+
+  it('confirmação de email pendente: guarda o pedido de restaurante em vez de o perder', () => {
+    // Com a confirmação de email activa, signUp() não recebe sessão de
+    // imediato — a API real devolve só o utilizador, sem access_token. Sem
+    // sessão não há como chamar bootstrap-tenant (exige um pedido
+    // autenticado), por isso o nome do restaurante tem de ficar guardado
+    // para ser usado assim que a sessão confirmada aparecer (AuthContext.tsx,
+    // hydrate()) — nunca deve ser simplesmente perdido.
+    cy.intercept('POST', '**/auth/v1/signup*', {
+      statusCode: 200,
+      body: { id: 'pending-user-id', email: 'jose3@restaurante.mz', aud: 'authenticated', role: 'authenticated', confirmation_sent_at: new Date().toISOString() },
+    }).as('signUpPending');
+
+    fillValid();
+    cy.fieldByLabel('Email').clear().type('jose3@restaurante.mz');
+    cy.contains('button', /criar conta/i).click();
+    cy.wait('@signUpPending');
+    cy.contains(/verifique o seu email/i).should('be.visible');
+    cy.window().its('localStorage').invoke('getItem', 'pending_onboarding')
+      .should('contain', 'Sabor de Maputo');
+  });
 });
 
 export {};

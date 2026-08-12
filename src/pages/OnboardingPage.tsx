@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Navigate } from 'react-router-dom';
 import PageShell from '@/components/PageShell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,6 +25,7 @@ type Invite = {
 };
 
 const emptyInvite = (): Invite => ({ name: '', role: 'cashier', username: '', email: '', password: '' });
+const JUST_ONBOARDED_KEY = 'onboarding_just_created';
 
 async function extractFunctionErrorMessage(error: unknown): Promise<string | undefined> {
   if (error && typeof error === 'object' && 'context' in error && (error as { context: unknown }).context instanceof Response) {
@@ -52,11 +53,35 @@ export default function OnboardingPage() {
   const [invites, setInvites] = useState<Invite[]>([emptyInvite()]);
   const [inviting, setInviting] = useState(false);
 
+  // Multi-unidade fica para o futuro: quem já tem um restaurante não tem
+  // motivo para voltar aqui (nem para criar outro) — só passa por esta
+  // página quem ainda não tem nenhum, seja no primeiro registo ou a
+  // recuperar de um bootstrap que falhou a meio.
+  //
+  // Criar o primeiro restaurante (abaixo, addExtraTenant) recarrega a
+  // página para o resto da app apanhar o tenant novo — nesse recarregamento
+  // já existe 1 tenant, e sem esta flag o guard mandava a própria pessoa
+  // que ACABOU de criar o restaurante de volta para o dashboard antes de
+  // conseguir chegar ao passo 2 (convidar equipa). A flag é consumida uma
+  // única vez: só sobrevive a ESSE recarregamento, não a visitas seguintes.
+  const [blocked] = useState(() => {
+    if (myTenants.length === 0) return false;
+    if (sessionStorage.getItem(JUST_ONBOARDED_KEY)) {
+      sessionStorage.removeItem(JUST_ONBOARDED_KEY);
+      return false;
+    }
+    return true;
+  });
+  if (blocked) {
+    return <Navigate to="/" replace />;
+  }
+
   const addExtraTenant = async () => {
     if (!user?.email || !user?.authUserId || !extraName.trim()) return;
     const t = await tenantStore.create({ name: extraName.trim(), ownerEmail: user.email, ownerName: user.name });
     if (!t) { toast.error('Não foi possível criar o restaurante'); return; }
     tenantStore.setCurrent(t.id);
+    sessionStorage.setItem(JUST_ONBOARDED_KEY, '1');
     setExtraName('');
     toast.success(`Restaurante "${t.name}" criado`);
     setTimeout(() => window.location.reload(), 400);

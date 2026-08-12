@@ -1,11 +1,11 @@
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutGrid, UtensilsCrossed, ChefHat, CreditCard, BarChart3, Settings, Coffee, Package, LogOut, Users, Clock, UserCircle, ShieldCheck, MoreHorizontal, ChevronsUpDown, Plus, Check } from 'lucide-react';
+import { LayoutGrid, UtensilsCrossed, ChefHat, CreditCard, BarChart3, Settings, Coffee, Package, LogOut, Users, Clock, UserCircle, ShieldCheck, MoreHorizontal, ChevronsUpDown, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useOptionalAuth, ROUTE_PERMISSIONS } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
 import { useSettings } from '@/hooks/useSettings';
 import { useLicense } from '@/hooks/useLicense';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel } from '@/components/ui/dropdown-menu';
 import { tenantStore } from '@/lib/tenants';
 import { useStorageImage } from '@/hooks/useStorageImage';
 import { LOGO_BUCKET } from '@/lib/storage';
@@ -66,12 +66,6 @@ function TenantSwitcher() {
             {current?.id === t.id && <Check className="w-3.5 h-3.5 text-primary" />}
           </DropdownMenuItem>
         ))}
-        <DropdownMenuSeparator />
-        <DropdownMenuItem asChild>
-          <Link to="/onboarding" className="cursor-pointer">
-            <Plus className="w-3.5 h-3.5 mr-2" /> Adicionar restaurante
-          </Link>
-        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

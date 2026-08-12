@@ -879,8 +879,16 @@ begin
   )
   on conflict (id) do nothing;
 
+  -- Só promove enquanto NENHUM superadmin existir ainda — isto é só para o
+  -- bootstrap do primeiro dono da plataforma. Sem esta condição, qualquer
+  -- conta futura criada com o email de platform_config (por autorregisto OU
+  -- por um admin de restaurante a convidar um funcionário via
+  -- create-staff-account, que usa a service role) herdaria superadmin —
+  -- por exemplo se o email do superadmin for trocado, ou a conta original
+  -- for apagada, deixando o valor antigo "órfão" em platform_config.
   select value into v_owner_email from public.platform_config where key = 'superadmin_email';
-  if v_owner_email is not null and lower(new.email) = lower(v_owner_email) then
+  if v_owner_email is not null and lower(new.email) = lower(v_owner_email)
+     and not exists (select 1 from public.user_roles where role = 'superadmin'::public.app_role) then
     insert into public.user_roles (user_id, tenant_id, role)
     values (new.id, null, 'superadmin'::public.app_role)
     on conflict do nothing;

@@ -103,20 +103,28 @@ Deno.serve(async (req) => {
     await admin.from('profiles').update(profilePatch).eq('id', user.id);
 
     // 3) membership + admin role
-    await admin.from('tenant_members').insert({ tenant_id: tenant.id, user_id: user.id });
-    await admin.from('user_roles').insert({ tenant_id: tenant.id, user_id: user.id, role: 'admin' });
+    const { error: memberErr } = await admin.from('tenant_members').insert({ tenant_id: tenant.id, user_id: user.id });
+    if (memberErr) throw memberErr;
+    const { error: roleErr } = await admin.from('user_roles').insert({ tenant_id: tenant.id, user_id: user.id, role: 'admin' });
+    if (roleErr) throw roleErr;
 
-    // 4) 7-day trial subscription
+    // 4) 7-day trial subscription. `plan` só aceita monthly/quarterly/
+    // semiannual/annual (enum billing_plan) — "trial" nunca foi um valor
+    // válido, e como o erro não era verificado, isto falhava sempre e em
+    // silêncio: todo restaurante novo ficava sem nenhuma linha de
+    // subscrição, mostrando "0 dias" até subscription-status (a única
+    // função que já usava plan: null) a recriar mais tarde.
     const now = new Date();
     const expires = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-    await admin.from('subscriptions').insert({
+    const { error: subErr } = await admin.from('subscriptions').insert({
       tenant_id: tenant.id,
-      plan: 'trial',
+      plan: null,
       status: 'trial',
       started_at: now.toISOString(),
       expires_at: expires.toISOString(),
       blocked_by_admin: false,
     });
+    if (subErr) throw subErr;
 
     // 5) seed app_settings so the brand name shown across the UI (sidebar,
     // Settings > Marca, receipts) matches what was typed at signup, instead
