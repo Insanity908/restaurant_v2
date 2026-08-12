@@ -194,6 +194,9 @@ $$;
 -- username (Supabase Auth só aceita email em signInWithPassword). SECURITY
 -- DEFINER porque `profiles` não é publicamente legível — mas isto nunca
 -- devolve mais do que o próprio email correspondente ao username pedido.
+-- Administradores ('admin') ficam de fora de propósito: só entram com o
+-- email real, nunca por username (ver migração
+-- 20260812193000_block_admin_username_login.sql).
 create or replace function public.resolve_login_email(identifier text)
 returns text
 language sql stable security definer set search_path = public
@@ -201,8 +204,12 @@ as $$
   select case
     when identifier ilike '%@%' then lower(trim(identifier))
     else (
-      select email from public.profiles
-      where lower(username) = lower(trim(identifier))
+      select p.email from public.profiles p
+      where lower(p.username) = lower(trim(identifier))
+        and not exists (
+          select 1 from public.user_roles ur
+          where ur.user_id = p.id and ur.role = 'admin'::public.app_role
+        )
       limit 1
     )
   end;

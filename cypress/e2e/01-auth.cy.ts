@@ -34,7 +34,9 @@ describe('Login', () => {
   });
 
   it('login com username (em vez de email) resolve para o email certo e entra', () => {
-    const user = USERS.admin;
+    // admin fica de fora de propósito — só entra com email (ver teste
+    // abaixo). Usa-se manager aqui para cobrir o caminho de username normal.
+    const user = USERS.manager;
     cy.mockSessionForUser(user);
     // Corpo tem de ser JSON válido: esta RPC devolve um scalar (text) e o
     // postgrest-js faz sempre JSON.parse(body) na resposta. Uma string JS
@@ -65,7 +67,26 @@ describe('Login', () => {
     // confirma-se que o pedido de login ocorreu e teve sucesso...
     cy.wait('@signIn').its('response.statusCode').should('eq', 200);
     // ...só depois se valida para onde a app navegou.
-    cy.location('pathname', { timeout: 10000 }).should('eq', ROLE_HOME.admin);
+    cy.location('pathname', { timeout: 10000 }).should('eq', ROLE_HOME.manager);
+  });
+
+  it('admin: login com username é rejeitado (resolve_login_email devolve null) e pede email', () => {
+    const user = USERS.admin;
+    // No servidor, resolve_login_email exclui explicitamente quem tem papel
+    // 'admin' — devolve null mesmo que o username exista, forçando login por
+    // email.
+    cy.intercept('POST', '**/rest/v1/rpc/resolve_login_email', { statusCode: 200, body: null }).as('resolve');
+    const signIn = cy.spy().as('signInSpy');
+    cy.intercept('POST', '**/auth/v1/token?grant_type=password', signIn);
+
+    cy.visit('/login');
+    cy.get('#login-identifier').type(user.username);
+    cy.get('#login-password').type(user.password);
+    cy.contains('button', /entrar/i).click();
+    cy.wait('@resolve');
+    cy.contains(/utilizador não encontrado/i).should('be.visible');
+    cy.get('@signInSpy').should('not.have.been.called');
+    cy.location('pathname').should('eq', '/login');
   });
 
   it('DADOS INCORRECTOS: username inexistente mostra erro e não chega a autenticar', () => {

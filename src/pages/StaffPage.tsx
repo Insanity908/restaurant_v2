@@ -194,9 +194,9 @@ export default function StaffPage() {
       }
     >
 
-      {/* Role summary */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
-        {ROLES.map(r => (
+      {/* Role summary — admin não conta como "funcionário" aqui */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+        {ROLES.filter(r => r.value !== 'admin').map(r => (
           <div key={r.value} className="glass rounded-xl p-4">
             <p className="text-xs text-muted-foreground">{r.label}</p>
             <p className="font-heading text-2xl font-bold mt-1">{counts[r.value]}</p>

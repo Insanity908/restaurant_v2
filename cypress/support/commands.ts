@@ -67,7 +67,10 @@ Cypress.Commands.add('mockSupabaseBaseline', () => {
   });
   cy.intercept('POST', '**/rest/v1/rpc/resolve_login_email', (req) => {
     const identifier = String(req.body?.identifier ?? '').toLowerCase();
-    const match = Object.values(USERS).find(u => u.username.toLowerCase() === identifier);
+    // Espelha o servidor real: 'admin' fica de fora da resolução por
+    // username de propósito (só entra com email) — ver migração
+    // 20260812193000_block_admin_username_login.sql.
+    const match = Object.values(USERS).find(u => u.username.toLowerCase() === identifier && u.role !== 'admin');
     // O corpo tem de ser JSON válido: esta RPC devolve um scalar (text), e o
     // postgrest-js faz sempre JSON.parse(body) na resposta (ver
     // PostgrestBuilder.processResponse). Uma string JS "crua" aqui (ex:

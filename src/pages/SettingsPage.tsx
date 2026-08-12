@@ -1,6 +1,4 @@
 import { useMemo, useRef, useState } from 'react';
-import { supabase } from '@/integrations/supabase/client';
-import { validateUsername } from '@/lib/validators';
 import PageShell from '@/components/PageShell';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -25,25 +23,9 @@ const EMOJI_CHOICES = ['☕', '🍴', '🍕', '🍔', '🍲', '🥘', '🍜', '�
 
 export default function SettingsPage() {
   const { settings, update, reset } = useSettings();
-  const { user, refreshProfile } = useAuth();
+  const { user } = useAuth();
   const isSuperAdmin = user?.role === 'superadmin';
   const [local, setLocal] = useState(settings);
-  const [usernameLocal, setUsernameLocal] = useState(user?.username ?? '');
-  const [savingUsername, setSavingUsername] = useState(false);
-
-  const saveUsername = async () => {
-    const err = validateUsername(usernameLocal);
-    if (err) { toast.error(err); return; }
-    setSavingUsername(true);
-    const { error } = await supabase.from('profiles').update({ username: usernameLocal.trim() }).eq('id', user?.id);
-    setSavingUsername(false);
-    if (error) {
-      toast.error(error.message.includes('duplicate') ? 'Esse username já está em uso' : error.message);
-      return;
-    }
-    await refreshProfile();
-    toast.success('Username atualizado');
-  };
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState<'icon' | 'receipt' | null>(null);
   const iconPreview = useStorageImage(LOGO_BUCKET, local.iconUrl);
@@ -303,24 +285,6 @@ export default function SettingsPage() {
 
         {/* BUSINESS */}
         <TabsContent value="business" className="space-y-4">
-          <Card className="p-6 space-y-5">
-            <h2 className="font-heading text-lg font-semibold">A sua conta</h2>
-            <div className="space-y-2 max-w-sm">
-              <Label>Username</Label>
-              <div className="flex gap-2">
-                <Input
-                  value={usernameLocal}
-                  onChange={e => setUsernameLocal(e.target.value)}
-                  placeholder="ex: joao_admin"
-                />
-                <Button type="button" variant="outline" disabled={savingUsername} onClick={saveUsername}>
-                  {savingUsername ? 'A guardar…' : 'Guardar'}
-                </Button>
-              </div>
-              <p className="text-xs text-muted-foreground">Pode usar este username em vez do email para entrar.</p>
-            </div>
-          </Card>
-
           <Card className="p-6 space-y-5">
             <h2 className="font-heading text-lg font-semibold">Dados do negócio</h2>
             <div className="grid sm:grid-cols-2 gap-4">

@@ -164,7 +164,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loginWithPassword = useCallback(async (identifier: string, password: string) => {
     // `identifier` may be an email OR a username — Supabase Auth only knows
     // email, so usernames are resolved server-side first (SECURITY DEFINER
-    // RPC; profiles isn't publicly readable).
+    // RPC; profiles isn't publicly readable). The RPC deliberately returns
+    // null for 'admin' accounts even when the username exists — admins must
+    // always log in with their real email.
     let email = identifier.trim();
     if (!email.includes('@')) {
       const { data: resolved, error: resolveErr } = await supabase.rpc('resolve_login_email', { identifier: email });
