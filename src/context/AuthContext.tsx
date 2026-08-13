@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useMemo } from 'react';
+import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useMemo, useRef } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { UserRole } from '@/types/restaurant';
@@ -105,22 +105,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<SessionUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [catalogVersion, setCatalogVersion] = useState(0);
+  // getSession() (abaixo) e o evento INITIAL_SESSION do onAuthStateChange
+  // disparam hydrate() quase em simultâneo para a MESMA sessão no mount —
+  // sem esta trava, as duas chamadas viam tenantIds vazio, liam o mesmo
+  // pending_onboarding e invocavam bootstrap-tenant em paralelo; como a
+  // verificação de idempotência da função (SELECT depois INSERT) não é
+  // atómica, as duas "ganhavam" a corrida e criavam um restaurante cada
+  // uma — daí restaurantes duplicados a aparecer no Super Admin para o
+  // mesmo dono. O guard é síncrono (sem await antes de o marcar), por isso
+  // fecha a corrida mesmo com as duas chamadas entrelaçadas no event loop.
+  const bootstrappingRef = useRef(false);
 
   const hydrate = useCallback(async (s: Session | null) => {
     if (!s?.user) { setUser(null); return; }
     try {
       let u = await loadSessionUser(s.user);
-      if (u && u.tenantIds.length === 0) {
+      if (u && u.tenantIds.length === 0 && !bootstrappingRef.current) {
         const pendingRaw = localStorage.getItem(PENDING_ONBOARDING_KEY);
         if (pendingRaw) {
+          bootstrappingRef.current = true;
+          // Remove já aqui (antes do await): uma segunda hydrate() que
+          // entretanto corra não deve voltar a tentar enquanto esta chamada
+          // está pendente. Se falhar, repõe para uma tentativa futura poder
+          // recuperar.
+          localStorage.removeItem(PENDING_ONBOARDING_KEY);
           const pending = JSON.parse(pendingRaw) as { restaurantName: string; ownerName?: string; ownerPhone?: string };
           const { error: fnError } = await supabase.functions.invoke('bootstrap-tenant', {
             body: pending,
           });
           if (!fnError) {
-            localStorage.removeItem(PENDING_ONBOARDING_KEY);
             u = await loadSessionUser(s.user);
+          } else {
+            localStorage.setItem(PENDING_ONBOARDING_KEY, pendingRaw);
           }
+          bootstrappingRef.current = false;
         }
       }
       setUser(u);
