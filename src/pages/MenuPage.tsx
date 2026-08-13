@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import PageShell from '@/components/PageShell';
 import { useRestaurant } from '@/hooks/useRestaurant';
 import { getMenuItemImage, formatPrice } from '@/lib/helpers';
-import { MenuItem, OrderItem } from '@/types/restaurant';
+import { MenuItem, Modifier, OrderItem } from '@/types/restaurant';
 import { Plus, Minus, ShoppingCart, X, Pencil, Trash2, Settings2, PlusCircle, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -39,6 +39,8 @@ export default function MenuPage() {
   const [tableError, setTableError] = useState(false);
   const [proformaOpen, setProformaOpen] = useState(false);
   const [proformaSel, setProformaSel] = useState<Set<string>>(new Set());
+  const [modifierPickItem, setModifierPickItem] = useState<MenuItem | null>(null);
+  const [pickedModIds, setPickedModIds] = useState<Set<string>>(new Set());
   const navigate = useNavigate();
   const { hasPermission } = useAuth();
   const canProforma = hasPermission('proforma.print');
@@ -58,22 +60,49 @@ export default function MenuPage() {
   const cartTotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const cartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
-  const addToCart = (menuItem: MenuItem) => {
+  // Chave da combinação de modificadores de uma linha do carrinho — duas
+  // linhas do mesmo prato só se juntam (soma quantidade) se escolheram
+  // exatamente os mesmos modificadores; combinações diferentes ficam em
+  // linhas separadas para a cozinha não as confundir.
+  const modifierKey = (mods?: Modifier[]) =>
+    mods && mods.length > 0 ? [...mods].map(m => m.id).sort().join(',') : '';
+
+  const addToCart = (menuItem: MenuItem, modifiers?: Modifier[]) => {
     if (manageMode) return;
+    const key = modifierKey(modifiers);
     setCart(prev => {
-      const existing = prev.find(i => i.menuItemId === menuItem.id);
+      const existing = prev.find(i => i.menuItemId === menuItem.id && modifierKey(i.modifiers) === key);
       if (existing) {
-        return prev.map(i => i.menuItemId === menuItem.id ? { ...i, quantity: i.quantity + 1 } : i);
+        return prev.map(i => i.id === existing.id ? { ...i, quantity: i.quantity + 1 } : i);
       }
+      const extra = (modifiers ?? []).reduce((s, m) => s + m.price, 0);
       return [...prev, {
         id: generateId(),
         menuItemId: menuItem.id,
         name: menuItem.name,
         quantity: 1,
-        price: menuItem.price,
+        price: menuItem.price + extra,
+        modifiers: modifiers && modifiers.length > 0 ? modifiers : undefined,
         status: 'pending' as const,
       }];
     });
+  };
+
+  const handleItemClick = (item: MenuItem) => {
+    if (manageMode) return;
+    if (item.modifiers && item.modifiers.length > 0) {
+      setPickedModIds(new Set());
+      setModifierPickItem(item);
+    } else {
+      addToCart(item);
+    }
+  };
+
+  const confirmModifierPick = () => {
+    if (!modifierPickItem) return;
+    const chosen = modifierPickItem.modifiers?.filter(m => pickedModIds.has(m.id)) ?? [];
+    addToCart(modifierPickItem, chosen);
+    setModifierPickItem(null);
   };
 
   const updateQuantity = (itemId: string, delta: number) => {
@@ -218,7 +247,7 @@ export default function MenuPage() {
                 !manageMode && 'cursor-pointer',
                 !item.available && 'opacity-60'
               )}
-              onClick={() => addToCart(item)}
+              onClick={() => handleItemClick(item)}
             >
               <div className="aspect-[4/3] bg-secondary overflow-hidden">
                 <StorageImage
@@ -346,6 +375,9 @@ export default function MenuPage() {
                       {img && <img src={img} alt={item.name} className="w-12 h-12 rounded-lg object-cover" />}
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-foreground truncate">{item.name}</p>
+                        {item.modifiers && item.modifiers.length > 0 && (
+                          <p className="text-[11px] text-primary truncate">+ {item.modifiers.map(m => m.name).join(', ')}</p>
+                        )}
                         <p className="text-xs text-muted-foreground">{formatPrice(item.price)}</p>
                       </div>
                       <div className="flex items-center gap-2">
@@ -487,6 +519,43 @@ export default function MenuPage() {
               setProformaOpen(false);
             }}>
               <FileText className="w-4 h-4" /> Imprimir
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modifiers Dialog — escolher 0, 1 ou vários modificadores antes de ir para a cozinha */}
+      <Dialog open={!!modifierPickItem} onOpenChange={v => !v && setModifierPickItem(null)}>
+        <DialogContent className="w-[95vw] max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{modifierPickItem?.name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground pb-1">Escolha os extras deste prato (opcional).</p>
+            {modifierPickItem?.modifiers?.map(mod => (
+              <label key={mod.id} className="flex items-center gap-2 p-2 rounded hover:bg-secondary/40 cursor-pointer">
+                <Checkbox
+                  checked={pickedModIds.has(mod.id)}
+                  onCheckedChange={(v) => {
+                    setPickedModIds(prev => {
+                      const next = new Set(prev);
+                      if (v) next.add(mod.id); else next.delete(mod.id);
+                      return next;
+                    });
+                  }}
+                />
+                <span className="flex-1 text-sm">{mod.name}</span>
+                {mod.price > 0 && <span className="text-xs text-muted-foreground">+{formatPrice(mod.price)}</span>}
+              </label>
+            ))}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setModifierPickItem(null)}>Cancelar</Button>
+            <Button onClick={confirmModifierPick}>
+              Adicionar · {formatPrice(
+                (modifierPickItem?.price ?? 0) +
+                (modifierPickItem?.modifiers?.filter(m => pickedModIds.has(m.id)).reduce((s, m) => s + m.price, 0) ?? 0)
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

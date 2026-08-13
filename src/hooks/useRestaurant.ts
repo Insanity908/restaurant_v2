@@ -65,7 +65,9 @@ export function useRestaurant() {
     const merged = [...order.items];
     items.forEach(ni => {
       const existing = merged.find(
-        m => m.menuItemId === ni.menuItemId && m.status === 'pending' && !m.notes && (!m.modifiers || m.modifiers.length === 0),
+        m => m.menuItemId === ni.menuItemId && m.status === 'pending'
+          && !m.notes && !ni.notes
+          && (!m.modifiers || m.modifiers.length === 0) && (!ni.modifiers || ni.modifiers.length === 0),
       );
       if (existing) {
         existing.quantity += ni.quantity;

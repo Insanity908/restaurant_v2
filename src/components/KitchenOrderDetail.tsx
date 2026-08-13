@@ -224,6 +224,9 @@ export default function KitchenOrderDetail({ order, menuItems, onClose, canManag
                       <span className="opacity-70">{idx + 1}.</span>
                       <span>{it.name}</span>
                       <span className="opacity-70">x{it.quantity}</span>
+                      {it.modifiers && it.modifiers.length > 0 && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-current opacity-70" title="Com modificadores" />
+                      )}
                       {it.status === 'ready' && <Check className="w-3 h-3 text-success" />}
                     </button>
                   ))}
@@ -311,6 +314,12 @@ function OrderItemPanel({ order, activeItem }: { order: Order; activeItem?: Orde
       </div>
       <div>
         <h2 className="text-2xl font-bold text-foreground">{main?.name ?? 'Pedido'}</h2>
+        {main?.modifiers && main.modifiers.length > 0 && (
+          <p className="text-sm text-primary mt-0.5">+ {main.modifiers.map(m => m.name).join(', ')}</p>
+        )}
+        {main?.notes && (
+          <p className="text-sm text-warning mt-0.5">Obs: {main.notes}</p>
+        )}
         <p className="text-sm text-muted-foreground mt-1">
           {order.type === 'dine-in' ? `Mesa ${order.tableNumber}` : '—'} · Qtd: x{main?.quantity ?? 1}
         </p>

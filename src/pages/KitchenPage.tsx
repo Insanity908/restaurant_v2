@@ -255,6 +255,9 @@ export default function KitchenPage() {
                         )}
                         <div className="flex-1 min-w-0">
                           <p className="text-sm text-foreground truncate">{item.name}</p>
+                          {item.modifiers && item.modifiers.length > 0 && (
+                            <p className="text-[11px] text-primary truncate">+ {item.modifiers.map(m => m.name).join(', ')}</p>
+                          )}
                           <p className="text-xs text-muted-foreground">x{item.quantity}</p>
                         </div>
                         <span className={cn(

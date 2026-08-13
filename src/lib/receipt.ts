@@ -43,7 +43,7 @@ export function buildReceiptHTML(order: Order, opts: ReceiptOptions = {}): strin
   const itemsRows = items.map(i => `
     <tr>
       <td class="qty">${i.quantity}x</td>
-      <td class="name">${escape(i.name)}${i.notes ? `<div class="notes">${escape(i.notes)}</div>` : ''}</td>
+      <td class="name">${escape(i.name)}${i.modifiers && i.modifiers.length > 0 ? `<div class="notes">+ ${escape(i.modifiers.map(m => m.name).join(', '))}</div>` : ''}${i.notes ? `<div class="notes">${escape(i.notes)}</div>` : ''}</td>
       <td class="price">${escape(formatPrice(i.price * i.quantity))}</td>
     </tr>`).join('');
 
