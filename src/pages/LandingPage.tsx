@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Coffee, CreditCard, BarChart3, Users, Package, ChefHat, ShieldCheck, Check } from 'lucide-react';
 import { PLANS, formatMT } from '@/lib/billing';
+import InstallAppButton from '@/components/InstallAppButton';
 
 const FEATURES = [
   { icon: CreditCard, title: 'POS rápido', desc: 'Pagamentos, recibos e fecho de caixa otimizados para toque.' },
@@ -41,6 +42,7 @@ export default function LandingPage() {
         <div className="flex flex-wrap justify-center gap-3 mt-8">
           <Link to="/signup"><Button size="lg">Começar grátis (7 dias)</Button></Link>
           <a href="#pricing"><Button size="lg" variant="outline">Ver pacotes</Button></a>
+          <InstallAppButton variant="cta" />
         </div>
       </section>
 

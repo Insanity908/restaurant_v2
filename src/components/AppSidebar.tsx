@@ -9,6 +9,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { tenantStore } from '@/lib/tenants';
 import { useStorageImage } from '@/hooks/useStorageImage';
 import { LOGO_BUCKET } from '@/lib/storage';
+import InstallAppButton from '@/components/InstallAppButton';
 
 
 const navItems = [
@@ -139,6 +140,7 @@ export default function AppSidebar() {
             <p className="text-sm font-medium text-foreground truncate">{user.name}</p>
             <p className="text-[11px] text-primary">{ROLE_LABEL[user.role]}</p>
           </div>
+          <InstallAppButton variant="compact" />
           <Button
             variant="ghost"
             size="sm"
