@@ -63,6 +63,31 @@ export function subscribeOutbox(l: Listener): () => void {
   return () => { listeners.delete(l); };
 }
 
+/**
+ * Resources with a write currently on the wire via the fast/online path of
+ * `queueWrite` (below) — before it either succeeds or gets queued. Tracked
+ * separately from the persisted outbox (not written to localStorage, no
+ * listener notification) so the "a sincronizar…" badge doesn't flicker on
+ * every ordinary online write; `pendingResourceIds` still reports them so
+ * `mergePending` (store.ts) protects them.
+ *
+ * Without this, a concurrent read (a Realtime echo, another page mounting)
+ * that lands mid-flight sees pre-write server data and — since the write
+ * isn't in the outbox yet — `mergePending` has no reason to keep the local
+ * version, silently reverting the optimistic change (e.g. a cancelled order
+ * reappearing as active on another screen).
+ */
+const inFlight = new Map<string, number>();
+function markInFlight(resource?: string) {
+  if (!resource) return;
+  inFlight.set(resource, (inFlight.get(resource) ?? 0) + 1);
+}
+function unmarkInFlight(resource?: string) {
+  if (!resource) return;
+  const n = (inFlight.get(resource) ?? 1) - 1;
+  if (n <= 0) inFlight.delete(resource); else inFlight.set(resource, n);
+}
+
 /** Ids of records with unsynced local changes — server data must not clobber them. */
 export function pendingResourceIds(table: string | string[]): Set<string> {
   const tables = Array.isArray(table) ? table : [table];
@@ -71,6 +96,10 @@ export function pendingResourceIds(table: string | string[]): Set<string> {
     if (!tables.includes(op.table) || !op.resource) return;
     const id = op.resource.split(':')[1];
     if (id) ids.add(id);
+  });
+  inFlight.forEach((_count, resource) => {
+    const [t, id] = resource.split(':');
+    if (tables.includes(t) && id) ids.add(id);
   });
   return ids;
 }
@@ -150,7 +179,8 @@ export async function queueWrite(
     return { error: null, queued: true };
   }
 
-  const { error } = await execute(op);
+  markInFlight(op.resource);
+  const { error } = await execute(op).finally(() => unmarkInFlight(op.resource));
   if (error && isTransient(error)) {
     enqueue(op);
     return { error: null, queued: true };
