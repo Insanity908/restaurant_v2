@@ -254,6 +254,11 @@ describe('Acessibilidade — ReportsPage', () => {
     }));
   });
 
+  // Timeout alargado (default global: 20s): montar esta página é lento — os
+  // 4 gráficos recharts arrastam d3-shape/d3-scale/etc., e vi.resetModules()
+  // no beforeEach força reimportar tudo de raiz em cada execução. Medido
+  // isoladamente: render ~8-15s, axe ~1-2s — a soma ultrapassa os 20s por
+  // vezes mesmo sem nada de errado (mais ainda sob carga da suite inteira).
   it('o dashboard de relatórios não tem violações de acessibilidade', async () => {
     const { default: ReportsPage } = await import('@/pages/ReportsPage');
     const { container } = render(<MemoryRouter><ReportsPage /></MemoryRouter>);
@@ -267,5 +272,5 @@ describe('Acessibilidade — ReportsPage', () => {
     // regressão visual) — fica por fazer, sinalizado aqui em vez de
     // escondido, em vez de ser silenciado sem mais.
     expectNoViolations(await axe(container, { rules: { 'aria-valid-attr-value': { enabled: false } } }));
-  });
+  }, 90000);
 });
