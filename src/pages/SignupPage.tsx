@@ -20,16 +20,20 @@ export default function SignupPage() {
     if (!form.restaurant.trim() || !form.name.trim()) return toast.error('Nome obrigatório');
     // Administradores entram sempre com o email real, nunca com username —
     // por isso o signup (que cria a conta de admin) não oferece essa opção.
-    if (!/^\S+@\S+\.\S+$/.test(form.email)) return toast.error('Email inválido');
+    const email = form.email.trim();
+    // Autofill do browser (Chrome/Gboard) por vezes insere um espaço à frente
+    // ou atrás do valor sem disparar onChange — validar/enviar sempre a versão
+    // "trimmed" evita o falso positivo "Email inválido" com um email correto.
+    if (!/^\S+@\S+\.\S+$/.test(email)) return toast.error('Email inválido');
     if (form.password.length < 8) return toast.error('Password deve ter pelo menos 8 caracteres');
     if (form.password !== form.confirm) return toast.error('Passwords não coincidem');
     setLoading(true);
     const res = await signUp({
-      email: form.email,
+      email,
       password: form.password,
-      name: form.name,
-      phone: form.phone || undefined,
-      restaurantName: form.restaurant,
+      name: form.name.trim(),
+      phone: form.phone.trim() || undefined,
+      restaurantName: form.restaurant.trim(),
     });
     setLoading(false);
     if (!res.ok) return toast.error(res.error || 'Erro ao registar');

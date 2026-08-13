@@ -317,12 +317,21 @@ export default function SuperAdminPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setBlockTarget(null)}>Cancelar</Button>
             <Button
-              onClick={() => setConfirmAction({
-                title: `Bloquear ${blockTarget?.name}?`,
-                description: `O restaurante e toda a equipa ficam sem acesso imediatamente${blockReason ? ` — motivo: "${blockReason}"` : ''}.`,
-                confirmLabel: 'Bloquear',
-                onConfirm: doBlock,
-              })}
+              onClick={() => {
+                const name = blockTarget?.name;
+                // Limpa o target já aqui: senão, enquanto o pedido ao servidor
+                // está pendente, `!!blockTarget && !confirmAction` volta a ficar
+                // verdadeiro assim que este diálogo de confirmação fecha, e o
+                // diálogo do motivo reabre sozinho por cima (parece que "não sai
+                // da tela"/não bloqueou, mesmo quando o bloqueio funcionou).
+                setBlockTarget(null);
+                setConfirmAction({
+                  title: `Bloquear ${name}?`,
+                  description: `O restaurante e toda a equipa ficam sem acesso imediatamente${blockReason ? ` — motivo: "${blockReason}"` : ''}.`,
+                  confirmLabel: 'Bloquear',
+                  onConfirm: doBlock,
+                });
+              }}
             >
               Bloquear
             </Button>
@@ -347,12 +356,16 @@ export default function SuperAdminPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setExtendTarget(null)}>Cancelar</Button>
             <Button
-              onClick={() => setConfirmAction({
-                title: `Estender subscrição — ${extendTarget?.name}?`,
-                description: `A subscrição fica válida por mais ${extendDays} dia(s).`,
-                confirmLabel: 'Estender',
-                onConfirm: doExtend,
-              })}
+              onClick={() => {
+                const name = extendTarget?.name;
+                setExtendTarget(null);
+                setConfirmAction({
+                  title: `Estender subscrição — ${name}?`,
+                  description: `A subscrição fica válida por mais ${extendDays} dia(s).`,
+                  confirmLabel: 'Estender',
+                  onConfirm: doExtend,
+                });
+              }}
             >
               Estender
             </Button>
@@ -377,12 +390,16 @@ export default function SuperAdminPage() {
             <Button variant="outline" onClick={() => setReduceTarget(null)}>Cancelar</Button>
             <Button
               variant="destructive"
-              onClick={() => setConfirmAction({
-                title: `Reduzir subscrição — ${reduceTarget?.name}?`,
-                description: `Remove ${reduceDays} dia(s) da subscrição. Se a data de expiração ficar no passado, a conta passa a "expirado".`,
-                confirmLabel: 'Reduzir',
-                onConfirm: doReduce,
-              })}
+              onClick={() => {
+                const name = reduceTarget?.name;
+                setReduceTarget(null);
+                setConfirmAction({
+                  title: `Reduzir subscrição — ${name}?`,
+                  description: `Remove ${reduceDays} dia(s) da subscrição. Se a data de expiração ficar no passado, a conta passa a "expirado".`,
+                  confirmLabel: 'Reduzir',
+                  onConfirm: doReduce,
+                });
+              }}
             >
               Reduzir
             </Button>
@@ -419,12 +436,16 @@ export default function SuperAdminPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => setActivateTarget(null)}>Cancelar</Button>
             <Button
-              onClick={() => setConfirmAction({
-                title: `Ativar plano — ${activateTarget?.name}?`,
-                description: `Activa o plano ${PLANS[activatePlan].label} (${formatMT(PLANS[activatePlan].price)}).`,
-                confirmLabel: 'Confirmar ativação',
-                onConfirm: doActivate,
-              })}
+              onClick={() => {
+                const name = activateTarget?.name;
+                setActivateTarget(null);
+                setConfirmAction({
+                  title: `Ativar plano — ${name}?`,
+                  description: `Activa o plano ${PLANS[activatePlan].label} (${formatMT(PLANS[activatePlan].price)}).`,
+                  confirmLabel: 'Confirmar ativação',
+                  onConfirm: doActivate,
+                });
+              }}
             >
               Confirmar ativação
             </Button>
