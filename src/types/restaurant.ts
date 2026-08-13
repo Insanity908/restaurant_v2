@@ -16,6 +16,7 @@ export interface RecipeIngredient {
   name: string;
   qty: string;
   icon?: string;
+  image?: string; // storage path — só usado quando não ligado a um produto do inventário
   inventoryItemId?: string;
 }
 
@@ -70,6 +71,7 @@ export interface Order {
   total: number;
   discount?: number;
   tip?: number;
+  packagingFee?: number; // taxa de embalagem — só para takeaway/entrega, já incluída em `total`
   paymentMethod?: 'cash' | 'card' | 'mobile-money';
   paid: boolean;
   createdBy?: AuditActor;
@@ -113,6 +115,8 @@ export interface InventoryItem {
   costPerUnit: number;
   linkedMenuItemIds: string[]; // menu items that consume this ingredient
   usagePerServing: number; // how much is consumed per serving
+  icon?: string; // emoji
+  image?: string; // storage path — sobrepõe o icon quando presente
 }
 
 export type UserRole = 'waiter' | 'cashier' | 'kitchen' | 'manager' | 'admin' | 'superadmin';

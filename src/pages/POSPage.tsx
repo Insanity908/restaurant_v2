@@ -23,6 +23,7 @@ export default function POSPage() {
   const [tab, setTab] = useState<POSTab>('payments');
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [tip, setTip] = useState(0);
+  const [packagingFee, setPackagingFee] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'mobile-money'>('cash');
   const [showSuccess, setShowSuccess] = useState(false);
   const [historyOrderId, setHistoryOrderId] = useState<string | null>(null);
@@ -84,7 +85,8 @@ export default function POSPage() {
     discount = Math.min(discount, subtotal * (loyalty.maxDiscountPercent / 100));
   }
   const redeemPts = MT_PER_POINT > 0 ? Math.floor(discount / MT_PER_POINT) : 0;
-  const grandTotal = Math.max(0, subtotal - discount) + tip;
+  const isTakeawayOrDelivery = selectedOrder?.type === 'takeaway' || selectedOrder?.type === 'delivery';
+  const grandTotal = Math.max(0, subtotal - discount) + (isTakeawayOrDelivery ? packagingFee : 0) + tip;
   const willEarn = linkedCustomer && loyalty.enabled ? Math.floor(Math.max(0, subtotal - discount) * POINTS_PER_MT) : 0;
 
   const handleLookup = () => {
@@ -102,6 +104,7 @@ export default function POSPage() {
       customerId: linkedCustomer?.id,
       discount,
       redeemedPoints: redeemPts,
+      packagingFee: isTakeawayOrDelivery ? packagingFee : 0,
     });
     setConfirmingPayment(false);
     if (!result.ok) {
@@ -127,6 +130,7 @@ export default function POSPage() {
       setShowSuccess(false);
       setSelectedOrderId(null);
       setTip(0);
+      setPackagingFee(0);
       setRedeemInput('');
       setLinkedCustomer(null);
       setPhoneLookup('');
@@ -219,6 +223,12 @@ export default function POSPage() {
                     <span>-{formatPrice(discount)}</span>
                   </div>
                 )}
+                {isTakeawayOrDelivery && packagingFee > 0 && (
+                  <div className="flex justify-between mb-2">
+                    <span className="text-muted-foreground">Taxa de embalagem</span>
+                    <span className="text-foreground">{formatPrice(packagingFee)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between mb-2">
                   <span className="text-muted-foreground">Gorjeta</span>
                   <span className="text-foreground">{formatPrice(tip)}</span>
@@ -300,6 +310,27 @@ export default function POSPage() {
                 )}
               </div>
 
+              {/* Packaging fee — só takeaway/entrega */}
+              {isTakeawayOrDelivery && (
+                <div>
+                  <p className="text-sm text-muted-foreground mb-2">Taxa de embalagem</p>
+                  <div className="flex gap-2">
+                    {[0, 20, 50, 100].map(f => (
+                      <button
+                        key={f}
+                        onClick={() => setPackagingFee(f)}
+                        className={cn(
+                          'flex-1 py-2 rounded-lg text-sm font-medium transition-all',
+                          packagingFee === f ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'
+                        )}
+                      >
+                        {f === 0 ? 'Sem' : formatPrice(f)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Tip buttons */}
               <div>
                 <p className="text-sm text-muted-foreground mb-2">Gorjeta</p>
@@ -355,7 +386,7 @@ export default function POSPage() {
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => {
-                    printReceipt({ ...selectedOrder, tip, paymentMethod }, { title: 'Recibo / Conta' });
+                    printReceipt({ ...selectedOrder, tip, packagingFee: isTakeawayOrDelivery ? packagingFee : 0, paymentMethod }, { title: 'Recibo / Conta' });
                     logPrint(selectedOrder.id, 'receipt', 'Recibo / Conta');
                   }}
                   className="flex items-center justify-center gap-2 bg-secondary text-secondary-foreground py-2.5 rounded-xl font-bold text-sm hover:bg-secondary/80 transition-colors"

@@ -514,6 +514,8 @@ create table public.inventory_items (
   cost_per_unit numeric(12,2) not null default 0,
   linked_menu_item_ids uuid[] not null default '{}',
   usage_per_serving numeric(14,3) not null default 0,
+  icon text,
+  image text,
   updated_at timestamptz not null default now()
 );
 create index idx_inventory_tenant on public.inventory_items(tenant_id);
@@ -579,6 +581,7 @@ create table public.orders (
   total numeric(12,2) not null default 0,
   discount numeric(12,2) not null default 0,
   tip numeric(12,2) not null default 0,
+  packaging_fee numeric(12,2) not null default 0,
   payment_method public.payment_method,
   paid boolean not null default false,
   created_by jsonb,

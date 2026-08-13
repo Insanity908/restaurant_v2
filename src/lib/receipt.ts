@@ -32,6 +32,7 @@ export function buildReceiptHTML(order: Order, opts: ReceiptOptions = {}): strin
 
   const subtotal = items.reduce((s, i) => s + i.price * i.quantity, 0);
   const tip = order.tip ?? 0;
+  const packagingFee = order.packagingFee ?? 0;
   const total = showTotals ? order.total + tip : subtotal;
 
   const date = new Date().toLocaleString('pt', {
@@ -49,6 +50,7 @@ export function buildReceiptHTML(order: Order, opts: ReceiptOptions = {}): strin
   const totalsBlock = showTotals ? `
     <div class="totals">
       <div class="row"><span>Subtotal</span><span>${escape(formatPrice(order.total))}</span></div>
+      ${packagingFee > 0 ? `<div class="row"><span>Taxa de embalagem</span><span>${escape(formatPrice(packagingFee))}</span></div>` : ''}
       ${tip > 0 ? `<div class="row"><span>Gorjeta</span><span>${escape(formatPrice(tip))}</span></div>` : ''}
       <div class="row total"><span>Total</span><span>${escape(formatPrice(total))}</span></div>
       ${order.paymentMethod ? `<div class="row small"><span>Pagamento</span><span>${escape(order.paymentMethod)}</span></div>` : ''}

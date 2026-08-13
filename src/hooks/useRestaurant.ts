@@ -143,7 +143,7 @@ export function useRestaurant() {
     orderId: string,
     paymentMethod: Order['paymentMethod'],
     tip?: number,
-    loyalty?: { customerId?: string; discount?: number; redeemedPoints?: number },
+    loyalty?: { customerId?: string; discount?: number; redeemedPoints?: number; packagingFee?: number },
   ) => {
     const order = orders.find(o => o.id === orderId);
     if (!order) return { ok: false as const, reason: 'not-found' as const };
@@ -152,14 +152,16 @@ export function useRestaurant() {
       return { ok: false as const, reason: 'unserved-items' as const, pending };
     }
     const discount = Math.max(0, loyalty?.discount ?? 0);
+    const packagingFee = Math.max(0, loyalty?.packagingFee ?? 0);
     const originalSubtotal = order.items.reduce((s, i) => s + i.price * i.quantity, 0);
-    const newTotal = Math.max(0, originalSubtotal - discount);
+    const newTotal = Math.max(0, originalSubtotal - discount) + packagingFee;
     const result = await orderStore.completePayment(orderId, {
       status: 'completed',
       paid: true,
       paymentMethod,
       tip: tip || 0,
       discount: discount || undefined,
+      packagingFee: packagingFee || undefined,
       total: newTotal,
       customerId: loyalty?.customerId ?? order.customerId,
       closedBy: actorFrom(user),

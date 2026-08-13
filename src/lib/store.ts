@@ -201,6 +201,7 @@ function orderRow(o: Partial<Order>, t?: string) {
   if (o.total !== undefined) row.total = o.total;
   if (o.discount !== undefined) row.discount = o.discount ?? 0;
   if (o.tip !== undefined) row.tip = o.tip ?? 0;
+  if (o.packagingFee !== undefined) row.packaging_fee = o.packagingFee ?? 0;
   if (o.paymentMethod !== undefined) row.payment_method = o.paymentMethod ?? null;
   if (o.paid !== undefined) row.paid = o.paid;
   if (o.createdBy !== undefined) row.created_by = o.createdBy ?? null;
@@ -359,6 +360,7 @@ export async function fetchOrders(t: string): Promise<Order[]> {
     total: Number(r.total ?? 0),
     discount: Number(r.discount ?? 0) || undefined,
     tip: Number(r.tip ?? 0) || undefined,
+    packagingFee: Number(r.packaging_fee ?? 0) || undefined,
     paymentMethod: (r.payment_method as Order['paymentMethod']) ?? undefined,
     paid: Boolean(r.paid),
     createdBy: (r.created_by as Order['createdBy']) ?? undefined,
@@ -412,6 +414,7 @@ export const inventoryStore = {
         current_stock: newItem.currentStock, min_stock: newItem.minStock, cost_per_unit: newItem.costPerUnit,
         linked_menu_item_ids: newItem.linkedMenuItemIds.filter(isUuid),
         usage_per_serving: newItem.usagePerServing,
+        icon: newItem.icon ?? null, image: newItem.image ?? null,
       }).then(({ error }) => warn('inventory.insert', error));
     }
     return newItem;
@@ -430,6 +433,8 @@ export const inventoryStore = {
       if (updates.costPerUnit !== undefined) row.cost_per_unit = updates.costPerUnit;
       if (updates.linkedMenuItemIds !== undefined) row.linked_menu_item_ids = updates.linkedMenuItemIds.filter(isUuid);
       if (updates.usagePerServing !== undefined) row.usage_per_serving = updates.usagePerServing;
+      if (updates.icon !== undefined) row.icon = updates.icon ?? null;
+      if (updates.image !== undefined) row.image = updates.image ?? null;
       if (Object.keys(row).length) {
         void cloud('inventory_items').update(row as never).eq('id', id).eq('tenant_id', t)
           .then(({ error }) => warn('inventory.update', error));
@@ -473,6 +478,7 @@ export async function fetchInventory(t: string): Promise<InventoryItem[]> {
     currentStock: Number(r.current_stock), minStock: Number(r.min_stock),
     costPerUnit: Number(r.cost_per_unit), linkedMenuItemIds: r.linked_menu_item_ids ?? [],
     usagePerServing: Number(r.usage_per_serving),
+    icon: r.icon ?? undefined, image: r.image ?? undefined,
   }));
   inventoryStore.save(rows);
   return rows;
