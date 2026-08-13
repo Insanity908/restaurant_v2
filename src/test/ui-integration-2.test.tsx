@@ -196,3 +196,88 @@ describe('SuperAdminPage — desbloquear restaurante', () => {
     await waitFor(() => expect(unblockMock).toHaveBeenCalledWith('tenant-1'));
   });
 });
+
+// ---------------------------------------------------------------------------
+// SuperAdminPage — bloquear / estender / reduzir passam pelo diálogo em dois
+// passos (motivo|dias -> confirmação genérica). Regressão coberta aqui: o
+// alvo (blockTarget/extendTarget/reduceTarget) é limpo assim que o segundo
+// diálogo abre (para não reabrir o primeiro por cima), por isso as acções
+// têm de receber o alvo por parâmetro em vez de o lerem de volta do state
+// nesse momento — já esteve partido (voltava sempre a dar no-op silencioso).
+// ---------------------------------------------------------------------------
+describe('SuperAdminPage — bloquear/estender/reduzir restaurante', () => {
+  const blockMock = vi.fn();
+  const extendMock = vi.fn();
+  const reduceMock = vi.fn();
+  const activeTenant = {
+    id: 'tenant-2', name: 'Restaurante Ativo', ownerEmail: 'dono2@teste.mz',
+    licenseKey: 'lic_def456', createdAt: new Date().toISOString(),
+    subscription: { plan: 'monthly', status: 'active', blockedByAdmin: false, expiresAt: new Date(Date.now() + 10 * 86400000).toISOString() },
+  };
+
+  beforeEach(() => {
+    vi.resetModules();
+    blockMock.mockReset().mockResolvedValue({ ok: true });
+    extendMock.mockReset().mockResolvedValue({ ok: true });
+    reduceMock.mockReset().mockResolvedValue({ ok: true });
+    vi.doMock('@/lib/tenants', () => ({
+      tenantStore: {
+        getAll: () => [activeTenant],
+        daysUntilExpiry: () => 10,
+        block: blockMock, unblock: vi.fn(), extend: extendMock, reduce: reduceMock, activatePlan: vi.fn(), remove: vi.fn(),
+      },
+      fetchTenants: vi.fn().mockResolvedValue([activeTenant]),
+      fetchTenantTeams: vi.fn().mockResolvedValue({}),
+    }));
+    vi.doMock('@/lib/paymentAccounts', () => ({
+      getPaymentAccounts: () => ({}),
+      savePaymentAccounts: vi.fn(),
+      fetchPaymentAccounts: vi.fn().mockResolvedValue({}),
+    }));
+  });
+
+  it('clicar em "Bloquear" (motivo -> confirmar) chama tenantStore.block com o id certo', async () => {
+    const { default: SuperAdminPage } = await import('@/pages/SuperAdminPage');
+    const user = userEvent.setup();
+    render(<SuperAdminPage />);
+
+    await user.click(await screen.findByRole('button', { name: /^bloquear$/i }));
+    const reasonDialog = await screen.findByRole('dialog');
+    await user.click(within(reasonDialog).getByRole('button', { name: /^bloquear$/i }));
+
+    const confirmDialog = await screen.findByRole('alertdialog');
+    await user.click(within(confirmDialog).getByRole('button', { name: /^bloquear$/i }));
+
+    await waitFor(() => expect(blockMock).toHaveBeenCalledWith('tenant-2', expect.any(String)));
+  });
+
+  it('clicar em "+ Dias" (dias -> confirmar) chama tenantStore.extend com o id certo', async () => {
+    const { default: SuperAdminPage } = await import('@/pages/SuperAdminPage');
+    const user = userEvent.setup();
+    render(<SuperAdminPage />);
+
+    await user.click(await screen.findByRole('button', { name: /\+ dias/i }));
+    const daysDialog = await screen.findByRole('dialog');
+    await user.click(within(daysDialog).getByRole('button', { name: /^estender$/i }));
+
+    const confirmDialog = await screen.findByRole('alertdialog');
+    await user.click(within(confirmDialog).getByRole('button', { name: /^estender$/i }));
+
+    await waitFor(() => expect(extendMock).toHaveBeenCalledWith('tenant-2', 30));
+  });
+
+  it('clicar em "- Dias" (dias -> confirmar) chama tenantStore.reduce com o id certo', async () => {
+    const { default: SuperAdminPage } = await import('@/pages/SuperAdminPage');
+    const user = userEvent.setup();
+    render(<SuperAdminPage />);
+
+    await user.click(await screen.findByRole('button', { name: /- dias/i }));
+    const daysDialog = await screen.findByRole('dialog');
+    await user.click(within(daysDialog).getByRole('button', { name: /^reduzir$/i }));
+
+    const confirmDialog = await screen.findByRole('alertdialog');
+    await user.click(within(confirmDialog).getByRole('button', { name: /^reduzir$/i }));
+
+    await waitFor(() => expect(reduceMock).toHaveBeenCalledWith('tenant-2', 30));
+  });
+});

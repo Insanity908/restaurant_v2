@@ -80,33 +80,36 @@ export default function SuperAdminPage() {
     return true;
   };
 
-  const doBlock = async () => {
-    if (!blockTarget) return;
-    const ok = await run(() => tenantStore.block(blockTarget.id, blockReason || 'Bloqueado pelo administrador'), 'Restaurante bloqueado');
-    if (ok) { setBlockTarget(null); setBlockReason(''); }
+  // Recebem o alvo por parâmetro (fechado no clique do diálogo de motivo/
+  // dias/plano), em vez de o ler de blockTarget/extendTarget/etc — esses
+  // states já foram limpos nesse momento (ver comentário nos onClick dos
+  // diálogos abaixo), por isso lê-los aqui devolvia sempre null e a acção
+  // não fazia nada, sem erro nenhum visível.
+  const doBlock = async (target: Tenant | null) => {
+    if (!target) return;
+    const ok = await run(() => tenantStore.block(target.id, blockReason || 'Bloqueado pelo administrador'), 'Restaurante bloqueado');
+    if (ok) setBlockReason('');
   };
 
   const doUnblock = (t: Tenant) => run(() => tenantStore.unblock(t.id), 'Restaurante desbloqueado');
 
-  const doExtend = async () => {
-    if (!extendTarget) return;
-    const ok = await run(() => tenantStore.extend(extendTarget.id, extendDays), `Subscrição estendida +${extendDays} dias`);
-    if (ok) setExtendTarget(null);
+  const doExtend = async (target: Tenant | null, days: number) => {
+    if (!target) return;
+    await run(() => tenantStore.extend(target.id, days), `Subscrição estendida +${days} dias`);
   };
 
-  const doReduce = async () => {
-    if (!reduceTarget) return;
-    const ok = await run(() => tenantStore.reduce(reduceTarget.id, reduceDays), `Subscrição reduzida -${reduceDays} dias`);
-    if (ok) setReduceTarget(null);
+  const doReduce = async (target: Tenant | null, days: number) => {
+    if (!target) return;
+    await run(() => tenantStore.reduce(target.id, days), `Subscrição reduzida -${days} dias`);
   };
 
-  const doActivate = async () => {
-    if (!activateTarget) return;
+  const doActivate = async (target: Tenant | null, plan: BillingPlan, ref: string) => {
+    if (!target) return;
     const ok = await run(
-      () => tenantStore.activatePlan(activateTarget.id, activatePlan, activateRef.trim() || undefined),
+      () => tenantStore.activatePlan(target.id, plan, ref.trim() || undefined),
       'Plano ativado',
     );
-    if (ok) { setActivateTarget(null); setActivateRef(''); }
+    if (ok) setActivateRef('');
   };
 
   const doDelete = (t: Tenant) => run(() => tenantStore.remove(t.id), 'Restaurante eliminado');
@@ -318,18 +321,20 @@ export default function SuperAdminPage() {
             <Button variant="outline" onClick={() => setBlockTarget(null)}>Cancelar</Button>
             <Button
               onClick={() => {
-                const name = blockTarget?.name;
-                // Limpa o target já aqui: senão, enquanto o pedido ao servidor
-                // está pendente, `!!blockTarget && !confirmAction` volta a ficar
-                // verdadeiro assim que este diálogo de confirmação fecha, e o
-                // diálogo do motivo reabre sozinho por cima (parece que "não sai
-                // da tela"/não bloqueou, mesmo quando o bloqueio funcionou).
+                // Captura o target antes de o limpar: senão, enquanto o pedido
+                // ao servidor está pendente, `!!blockTarget && !confirmAction`
+                // volta a ficar verdadeiro assim que este diálogo de confirmação
+                // fecha, e o diálogo do motivo reabre sozinho por cima (parece
+                // que "não sai da tela"/não bloqueou, mesmo quando funcionou) —
+                // e doBlock precisa do target, por isso vai por parâmetro, não
+                // por state (que já estará null quando o utilizador confirmar).
+                const target = blockTarget;
                 setBlockTarget(null);
                 setConfirmAction({
-                  title: `Bloquear ${name}?`,
+                  title: `Bloquear ${target?.name}?`,
                   description: `O restaurante e toda a equipa ficam sem acesso imediatamente${blockReason ? ` — motivo: "${blockReason}"` : ''}.`,
                   confirmLabel: 'Bloquear',
-                  onConfirm: doBlock,
+                  onConfirm: () => doBlock(target),
                 });
               }}
             >
@@ -357,13 +362,14 @@ export default function SuperAdminPage() {
             <Button variant="outline" onClick={() => setExtendTarget(null)}>Cancelar</Button>
             <Button
               onClick={() => {
-                const name = extendTarget?.name;
+                const target = extendTarget;
+                const days = extendDays;
                 setExtendTarget(null);
                 setConfirmAction({
-                  title: `Estender subscrição — ${name}?`,
-                  description: `A subscrição fica válida por mais ${extendDays} dia(s).`,
+                  title: `Estender subscrição — ${target?.name}?`,
+                  description: `A subscrição fica válida por mais ${days} dia(s).`,
                   confirmLabel: 'Estender',
-                  onConfirm: doExtend,
+                  onConfirm: () => doExtend(target, days),
                 });
               }}
             >
@@ -391,13 +397,14 @@ export default function SuperAdminPage() {
             <Button
               variant="destructive"
               onClick={() => {
-                const name = reduceTarget?.name;
+                const target = reduceTarget;
+                const days = reduceDays;
                 setReduceTarget(null);
                 setConfirmAction({
-                  title: `Reduzir subscrição — ${name}?`,
-                  description: `Remove ${reduceDays} dia(s) da subscrição. Se a data de expiração ficar no passado, a conta passa a "expirado".`,
+                  title: `Reduzir subscrição — ${target?.name}?`,
+                  description: `Remove ${days} dia(s) da subscrição. Se a data de expiração ficar no passado, a conta passa a "expirado".`,
                   confirmLabel: 'Reduzir',
-                  onConfirm: doReduce,
+                  onConfirm: () => doReduce(target, days),
                 });
               }}
             >
@@ -437,13 +444,15 @@ export default function SuperAdminPage() {
             <Button variant="outline" onClick={() => setActivateTarget(null)}>Cancelar</Button>
             <Button
               onClick={() => {
-                const name = activateTarget?.name;
+                const target = activateTarget;
+                const plan = activatePlan;
+                const ref = activateRef;
                 setActivateTarget(null);
                 setConfirmAction({
-                  title: `Ativar plano — ${name}?`,
-                  description: `Activa o plano ${PLANS[activatePlan].label} (${formatMT(PLANS[activatePlan].price)}).`,
+                  title: `Ativar plano — ${target?.name}?`,
+                  description: `Activa o plano ${PLANS[plan].label} (${formatMT(PLANS[plan].price)}).`,
                   confirmLabel: 'Confirmar ativação',
-                  onConfirm: doActivate,
+                  onConfirm: () => doActivate(target, plan, ref),
                 });
               }}
             >

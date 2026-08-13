@@ -37,6 +37,12 @@ type Row = {
   owner_phone: string | null;
   license_key: string;
   created_at: string;
+  // `subscriptions.tenant_id` is the PRIMARY KEY (1:1 with tenants), so
+  // PostgREST embeds it as a single object, not an array — indexing it
+  // with `[0]` (as this used to) is always `undefined`, which silently
+  // made every tenant show fake "trial / 0 dias" data regardless of its
+  // real subscription state, and made block/extend/reduce/activate look
+  // like no-ops even though they succeeded server-side.
   subscriptions?: {
     plan: BillingPlan | null;
     status: SubscriptionStatus;
@@ -45,12 +51,12 @@ type Row = {
     last_payment_ref: string | null;
     blocked_by_admin: boolean;
     block_reason: string | null;
-  }[] | null;
+  } | null;
   subscription_history?: { plan: BillingPlan; paid_at: string; ref: string | null }[] | null;
 };
 
 function mapRow(r: Row): Tenant {
-  const s = r.subscriptions?.[0];
+  const s = r.subscriptions;
   return {
     id: r.id,
     name: r.name,
