@@ -70,6 +70,69 @@ describe('Login', () => {
     cy.location('pathname', { timeout: 10000 }).should('eq', ROLE_HOME.manager);
   });
 
+  it('login com número de telefone directamente (sem passar por username) entra por phone/password', () => {
+    const user = USERS.manager;
+    const phone = '+258821234567';
+    cy.mockSessionForUser(user);
+    const resolveSpy = cy.spy().as('resolveSpy');
+    cy.intercept('POST', '**/rest/v1/rpc/resolve_login_email', resolveSpy);
+    cy.intercept('POST', '**/auth/v1/token?grant_type=password', (req) => {
+      expect(req.body.phone).to.eq(phone);
+      req.reply({
+        statusCode: 200,
+        body: {
+          access_token: 'a.b.c', token_type: 'bearer', expires_in: 3600,
+          expires_at: Math.floor(Date.now() / 1000) + 3600, refresh_token: 'r',
+          user: { id: user.id, phone, aud: 'authenticated', role: 'authenticated', user_metadata: {} },
+        },
+      });
+    }).as('signIn');
+
+    cy.visit('/login');
+    cy.get('#login-identifier').type(phone);
+    cy.get('#login-password').type(user.password);
+    cy.contains('button', /entrar/i).click();
+    // Um telefone reconhecido nunca deve tentar resolver como username.
+    cy.wait('@signIn').its('response.statusCode').should('eq', 200);
+    cy.get('@resolveSpy').should('not.have.been.called');
+    cy.location('pathname', { timeout: 10000 }).should('eq', ROLE_HOME.manager);
+  });
+
+  it('login com username de conta só-telefone (sem email) resolve via resolve_login_phone e entra', () => {
+    // Espelha o caso de "Novo funcionário" criado só com telefone (sem
+    // email): resolve_login_email devolve null (baseline), resolve_login_phone
+    // é o caminho complementar que devolve o telefone real da conta.
+    const user = USERS.manager;
+    const phone = '+258829876543';
+    // Username fictício, propositadamente ausente de USERS: garante que o
+    // fallback por omissão de resolve_login_email (baseline, em
+    // mockSupabaseBaseline) devolve null, tal como aconteceria com uma
+    // conta real criada só com telefone — obrigando o login a cair no
+    // caminho de resolve_login_phone abaixo.
+    cy.mockSessionForUser(user);
+    cy.intercept('POST', '**/rest/v1/rpc/resolve_login_phone', { statusCode: 200, body: JSON.stringify(phone) }).as('resolvePhone');
+    cy.intercept('POST', '**/auth/v1/token?grant_type=password', (req) => {
+      expect(req.body.phone).to.eq(phone);
+      req.reply({
+        statusCode: 200,
+        body: {
+          access_token: 'a.b.c', token_type: 'bearer', expires_in: 3600,
+          expires_at: Math.floor(Date.now() / 1000) + 3600, refresh_token: 'r',
+          user: { id: user.id, phone, aud: 'authenticated', role: 'authenticated', user_metadata: {} },
+        },
+      });
+    }).as('signIn');
+
+    cy.visit('/login');
+    cy.get('#login-identifier').type('so_telefone_teste');
+    cy.get('#login-password').type(user.password);
+    cy.contains('button', /entrar/i).click();
+    cy.wait('@resolveLoginEmail');
+    cy.wait('@resolvePhone');
+    cy.wait('@signIn').its('response.statusCode').should('eq', 200);
+    cy.location('pathname', { timeout: 10000 }).should('eq', ROLE_HOME.manager);
+  });
+
   it('admin: login com username é rejeitado (resolve_login_email devolve null) e pede email', () => {
     const user = USERS.admin;
     // No servidor, resolve_login_email exclui explicitamente quem tem papel

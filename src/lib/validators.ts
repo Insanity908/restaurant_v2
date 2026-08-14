@@ -110,3 +110,21 @@ export function validateIntlPhone(raw: string): ValidationResult {
   if (d.length < 8) return 'Telefone demasiado curto';
   return null;
 }
+
+/**
+ * Normaliza para E.164, para uso no login (ver loginWithPassword em
+ * AuthContext.tsx) — espelha o toE164 do edge function create-staff-account.
+ * Aceita "8X XXX XXXX" (assume Moçambique, +258), "+258 8X XXX XXXX", ou
+ * qualquer número já internacional com "+". Devolve null para o que não
+ * reconhece como telefone (ex: um username), para o chamador poder cair no
+ * caminho de username em vez de tentar um login por telefone inválido.
+ */
+export function toE164Phone(raw: string): string | null {
+  const trimmed = raw.trim();
+  const d = digits(trimmed);
+  if (!d) return null;
+  if (d.length === 9 && /^8[2-7]/.test(d)) return `+258${d}`;
+  if (d.startsWith('258') && d.length === 12) return `+${d}`;
+  if (trimmed.startsWith('+') && d.length >= 8) return `+${d}`;
+  return null;
+}

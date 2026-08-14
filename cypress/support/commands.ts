@@ -80,6 +80,11 @@ Cypress.Commands.add('mockSupabaseBaseline', () => {
     // signInWithPassword.
     req.reply({ statusCode: 200, body: JSON.stringify(match ? match.email : null) });
   }).as('resolveLoginEmail');
+  // Fallback por omissão: nenhum USERS de teste é phone-only, por isso este
+  // RPC devolve sempre null aqui — loginWithPassword só o chama depois de
+  // resolve_login_email já ter falhado (ver AuthContext.tsx), e specs que
+  // testam o caminho de telefone sobrepõem este intercept individualmente.
+  cy.intercept('POST', '**/rest/v1/rpc/resolve_login_phone', { statusCode: 200, body: JSON.stringify(null) }).as('resolveLoginPhoneDefault');
   // useLicense() chama esta edge function (action: "status") em TODAS as
   // páginas de tenant (via RequireLicense), não só na Faturação.
   cy.intercept('POST', '**/functions/v1/subscription-status', { statusCode: 200, body: { ok: true } }).as('subscriptionStatusDefault');

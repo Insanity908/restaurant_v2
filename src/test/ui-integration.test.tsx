@@ -88,6 +88,95 @@ describe('StaffPage — criar novo funcionário', () => {
 
     expect(invokeMock).not.toHaveBeenCalled();
   });
+
+  it('cria a conta só com email (sem username) — o servidor deriva o username', async () => {
+    const { default: StaffPage } = await import('@/pages/StaffPage');
+    const user = userEvent.setup();
+    render(<StaffPage />);
+
+    await user.click(screen.getByRole('button', { name: /novo funcionário/i }));
+    const dialog = await screen.findByRole('dialog');
+
+    await user.type(within(dialog).getByLabelText('Nome'), 'Só Email');
+    await user.type(within(dialog).getByLabelText('Email'), 'so.email@restaurante.mz');
+    await user.type(within(dialog).getByLabelText('Password'), 'senhaforte123');
+    await user.click(within(dialog).getByRole('button', { name: /adicionar/i }));
+
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(1));
+    expect(invokeMock).toHaveBeenCalledWith('create-staff-account', {
+      body: expect.objectContaining({ username: '', email: 'so.email@restaurante.mz' }),
+    });
+  });
+
+  it('cria a conta só com telefone (sem email) — username fica de fora', async () => {
+    const { default: StaffPage } = await import('@/pages/StaffPage');
+    const user = userEvent.setup();
+    render(<StaffPage />);
+
+    await user.click(screen.getByRole('button', { name: /novo funcionário/i }));
+    const dialog = await screen.findByRole('dialog');
+
+    await user.type(within(dialog).getByLabelText('Nome'), 'Só Telefone');
+    await user.type(within(dialog).getByLabelText('Telefone'), '841234567');
+    await user.type(within(dialog).getByLabelText('Password'), 'senhaforte123');
+    await user.click(within(dialog).getByRole('button', { name: /adicionar/i }));
+
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(1));
+    expect(invokeMock).toHaveBeenCalledWith('create-staff-account', {
+      body: expect.objectContaining({ username: '', email: '', phone: '841234567' }),
+    });
+  });
+
+  it('cria a conta com username + telefone (sem email)', async () => {
+    const { default: StaffPage } = await import('@/pages/StaffPage');
+    const user = userEvent.setup();
+    render(<StaffPage />);
+
+    await user.click(screen.getByRole('button', { name: /novo funcionário/i }));
+    const dialog = await screen.findByRole('dialog');
+
+    await user.type(within(dialog).getByLabelText('Nome'), 'Username e Telefone');
+    await user.type(within(dialog).getByLabelText('Username'), 'so_username');
+    await user.type(within(dialog).getByLabelText('Telefone'), '841234567');
+    await user.type(within(dialog).getByLabelText('Password'), 'senhaforte123');
+    await user.click(within(dialog).getByRole('button', { name: /adicionar/i }));
+
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(1));
+    expect(invokeMock).toHaveBeenCalledWith('create-staff-account', {
+      body: expect.objectContaining({ username: 'so_username', email: '', phone: '841234567' }),
+    });
+  });
+
+  it('não chama a edge function se nem username, nem email, nem telefone forem indicados', async () => {
+    const { default: StaffPage } = await import('@/pages/StaffPage');
+    const user = userEvent.setup();
+    render(<StaffPage />);
+
+    await user.click(screen.getByRole('button', { name: /novo funcionário/i }));
+    const dialog = await screen.findByRole('dialog');
+
+    await user.type(within(dialog).getByLabelText('Nome'), 'Sem Nada');
+    await user.type(within(dialog).getByLabelText('Password'), 'senhaforte123');
+    await user.click(within(dialog).getByRole('button', { name: /adicionar/i }));
+
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+
+  it('não chama a edge function se só o username for indicado (sem email nem telefone)', async () => {
+    const { default: StaffPage } = await import('@/pages/StaffPage');
+    const user = userEvent.setup();
+    render(<StaffPage />);
+
+    await user.click(screen.getByRole('button', { name: /novo funcionário/i }));
+    const dialog = await screen.findByRole('dialog');
+
+    await user.type(within(dialog).getByLabelText('Nome'), 'Só Username');
+    await user.type(within(dialog).getByLabelText('Username'), 'so_username');
+    await user.type(within(dialog).getByLabelText('Password'), 'senhaforte123');
+    await user.click(within(dialog).getByRole('button', { name: /adicionar/i }));
+
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------

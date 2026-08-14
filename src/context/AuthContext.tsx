@@ -8,6 +8,7 @@ import { fetchLoyaltySettings } from '@/lib/loyaltySettings';
 import { fetchPaymentAccounts } from '@/lib/paymentAccounts';
 import { fetchStripeConfig } from '@/lib/billing';
 import { fetchTenantCatalog } from '@/lib/store';
+import { toE164Phone } from '@/lib/validators';
 
 interface SessionUser {
   id: string;
@@ -180,20 +181,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [hydrate]);
 
   const loginWithPassword = useCallback(async (identifier: string, password: string) => {
-    // `identifier` may be an email OR a username — Supabase Auth only knows
-    // email, so usernames are resolved server-side first (SECURITY DEFINER
-    // RPC; profiles isn't publicly readable). The RPC deliberately returns
-    // null for 'admin' accounts even when the username exists — admins must
-    // always log in with their real email.
-    let email = identifier.trim();
-    if (!email.includes('@')) {
-      const { data: resolved, error: resolveErr } = await supabase.rpc('resolve_login_email', { identifier: email });
-      if (resolveErr || !resolved) return { ok: false, error: 'Utilizador não encontrado' };
-      email = resolved as string;
+    // `identifier` may be an email, a phone number, or a username — Supabase
+    // Auth only knows email/phone, so a username is resolved server-side
+    // first (SECURITY DEFINER RPCs; profiles isn't publicly readable). Both
+    // RPCs deliberately return null for 'admin' accounts even when the
+    // username exists — admins must always log in with their real email.
+    const raw = identifier.trim();
+    if (raw.includes('@')) {
+      const { error } = await supabase.auth.signInWithPassword({ email: raw, password });
+      if (error) return { ok: false, error: error.message };
+      return { ok: true };
     }
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) return { ok: false, error: error.message };
-    return { ok: true };
+
+    // Looks like a phone number as typed (not a username) — sign in with it
+    // directly, no resolution needed.
+    const phone = toE164Phone(raw);
+    if (phone) {
+      const { error } = await supabase.auth.signInWithPassword({ phone, password });
+      if (error) return { ok: false, error: error.message };
+      return { ok: true };
+    }
+
+    // Otherwise treat it as a username and resolve to whichever real
+    // credential the account has — email first, phone as fallback (accounts
+    // created with phone but no email only resolve here).
+    const { data: resolvedEmail, error: emailErr } = await supabase.rpc('resolve_login_email', { identifier: raw });
+    if (!emailErr && resolvedEmail) {
+      const { error } = await supabase.auth.signInWithPassword({ email: resolvedEmail as string, password });
+      if (error) return { ok: false, error: error.message };
+      return { ok: true };
+    }
+    const { data: resolvedPhone, error: phoneErr } = await supabase.rpc('resolve_login_phone', { identifier: raw });
+    if (!phoneErr && resolvedPhone) {
+      const { error } = await supabase.auth.signInWithPassword({ phone: resolvedPhone as string, password });
+      if (error) return { ok: false, error: error.message };
+      return { ok: true };
+    }
+    return { ok: false, error: 'Utilizador não encontrado' };
   }, []);
 
   const signInWithGoogle = useCallback(async () => {

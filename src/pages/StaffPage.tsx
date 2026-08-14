@@ -19,7 +19,7 @@ import { Staff, UserRole } from '@/types/restaurant';
 import { staffStore } from '@/lib/store';
 import { useAuth } from '@/context/AuthContext';
 import { ALL_PERMISSIONS, DEFAULT_PERMISSIONS, PERMISSION_LABELS, getStaffPermissions, setStaffPermissions, resetStaffPermissions, type Permission } from '@/lib/permissions';
-import { validateUsername } from '@/lib/validators';
+import { validateUsername, validateIntlPhone, maskIntlPhone } from '@/lib/validators';
 import { supabase } from '@/integrations/supabase/client';
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
@@ -42,10 +42,11 @@ interface FormState {
   role: UserRole;
   username: string;
   email: string;
+  phone: string;
   password: string;
 }
 
-const empty: FormState = { name: '', role: 'waiter', username: '', email: '', password: '' };
+const empty: FormState = { name: '', role: 'waiter', username: '', email: '', phone: '', password: '' };
 
 export default function StaffPage() {
   const { user, hasPermission } = useAuth();
@@ -87,7 +88,7 @@ export default function StaffPage() {
 
   const openEdit = (s: Staff) => {
     setEditing(s);
-    setForm({ name: s.name, role: s.role, username: '', email: '', password: '' });
+    setForm({ name: s.name, role: s.role, username: '', email: '', phone: '', password: '' });
     setOpen(true);
   };
 
@@ -95,12 +96,25 @@ export default function StaffPage() {
     if (!form.name.trim()) return 'Nome obrigatório';
     if (form.name.trim().length > 60) return 'Nome demasiado longo';
     if (!assignableRoles.some(r => r.value === form.role)) return 'Não tem permissão para atribuir este papel';
-    // Login credentials (username/email/password) are only required when
-    // creating a new member — editing keeps the existing login untouched.
+    // Login credentials (username/email/phone/password) are only required
+    // when creating a new member — editing keeps the existing login untouched.
     if (!editing) {
-      const usernameErr = validateUsername(form.username);
-      if (usernameErr) return usernameErr;
-      if (!/^\S+@\S+\.\S+$/.test(form.email)) return 'Email inválido';
+      const username = form.username.trim();
+      const email = form.email.trim();
+      const phone = form.phone.trim();
+      // O login real precisa de email OU telefone (Supabase Auth exige um
+      // dos dois) — username é sempre só um atalho opcional e independente,
+      // nunca derivado de nenhum dos dois nem vice-versa.
+      if (!email && !phone) return 'Indique um email ou um telefone';
+      if (username) {
+        const usernameErr = validateUsername(username);
+        if (usernameErr) return usernameErr;
+      }
+      if (email && !/^\S+@\S+\.\S+$/.test(email)) return 'Email inválido';
+      if (phone) {
+        const phoneErr = validateIntlPhone(phone);
+        if (phoneErr) return phoneErr;
+      }
       if (form.password.length < 8) return 'Password deve ter pelo menos 8 caracteres';
     }
     return null;
@@ -128,6 +142,7 @@ export default function StaffPage() {
         role: form.role,
         username: form.username.trim(),
         email: form.email.trim(),
+        phone: form.phone.trim(),
         password: form.password,
       },
     });
@@ -294,6 +309,7 @@ export default function StaffPage() {
               <>
                 <div className="pt-2 border-t border-border">
                   <p className="text-xs font-medium text-muted-foreground mb-3">Acesso ao sistema (login)</p>
+                  <p className="text-xs text-muted-foreground mb-3">Indique um email ou um telefone — o username é opcional.</p>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="username">Username</Label>
@@ -304,6 +320,12 @@ export default function StaffPage() {
                   <Label htmlFor="staff-email">Email</Label>
                   <Input id="staff-email" type="email" value={form.email}
                     onChange={e => setForm(f => ({ ...f, email: e.target.value }))} autoComplete="email" />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="staff-phone">Telefone</Label>
+                  <Input id="staff-phone" value={form.phone}
+                    onChange={e => setForm(f => ({ ...f, phone: maskIntlPhone(e.target.value) }))}
+                    placeholder="+258 84 123 4567" autoComplete="tel" />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="staff-password">Password</Label>
