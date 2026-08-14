@@ -12,11 +12,12 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Lock, Unlock, Trash2, Clock, Search, Building2, TrendingUp, Users, BarChart3, Copy, Landmark, Save, CheckCircle2 } from 'lucide-react';
+import { Lock, Unlock, Trash2, Clock, Search, Building2, TrendingUp, Users, BarChart3, Copy, Landmark, Save, CheckCircle2, Inbox } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid } from 'recharts';
 import { tenantStore, fetchTenants, fetchTenantTeams, type TenantTeam } from '@/lib/tenants';
 import { PLANS, formatMT } from '@/lib/billing';
 import { getPaymentAccounts, savePaymentAccounts, fetchPaymentAccounts, type PaymentAccounts } from '@/lib/paymentAccounts';
+import { fetchPendingSubmissions, markSubmissionStatus, type PaymentSubmission } from '@/lib/paymentSubmissions';
 import type { Tenant, BillingPlan } from '@/types/restaurant';
 import { toast } from 'sonner';
 
@@ -38,6 +39,8 @@ export default function SuperAdminPage() {
 
   const [teams, setTeams] = useState<Record<string, TenantTeam>>({});
   const [loading, setLoading] = useState(true);
+  const [pendingSubs, setPendingSubs] = useState<PaymentSubmission[]>([]);
+  const [activatingSubmissionId, setActivatingSubmissionId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -50,6 +53,11 @@ export default function SuperAdminPage() {
     setLoading(false);
   }, []);
   useEffect(() => { void refresh(); }, [refresh]);
+
+  const refreshPending = useCallback(async () => {
+    setPendingSubs(await fetchPendingSubmissions().catch(() => []));
+  }, []);
+  useEffect(() => { void refreshPending(); }, [refreshPending]);
 
   const filtered = useMemo(
     () => tenants.filter(t => !query || t.name.toLowerCase().includes(query.toLowerCase()) || t.ownerEmail.includes(query.toLowerCase())),
@@ -109,7 +117,24 @@ export default function SuperAdminPage() {
       () => tenantStore.activatePlan(target.id, plan, ref.trim() || undefined),
       'Plano ativado',
     );
-    if (ok) setActivateRef('');
+    if (ok) {
+      setActivateRef('');
+      // Se esta ativação partiu de um comprovativo pendente (ver tab
+      // "Pagamentos pendentes"), marcá-lo como resolvido — não desbloqueia
+      // nada por si, activatePlan já o fez acima; isto só tira o item da fila.
+      if (activatingSubmissionId) {
+        await markSubmissionStatus(activatingSubmissionId, 'resolved');
+        setActivatingSubmissionId(null);
+        void refreshPending();
+      }
+    }
+  };
+
+  const doDismissSubmission = async (id: string) => {
+    const ok = await markSubmissionStatus(id, 'dismissed');
+    if (!ok) { toast.error('Não foi possível dispensar'); return; }
+    toast.success('Comprovativo dispensado');
+    void refreshPending();
   };
 
   const doDelete = (t: Tenant) => run(() => tenantStore.remove(t.id), 'Restaurante eliminado');
@@ -170,6 +195,10 @@ export default function SuperAdminPage() {
       <Tabs defaultValue="tenants">
         <TabsList className="overflow-x-auto">
           <TabsTrigger value="tenants">Restaurantes</TabsTrigger>
+          <TabsTrigger value="pending-payments">
+            <Inbox className="w-3.5 h-3.5 mr-1" />Pagamentos pendentes
+            {pendingSubs.length > 0 && <Badge variant="outline" className="ml-1.5 border-primary/30 text-primary">{pendingSubs.length}</Badge>}
+          </TabsTrigger>
           <TabsTrigger value="payments">Pagamentos</TabsTrigger>
           <TabsTrigger value="accounts"><Landmark className="w-3.5 h-3.5 mr-1" />Contas de recebimento</TabsTrigger>
           <TabsTrigger value="system"><BarChart3 className="w-3.5 h-3.5 mr-1" />Relatórios de sistema</TabsTrigger>
@@ -232,7 +261,7 @@ export default function SuperAdminPage() {
                         <Button size="sm" variant="outline" onClick={() => { setReduceTarget(t); setReduceDays(30); }}>
                           <Clock className="w-3.5 h-3.5" />- Dias
                         </Button>
-                        <Button size="sm" variant="outline" onClick={() => { setActivateTarget(t); setActivatePlan(t.subscription.plan || 'monthly'); setActivateRef(''); }}>
+                        <Button size="sm" variant="outline" onClick={() => { setActivateTarget(t); setActivatePlan(t.subscription.plan || 'monthly'); setActivateRef(''); setActivatingSubmissionId(null); }}>
                           <CheckCircle2 className="w-3.5 h-3.5" />Ativar plano
                         </Button>
                         {t.subscription.blockedByAdmin ? (
@@ -277,6 +306,46 @@ export default function SuperAdminPage() {
               })}
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="pending-payments">
+          <div className="glass rounded-xl p-5 mt-4">
+            {pendingSubs.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sem comprovativos pendentes.</p>
+            ) : (
+              <div className="space-y-2">
+                {pendingSubs.map(sub => (
+                  <div key={sub.id} className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-sm py-3 border-b border-border/40 last:border-0">
+                    <div>
+                      <p className="font-medium">{sub.tenantName || sub.tenantId}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Referência: <span className="font-mono">{sub.reference}</span> • {new Date(sub.createdAt).toLocaleString('pt-MZ')}
+                      </p>
+                      {sub.note && <p className="text-xs text-muted-foreground">Nota: {sub.note}</p>}
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          const t = tenants.find(x => x.id === sub.tenantId);
+                          if (!t) { toast.error('Restaurante não encontrado'); return; }
+                          setActivateTarget(t);
+                          setActivatePlan(t.subscription.plan || 'monthly');
+                          setActivateRef(sub.reference);
+                          setActivatingSubmissionId(sub.id);
+                        }}
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />Ativar plano
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => doDismissSubmission(sub.id)}>
+                        Dispensar
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </TabsContent>
 
         <TabsContent value="accounts">
@@ -441,7 +510,7 @@ export default function SuperAdminPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setActivateTarget(null)}>Cancelar</Button>
+            <Button variant="outline" onClick={() => { setActivateTarget(null); setActivatingSubmissionId(null); }}>Cancelar</Button>
             <Button
               onClick={() => {
                 const target = activateTarget;

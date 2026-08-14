@@ -281,3 +281,89 @@ describe('SuperAdminPage — bloquear/estender/reduzir restaurante', () => {
     await waitFor(() => expect(reduceMock).toHaveBeenCalledWith('tenant-2', 30));
   });
 });
+
+// ---------------------------------------------------------------------------
+// SuperAdminPage — tab "Pagamentos pendentes": comprovativos submetidos a
+// partir de /blocked (ver BlockedPage) aparecem aqui para o superadmin
+// confirmar ("Ativar plano", pré-preenchido com a referência) ou dispensar.
+// ---------------------------------------------------------------------------
+describe('SuperAdminPage — pagamentos pendentes', () => {
+  const activatePlanMock = vi.fn();
+  const markSubmissionStatusMock = vi.fn();
+  const tenant = {
+    id: 'tenant-3', name: 'Restaurante Pendente', ownerEmail: 'dono3@teste.mz',
+    licenseKey: 'lic_ghi789', createdAt: new Date().toISOString(),
+    subscription: { plan: 'monthly', status: 'blocked', blockedByAdmin: true, blockReason: 'Falta de pagamento' },
+  };
+  const submission = {
+    id: 'sub-1', tenantId: 'tenant-3', tenantName: 'Restaurante Pendente',
+    reference: 'REF-12345', note: undefined, method: 'manual', status: 'pending' as const,
+    createdAt: new Date().toISOString(),
+  };
+
+  beforeEach(() => {
+    vi.resetModules();
+    activatePlanMock.mockReset().mockResolvedValue({ ok: true });
+    markSubmissionStatusMock.mockReset().mockResolvedValue(true);
+    vi.doMock('@/lib/tenants', () => ({
+      tenantStore: {
+        getAll: () => [tenant],
+        daysUntilExpiry: () => 0,
+        block: vi.fn(), unblock: vi.fn(), extend: vi.fn(), reduce: vi.fn(),
+        activatePlan: activatePlanMock, remove: vi.fn(),
+      },
+      fetchTenants: vi.fn().mockResolvedValue([tenant]),
+      fetchTenantTeams: vi.fn().mockResolvedValue({}),
+    }));
+    vi.doMock('@/lib/paymentAccounts', () => ({
+      getPaymentAccounts: () => ({}),
+      savePaymentAccounts: vi.fn(),
+      fetchPaymentAccounts: vi.fn().mockResolvedValue({}),
+    }));
+    vi.doMock('@/lib/paymentSubmissions', () => ({
+      fetchPendingSubmissions: vi.fn().mockResolvedValue([submission]),
+      markSubmissionStatus: markSubmissionStatusMock,
+    }));
+  });
+
+  it('mostra o comprovativo pendente com a referência submetida', async () => {
+    const { default: SuperAdminPage } = await import('@/pages/SuperAdminPage');
+    const user = userEvent.setup();
+    render(<SuperAdminPage />);
+
+    await user.click(await screen.findByRole('tab', { name: /pagamentos pendentes/i }));
+    expect(await screen.findByText('Restaurante Pendente')).toBeInTheDocument();
+    expect(screen.getByText(/REF-12345/)).toBeInTheDocument();
+  });
+
+  it('"Ativar plano" a partir do comprovativo pré-preenche a referência e, ao confirmar, marca a submissão como resolvida', async () => {
+    const { default: SuperAdminPage } = await import('@/pages/SuperAdminPage');
+    const user = userEvent.setup();
+    render(<SuperAdminPage />);
+
+    await user.click(await screen.findByRole('tab', { name: /pagamentos pendentes/i }));
+    await user.click(await screen.findByRole('button', { name: /ativar plano/i }));
+
+    const activateDialog = await screen.findByRole('dialog');
+    expect(within(activateDialog).getByDisplayValue('REF-12345')).toBeInTheDocument();
+    await user.click(within(activateDialog).getByRole('button', { name: /confirmar ativação/i }));
+
+    const confirmDialog = await screen.findByRole('alertdialog');
+    await user.click(within(confirmDialog).getByRole('button', { name: /confirmar ativação/i }));
+
+    await waitFor(() => expect(activatePlanMock).toHaveBeenCalledWith('tenant-3', 'monthly', 'REF-12345'));
+    await waitFor(() => expect(markSubmissionStatusMock).toHaveBeenCalledWith('sub-1', 'resolved'));
+  });
+
+  it('"Dispensar" marca a submissão como dispensada sem tocar na subscrição', async () => {
+    const { default: SuperAdminPage } = await import('@/pages/SuperAdminPage');
+    const user = userEvent.setup();
+    render(<SuperAdminPage />);
+
+    await user.click(await screen.findByRole('tab', { name: /pagamentos pendentes/i }));
+    await user.click(await screen.findByRole('button', { name: /dispensar/i }));
+
+    await waitFor(() => expect(markSubmissionStatusMock).toHaveBeenCalledWith('sub-1', 'dismissed'));
+    expect(activatePlanMock).not.toHaveBeenCalled();
+  });
+});

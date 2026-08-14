@@ -1,15 +1,17 @@
+import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutGrid, UtensilsCrossed, ChefHat, CreditCard, BarChart3, Settings, Coffee, Package, LogOut, Users, Clock, UserCircle, ShieldCheck, MoreHorizontal, ChevronsUpDown, Check } from 'lucide-react';
+import { LayoutGrid, UtensilsCrossed, ChefHat, CreditCard, BarChart3, Settings, Coffee, Package, LogOut, Users, Clock, UserCircle, ShieldCheck, MoreHorizontal, ChevronsUpDown, Check, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useOptionalAuth, ROUTE_PERMISSIONS } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
 import { useSettings } from '@/hooks/useSettings';
 import { useLicense } from '@/hooks/useLicense';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel } from '@/components/ui/dropdown-menu';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { tenantStore } from '@/lib/tenants';
 import { useStorageImage } from '@/hooks/useStorageImage';
 import { LOGO_BUCKET } from '@/lib/storage';
 import InstallAppButton from '@/components/InstallAppButton';
+import RestaurantSwitcherDialog from '@/components/RestaurantSwitcherDialog';
 
 
 const navItems = [
@@ -33,7 +35,7 @@ const ROLE_LABEL: Record<string, string> = {
 
 const MOBILE_PRIMARY = ['/', '/menu', '/tables', '/kitchen', '/pos'];
 
-function TenantSwitcher() {
+function TenantSwitcher({ onAddRestaurant }: { onAddRestaurant: () => void }) {
   const auth = useOptionalAuth();
   const user = auth?.user;
   if (!user || user.role !== 'admin') return null;
@@ -67,6 +69,10 @@ function TenantSwitcher() {
             {current?.id === t.id && <Check className="w-3.5 h-3.5 text-primary" />}
           </DropdownMenuItem>
         ))}
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={onAddRestaurant} className="cursor-pointer">
+          <Plus className="w-3.5 h-3.5 mr-1" /> Adicionar restaurante
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -80,6 +86,7 @@ export default function AppSidebar() {
   const { settings } = useSettings();
   const { tenant, status, daysLeft } = useLicense();
   const iconUrl = useStorageImage(LOGO_BUCKET, settings.iconUrl);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
 
   if (!user) return null;
 
@@ -109,7 +116,7 @@ export default function AppSidebar() {
         </div>
 
         <div className="px-2 mb-3 w-full">
-          <TenantSwitcher />
+          <TenantSwitcher onAddRestaurant={() => setSwitcherOpen(true)} />
         </div>
 
         <nav className="flex-1 flex flex-col gap-1 w-full px-2 overflow-y-auto">
@@ -209,6 +216,11 @@ export default function AppSidebar() {
                   </Link>
                 </DropdownMenuItem>
               ))}
+              {user.role === 'admin' && (user.tenantIds?.length ?? 0) > 0 && (
+                <DropdownMenuItem onClick={() => setSwitcherOpen(true)} className="cursor-pointer">
+                  <Coffee className="w-4 h-4 mr-2" /> Restaurantes
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={logout} className="text-destructive focus:text-destructive cursor-pointer">
                 <LogOut className="w-4 h-4 mr-2" /> Sair
               </DropdownMenuItem>
@@ -216,6 +228,8 @@ export default function AppSidebar() {
           </DropdownMenu>
         )}
       </nav>
+
+      <RestaurantSwitcherDialog open={switcherOpen} onOpenChange={setSwitcherOpen} />
     </>
   );
 }

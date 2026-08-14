@@ -215,6 +215,23 @@ as $$
   end;
 $$;
 
+-- Complemento de resolve_login_email: contas de funcionário criadas só com
+-- telefone (sem email nenhum) resolvem o username para o telefone em vez de
+-- email, para o cliente tentar signInWithPassword({ phone, password }).
+-- Mesma exclusão de administradores.
+create or replace function public.resolve_login_phone(identifier text)
+returns text
+language sql stable security definer set search_path = public
+as $$
+  select p.phone from public.profiles p
+  where lower(p.username) = lower(trim(identifier))
+    and not exists (
+      select 1 from public.user_roles ur
+      where ur.user_id = p.id and ur.role = 'admin'::public.app_role
+    )
+  limit 1;
+$$;
+
 -- =============================================================================
 -- 5) POLICIES — profiles / tenants / tenant_members / user_roles
 -- =============================================================================
@@ -851,6 +868,50 @@ using (public.is_superadmin(auth.uid()))
 with check (public.is_superadmin(auth.uid()));
 
 -- =============================================================================
+-- 18b) payment_submissions — fila de "paguei, aqui está a referência" que um
+--      admin de tenant bloqueado submete a partir de /blocked. Não desbloqueia
+--      nada sozinha: é só um aviso para o superadmin ir conferir e, se for
+--      real, usar "Ativar plano" (já existente) para desbloquear de facto.
+-- =============================================================================
+create table public.payment_submissions (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  submitted_by uuid references auth.users(id),
+  reference text not null,
+  note text,
+  -- 'manual' hoje; passa a 'mpesa'/'emola'/'card' quando houver integração
+  -- automática de gateway (ver PaySuite no plano) — o valor por si não muda
+  -- nada no fluxo actual, é só metadata para essa fase futura.
+  method text not null default 'manual',
+  status text not null default 'pending' check (status in ('pending', 'resolved', 'dismissed')),
+  created_at timestamptz not null default now(),
+  reviewed_at timestamptz,
+  reviewed_by uuid references auth.users(id)
+);
+grant select, insert on public.payment_submissions to authenticated;
+grant all on public.payment_submissions to service_role;
+alter table public.payment_submissions enable row level security;
+
+-- O admin do tenant só submete/lê o que é dele.
+create policy "Tenant admin submits own payment proof"
+on public.payment_submissions for insert to authenticated
+with check (public.is_tenant_admin(tenant_id));
+
+create policy "Tenant admin reads own submissions"
+on public.payment_submissions for select to authenticated
+using (public.is_tenant_admin(tenant_id));
+
+-- Superadmin vê e revê tudo (confirmar/dispensar).
+create policy "Superadmin reads all submissions"
+on public.payment_submissions for select to authenticated
+using (public.is_superadmin(auth.uid()));
+
+create policy "Superadmin reviews submissions"
+on public.payment_submissions for update to authenticated
+using (public.is_superadmin(auth.uid()))
+with check (public.is_superadmin(auth.uid()));
+
+-- =============================================================================
 -- 19) platform_config — guarda o email que vira superadmin automaticamente
 --     no primeiro signup. Não tem policies para authenticated/anon: RLS sem
 --     policies = ninguém do lado do cliente lê/escreve isto. Só a função
@@ -1035,6 +1096,7 @@ revoke execute on function public.handle_new_user() from public, anon, authentic
 revoke execute on function public.update_updated_at_column() from public, anon, authenticated;
 
 grant execute on function public.resolve_login_email(text) to anon, authenticated;
+grant execute on function public.resolve_login_phone(text) to anon, authenticated;
 
 -- =============================================================================
 -- PASSO FINAL (fazer manualmente depois de correr este script)

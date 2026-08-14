@@ -423,6 +423,53 @@ export type Database = {
           },
         ]
       }
+      payment_submissions: {
+        Row: {
+          created_at: string
+          id: string
+          method: string
+          note: string | null
+          reference: string
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          submitted_by: string | null
+          tenant_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          method?: string
+          note?: string | null
+          reference: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          submitted_by?: string | null
+          tenant_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          method?: string
+          note?: string | null
+          reference?: string
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          submitted_by?: string | null
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payment_submissions_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           created_at: string
@@ -875,6 +922,7 @@ export type Database = {
       is_tenant_admin: { Args: { _tenant_id: string }; Returns: boolean }
       is_tenant_member: { Args: { _tenant_id: string }; Returns: boolean }
       resolve_login_email: { Args: { identifier: string }; Returns: string }
+      resolve_login_phone: { Args: { identifier: string }; Returns: string }
     }
     Enums: {
       app_role:
