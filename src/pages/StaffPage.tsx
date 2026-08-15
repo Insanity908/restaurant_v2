@@ -19,7 +19,7 @@ import { Staff, UserRole } from '@/types/restaurant';
 import { staffStore } from '@/lib/store';
 import { useAuth } from '@/context/AuthContext';
 import { ALL_PERMISSIONS, DEFAULT_PERMISSIONS, PERMISSION_LABELS, getStaffPermissions, setStaffPermissions, resetStaffPermissions, type Permission } from '@/lib/permissions';
-import { validateUsername, validateIntlPhone, maskIntlPhone } from '@/lib/validators';
+import { validateIntlPhone, maskIntlPhone } from '@/lib/validators';
 import { supabase } from '@/integrations/supabase/client';
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
@@ -37,16 +37,20 @@ const ROLES: { value: UserRole; label: string; tone: string }[] = [
 
 const roleMeta = (role: UserRole) => ROLES.find(r => r.value === role) ?? { value: role, label: role, tone: '' };
 
+// Membros locais/demo (sem conta real no Supabase Auth) usam ids gerados no
+// cliente, não UUIDs — só vale a pena chamar delete-staff-account para quem
+// tem mesmo uma conta real.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isUuid = (id: string) => UUID_RE.test(id);
+
 interface FormState {
   name: string;
   role: UserRole;
-  username: string;
-  email: string;
   phone: string;
   password: string;
 }
 
-const empty: FormState = { name: '', role: 'waiter', username: '', email: '', phone: '', password: '' };
+const empty: FormState = { name: '', role: 'waiter', phone: '', password: '' };
 
 export default function StaffPage() {
   const { user, hasPermission } = useAuth();
@@ -88,7 +92,7 @@ export default function StaffPage() {
 
   const openEdit = (s: Staff) => {
     setEditing(s);
-    setForm({ name: s.name, role: s.role, username: '', email: '', phone: '', password: '' });
+    setForm({ name: s.name, role: s.role, phone: '', password: '' });
     setOpen(true);
   };
 
@@ -96,25 +100,13 @@ export default function StaffPage() {
     if (!form.name.trim()) return 'Nome obrigatório';
     if (form.name.trim().length > 60) return 'Nome demasiado longo';
     if (!assignableRoles.some(r => r.value === form.role)) return 'Não tem permissão para atribuir este papel';
-    // Login credentials (username/email/phone/password) are only required
-    // when creating a new member — editing keeps the existing login untouched.
+    // Login credentials (phone/password) are only required when creating a
+    // new member — editing keeps the existing login untouched.
     if (!editing) {
-      const username = form.username.trim();
-      const email = form.email.trim();
       const phone = form.phone.trim();
-      // O login real precisa de email OU telefone (Supabase Auth exige um
-      // dos dois) — username é sempre só um atalho opcional e independente,
-      // nunca derivado de nenhum dos dois nem vice-versa.
-      if (!email && !phone) return 'Indique um email ou um telefone';
-      if (username) {
-        const usernameErr = validateUsername(username);
-        if (usernameErr) return usernameErr;
-      }
-      if (email && !/^\S+@\S+\.\S+$/.test(email)) return 'Email inválido';
-      if (phone) {
-        const phoneErr = validateIntlPhone(phone);
-        if (phoneErr) return phoneErr;
-      }
+      if (!phone) return 'Indique um telefone';
+      const phoneErr = validateIntlPhone(phone);
+      if (phoneErr) return phoneErr;
       if (form.password.length < 8) return 'Password deve ter pelo menos 8 caracteres';
     }
     return null;
@@ -140,8 +132,6 @@ export default function StaffPage() {
         tenantId,
         name: form.name.trim(),
         role: form.role,
-        username: form.username.trim(),
-        email: form.email.trim(),
         phone: form.phone.trim(),
         password: form.password,
       },
@@ -182,7 +172,7 @@ export default function StaffPage() {
     setOpen(false);
   };
 
-  const remove = (s: Staff) => {
+  const remove = async (s: Staff) => {
     if (s.id === user?.id) {
       toast.error('Não pode eliminar a sua própria conta');
       return;
@@ -190,6 +180,20 @@ export default function StaffPage() {
     if (s.role === 'admin' && staff.filter(x => x.role === 'admin').length === 1) {
       toast.error('Deve existir pelo menos um administrador');
       return;
+    }
+    const tenantId = localStorage.getItem('current_tenant_id');
+    if (tenantId && isUuid(s.id)) {
+      // Também apaga a conta de autenticação real (não só o registo local) —
+      // sem isto o login/telefone da pessoa ficava activo para sempre depois
+      // de "removida". staffStore.remove abaixo continua a limpar o cache
+      // local e a tabela legada `staff`, independentemente disto.
+      const { error } = await supabase.functions.invoke('delete-staff-account', {
+        body: { tenantId, userId: s.id },
+      });
+      if (error) {
+        toast.error('Não foi possível remover o acesso do funcionário; tente novamente');
+        return;
+      }
     }
     staffStore.remove(s.id);
     toast.success('Funcionário removido');
@@ -309,17 +313,6 @@ export default function StaffPage() {
               <>
                 <div className="pt-2 border-t border-border">
                   <p className="text-xs font-medium text-muted-foreground mb-3">Acesso ao sistema (login)</p>
-                  <p className="text-xs text-muted-foreground mb-3">Indique um email ou um telefone — o username é opcional.</p>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="username">Username</Label>
-                  <Input id="username" value={form.username}
-                    onChange={e => setForm(f => ({ ...f, username: e.target.value }))} placeholder="ex: maria_caixa" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="staff-email">Email</Label>
-                  <Input id="staff-email" type="email" value={form.email}
-                    onChange={e => setForm(f => ({ ...f, email: e.target.value }))} autoComplete="email" />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="staff-phone">Telefone</Label>
@@ -331,7 +324,7 @@ export default function StaffPage() {
                   <Label htmlFor="staff-password">Password</Label>
                   <Input id="staff-password" type="password" value={form.password}
                     onChange={e => setForm(f => ({ ...f, password: e.target.value }))} autoComplete="new-password" />
-                  <p className="text-xs text-muted-foreground">Mínimo 8 caracteres. Pode entrar com o username ou o email.</p>
+                  <p className="text-xs text-muted-foreground">Mínimo 8 caracteres. Entra com este telefone.</p>
                 </div>
               </>
             )}

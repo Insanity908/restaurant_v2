@@ -75,8 +75,31 @@ Deno.serve(async (req) => {
     if (!tenant) return json({ error: 'Restaurante não encontrado.' }, 404);
 
     if (action === 'delete') {
+      // Antes de apagar o tenant (o que já faz cascade a tenant_members/
+      // user_roles/subscriptions/subscription_history), guarda quem era
+      // membro — depois de apagar, quem ficar sem NENHUM outro restaurante
+      // (multi-restaurante: alguém pode ser dono de vários) e não for
+      // superadmin perde também a conta de autenticação; sem isto, o
+      // login/telefone/email de toda a equipa ficava activo para sempre
+      // "no ar", sem nenhum restaurante associado.
+      const { data: members } = await admin
+        .from('tenant_members').select('user_id').eq('tenant_id', tenantId);
+      const memberIds = (members ?? []).map(m => m.user_id as string);
+
       const { error } = await admin.from('tenants').delete().eq('id', tenantId);
       if (error) return json({ error: error.message }, 400);
+
+      for (const memberId of memberIds) {
+        const { data: remaining } = await admin
+          .from('tenant_members').select('tenant_id').eq('user_id', memberId).limit(1);
+        if ((remaining ?? []).length > 0) continue;
+        const { data: memberSuperRoles } = await admin
+          .from('user_roles').select('role').eq('user_id', memberId).eq('role', 'superadmin');
+        if ((memberSuperRoles ?? []).length > 0) continue;
+        const { error: delErr } = await admin.auth.admin.deleteUser(memberId);
+        if (delErr) console.warn('subscription-status delete: deleteUser failed', memberId, delErr.message);
+      }
+
       return json({ deleted: true });
     }
 

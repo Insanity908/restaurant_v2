@@ -11,7 +11,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useLicense } from '@/hooks/useLicense';
 import { tenantStore } from '@/lib/tenants';
 import { staffStore } from '@/lib/store';
-import { validateUsername } from '@/lib/validators';
+import { validateIntlPhone, maskIntlPhone } from '@/lib/validators';
 import { supabase } from '@/integrations/supabase/client';
 import type { UserRole } from '@/types/restaurant';
 import { toast } from 'sonner';
@@ -19,12 +19,11 @@ import { toast } from 'sonner';
 type Invite = {
   name: string;
   role: Exclude<UserRole, 'admin' | 'manager' | 'superadmin'>;
-  username: string;
-  email: string;
+  phone: string;
   password: string;
 };
 
-const emptyInvite = (): Invite => ({ name: '', role: 'cashier', username: '', email: '', password: '' });
+const emptyInvite = (): Invite => ({ name: '', role: 'cashier', phone: '', password: '' });
 const JUST_ONBOARDED_KEY = 'onboarding_just_created';
 
 async function extractFunctionErrorMessage(error: unknown): Promise<string | undefined> {
@@ -106,9 +105,10 @@ export default function OnboardingPage() {
 
   const inviteErrors = (v: Invite): string | null => {
     if (!v.name.trim()) return null; // linha vazia — ignorada, não é erro
-    const usernameErr = validateUsername(v.username);
-    if (usernameErr) return usernameErr;
-    if (!/^\S+@\S+\.\S+$/.test(v.email)) return 'Email inválido';
+    const phone = v.phone.trim();
+    if (!phone) return 'Indique um telefone';
+    const phoneErr = validateIntlPhone(phone);
+    if (phoneErr) return phoneErr;
     if (v.password.length < 8) return 'Password deve ter pelo menos 8 caracteres';
     return null;
   };
@@ -121,10 +121,8 @@ export default function OnboardingPage() {
       const err = inviteErrors(v);
       if (err) { toast.error(`${v.name.trim()}: ${err}`); return; }
     }
-    const usernames = withContent.map(v => v.username.trim().toLowerCase());
-    const emails = withContent.map(v => v.email.trim().toLowerCase());
-    if (new Set(usernames).size !== usernames.length) { toast.error('Há usernames repetidos entre os membros'); return; }
-    if (new Set(emails).size !== emails.length) { toast.error('Há emails repetidos entre os membros'); return; }
+    const phones = withContent.map(v => v.phone.trim());
+    if (new Set(phones).size !== phones.length) { toast.error('Há telefones repetidos entre os membros'); return; }
 
     const tenantId = localStorage.getItem('current_tenant_id');
     if (!tenantId) { toast.error('Sem restaurante ativo'); return; }
@@ -136,7 +134,7 @@ export default function OnboardingPage() {
       const { data, error } = await supabase.functions.invoke('create-staff-account', {
         body: {
           tenantId, name: v.name.trim(), role: v.role,
-          username: v.username.trim(), email: v.email.trim(), password: v.password,
+          phone: v.phone.trim(), password: v.password,
         },
       });
       if (error || !data?.userId) {
@@ -226,7 +224,7 @@ export default function OnboardingPage() {
               <Users className="w-4 h-4" />Convidar membros da equipa
             </h2>
             <p className="text-xs text-muted-foreground mt-1">
-              Cada membro entra com o seu próprio username/email e password. Pode adicionar mais tarde em Equipa.
+              Cada membro entra com o seu próprio telefone e password. Pode adicionar mais tarde em Equipa.
             </p>
             <div className="space-y-3 mt-4">
               {invites.map((v, i) => (
@@ -253,14 +251,10 @@ export default function OnboardingPage() {
                       </Button>
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 gap-2">
                     <div>
-                      <Label className="text-[11px]">Username</Label>
-                      <Input value={v.username} onChange={e => updateInvite(i, { username: e.target.value })} placeholder="maria_caixa" />
-                    </div>
-                    <div>
-                      <Label className="text-[11px]">Email</Label>
-                      <Input type="email" value={v.email} onChange={e => updateInvite(i, { email: e.target.value })} placeholder="maria@restaurante.mz" />
+                      <Label className="text-[11px]">Telefone</Label>
+                      <Input value={v.phone} onChange={e => updateInvite(i, { phone: maskIntlPhone(e.target.value) })} placeholder="+258 84 123 4567" />
                     </div>
                     <div>
                       <Label className="text-[11px]">Password</Label>

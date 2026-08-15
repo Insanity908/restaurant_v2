@@ -41,7 +41,7 @@ describe('StaffPage — criar novo funcionário', () => {
     }));
   });
 
-  it('preenche o formulário, cria a conta real via edge function e adiciona ao roster local', async () => {
+  it('preenche o formulário (nome/função/telefone/password), cria a conta real via edge function e adiciona ao roster local', async () => {
     const { default: StaffPage } = await import('@/pages/StaffPage');
     const user = userEvent.setup();
     render(<StaffPage />);
@@ -50,26 +50,37 @@ describe('StaffPage — criar novo funcionário', () => {
 
     const dialog = await screen.findByRole('dialog');
     await user.type(within(dialog).getByLabelText('Nome'), 'Maria João');
-    await user.type(within(dialog).getByLabelText('Username'), 'maria_caixa');
-    await user.type(within(dialog).getByLabelText('Email'), 'maria@restaurante.mz');
+    await user.type(within(dialog).getByLabelText('Telefone'), '841234567');
     await user.type(within(dialog).getByLabelText('Password'), 'senhaforte123');
 
     await user.click(within(dialog).getByRole('button', { name: /adicionar/i }));
 
     await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(1));
     expect(invokeMock).toHaveBeenCalledWith('create-staff-account', {
-      body: expect.objectContaining({
+      body: {
         tenantId: 'tenant-1',
         name: 'Maria João',
-        username: 'maria_caixa',
-        email: 'maria@restaurante.mz',
+        role: 'waiter',
+        phone: '841234567',
         password: 'senhaforte123',
-      }),
+      },
     });
 
     await waitFor(() => expect(staffAddMock).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'new-user-id-123', name: 'Maria João' }),
     ));
+  });
+
+  it('não pede username nem email — os campos não existem no formulário', async () => {
+    const { default: StaffPage } = await import('@/pages/StaffPage');
+    const user = userEvent.setup();
+    render(<StaffPage />);
+
+    await user.click(screen.getByRole('button', { name: /novo funcionário/i }));
+    const dialog = await screen.findByRole('dialog');
+
+    expect(within(dialog).queryByLabelText('Username')).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText('Email')).not.toBeInTheDocument();
   });
 
   it('não chama a edge function se a password tiver menos de 8 caracteres', async () => {
@@ -81,15 +92,14 @@ describe('StaffPage — criar novo funcionário', () => {
     const dialog = await screen.findByRole('dialog');
 
     await user.type(within(dialog).getByLabelText('Nome'), 'Teste Curto');
-    await user.type(within(dialog).getByLabelText('Username'), 'teste_curto');
-    await user.type(within(dialog).getByLabelText('Email'), 'teste@restaurante.mz');
+    await user.type(within(dialog).getByLabelText('Telefone'), '841234567');
     await user.type(within(dialog).getByLabelText('Password'), '123');
     await user.click(within(dialog).getByRole('button', { name: /adicionar/i }));
 
     expect(invokeMock).not.toHaveBeenCalled();
   });
 
-  it('cria a conta só com email (sem username) — o servidor deriva o username', async () => {
+  it('não chama a edge function se o telefone não for indicado', async () => {
     const { default: StaffPage } = await import('@/pages/StaffPage');
     const user = userEvent.setup();
     render(<StaffPage />);
@@ -97,85 +107,36 @@ describe('StaffPage — criar novo funcionário', () => {
     await user.click(screen.getByRole('button', { name: /novo funcionário/i }));
     const dialog = await screen.findByRole('dialog');
 
-    await user.type(within(dialog).getByLabelText('Nome'), 'Só Email');
-    await user.type(within(dialog).getByLabelText('Email'), 'so.email@restaurante.mz');
-    await user.type(within(dialog).getByLabelText('Password'), 'senhaforte123');
-    await user.click(within(dialog).getByRole('button', { name: /adicionar/i }));
-
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(1));
-    expect(invokeMock).toHaveBeenCalledWith('create-staff-account', {
-      body: expect.objectContaining({ username: '', email: 'so.email@restaurante.mz' }),
-    });
-  });
-
-  it('cria a conta só com telefone (sem email) — username fica de fora', async () => {
-    const { default: StaffPage } = await import('@/pages/StaffPage');
-    const user = userEvent.setup();
-    render(<StaffPage />);
-
-    await user.click(screen.getByRole('button', { name: /novo funcionário/i }));
-    const dialog = await screen.findByRole('dialog');
-
-    await user.type(within(dialog).getByLabelText('Nome'), 'Só Telefone');
-    await user.type(within(dialog).getByLabelText('Telefone'), '841234567');
-    await user.type(within(dialog).getByLabelText('Password'), 'senhaforte123');
-    await user.click(within(dialog).getByRole('button', { name: /adicionar/i }));
-
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(1));
-    expect(invokeMock).toHaveBeenCalledWith('create-staff-account', {
-      body: expect.objectContaining({ username: '', email: '', phone: '841234567' }),
-    });
-  });
-
-  it('cria a conta com username + telefone (sem email)', async () => {
-    const { default: StaffPage } = await import('@/pages/StaffPage');
-    const user = userEvent.setup();
-    render(<StaffPage />);
-
-    await user.click(screen.getByRole('button', { name: /novo funcionário/i }));
-    const dialog = await screen.findByRole('dialog');
-
-    await user.type(within(dialog).getByLabelText('Nome'), 'Username e Telefone');
-    await user.type(within(dialog).getByLabelText('Username'), 'so_username');
-    await user.type(within(dialog).getByLabelText('Telefone'), '841234567');
-    await user.type(within(dialog).getByLabelText('Password'), 'senhaforte123');
-    await user.click(within(dialog).getByRole('button', { name: /adicionar/i }));
-
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(1));
-    expect(invokeMock).toHaveBeenCalledWith('create-staff-account', {
-      body: expect.objectContaining({ username: 'so_username', email: '', phone: '841234567' }),
-    });
-  });
-
-  it('não chama a edge function se nem username, nem email, nem telefone forem indicados', async () => {
-    const { default: StaffPage } = await import('@/pages/StaffPage');
-    const user = userEvent.setup();
-    render(<StaffPage />);
-
-    await user.click(screen.getByRole('button', { name: /novo funcionário/i }));
-    const dialog = await screen.findByRole('dialog');
-
-    await user.type(within(dialog).getByLabelText('Nome'), 'Sem Nada');
+    await user.type(within(dialog).getByLabelText('Nome'), 'Sem Telefone');
     await user.type(within(dialog).getByLabelText('Password'), 'senhaforte123');
     await user.click(within(dialog).getByRole('button', { name: /adicionar/i }));
 
     expect(invokeMock).not.toHaveBeenCalled();
   });
 
-  it('não chama a edge function se só o username for indicado (sem email nem telefone)', async () => {
+  it('remover um funcionário chama delete-staff-account (apaga também a conta de autenticação)', async () => {
+    const staffRemoveMock = vi.fn();
+    vi.doMock('@/lib/store', () => ({
+      staffStore: {
+        getAll: () => [{ id: '11111111-1111-1111-1111-111111111111', name: 'Maria João', role: 'waiter' }],
+        add: staffAddMock,
+        update: vi.fn(),
+        remove: staffRemoveMock,
+      },
+    }));
+
     const { default: StaffPage } = await import('@/pages/StaffPage');
     const user = userEvent.setup();
     render(<StaffPage />);
 
-    await user.click(screen.getByRole('button', { name: /novo funcionário/i }));
-    const dialog = await screen.findByRole('dialog');
+    await user.click(screen.getByRole('button', { name: /remover/i }));
+    const confirmDialog = await screen.findByRole('alertdialog');
+    await user.click(within(confirmDialog).getByRole('button', { name: /^remover$/i }));
 
-    await user.type(within(dialog).getByLabelText('Nome'), 'Só Username');
-    await user.type(within(dialog).getByLabelText('Username'), 'so_username');
-    await user.type(within(dialog).getByLabelText('Password'), 'senhaforte123');
-    await user.click(within(dialog).getByRole('button', { name: /adicionar/i }));
-
-    expect(invokeMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('delete-staff-account', {
+      body: { tenantId: 'tenant-1', userId: '11111111-1111-1111-1111-111111111111' },
+    }));
+    await waitFor(() => expect(staffRemoveMock).toHaveBeenCalledWith('11111111-1111-1111-1111-111111111111'));
   });
 });
 
