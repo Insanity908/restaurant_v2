@@ -8,18 +8,32 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Slider } from '@/components/ui/slider';
 import { useSettings } from '@/hooks/useSettings';
 import { useAuth } from '@/context/AuthContext';
-import { Upload, RotateCcw, Save, Palette, Building2, Smartphone, Image as ImageIcon, AlertCircle, CreditCard } from 'lucide-react';
+import { Upload, RotateCcw, Save, Palette, Building2, Smartphone, Image as ImageIcon, AlertCircle, CreditCard, Check, SlidersHorizontal, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   maskMzPhone, maskIntlPhone, maskBankAccount, maskIban, maskNuit,
   validateMpesa, validateEmola, validateBankAccount, validateIban, validateNuit, validateIntlPhone,
 } from '@/lib/validators';
 import { getStripeLinks, setStripeLinks, getStripePublishableKey, setStripePublishableKey } from '@/lib/billing';
+import { deriveThemeTokens, type AppSettings } from '@/lib/settings';
 import type { BillingPlan } from '@/types/restaurant';
 import { uploadTenantImage, LOGO_BUCKET } from '@/lib/storage';
 import { useStorageImage } from '@/hooks/useStorageImage';
+import { cn } from '@/lib/utils';
 
 const EMOJI_CHOICES = ['☕', '🍴', '🍕', '🍔', '🍲', '🥘', '🍜', '🌮', '🍱', '🥗', '🍳', '🔥', '⭐', '🏪'];
+
+type ThemeColors = Pick<AppSettings,
+  'primaryHue' | 'primarySaturation' | 'primaryLightness' |
+  'backgroundHue' | 'backgroundSaturation' | 'backgroundLightness'>;
+
+const THEME_PRESETS: { label: string; values: ThemeColors }[] = [
+  { label: 'Laranja escuro', values: { primaryHue: 30, primarySaturation: 95, primaryLightness: 55, backgroundHue: 220, backgroundSaturation: 20, backgroundLightness: 10 } },
+  { label: 'Verde escuro', values: { primaryHue: 142, primarySaturation: 71, primaryLightness: 45, backgroundHue: 160, backgroundSaturation: 15, backgroundLightness: 9 } },
+  { label: 'Azul escuro', values: { primaryHue: 210, primarySaturation: 90, primaryLightness: 55, backgroundHue: 220, backgroundSaturation: 25, backgroundLightness: 8 } },
+  { label: 'Roxo escuro', values: { primaryHue: 270, primarySaturation: 80, primaryLightness: 60, backgroundHue: 260, backgroundSaturation: 20, backgroundLightness: 10 } },
+  { label: 'Claro', values: { primaryHue: 30, primarySaturation: 95, primaryLightness: 50, backgroundHue: 30, backgroundSaturation: 20, backgroundLightness: 96 } },
+];
 
 export default function SettingsPage() {
   const { settings, update, reset } = useSettings();
@@ -34,6 +48,7 @@ export default function SettingsPage() {
   // Stripe billing config (super-admin only)
   const [stripePub, setStripePub] = useState(getStripePublishableKey());
   const [stripeLinksLocal, setStripeLinksLocal] = useState(getStripeLinks());
+  const [advancedThemeOpen, setAdvancedThemeOpen] = useState(false);
 
   const set = <K extends keyof typeof local>(k: K, v: typeof local[K]) =>
     setLocal(prev => ({ ...prev, [k]: v }));
@@ -91,6 +106,8 @@ export default function SettingsPage() {
 
   const primaryPreview = `hsl(${local.primaryHue} ${local.primarySaturation}% ${local.primaryLightness}%)`;
   const bgPreview = `hsl(${local.backgroundHue} ${local.backgroundSaturation}% ${local.backgroundLightness}%)`;
+  const themeTokens = useMemo(() => deriveThemeTokens(local), [local]);
+  const activePreset = THEME_PRESETS.find(p => Object.entries(p.values).every(([k, v]) => local[k as keyof ThemeColors] === v));
 
   return (
     <PageShell
@@ -208,40 +225,84 @@ export default function SettingsPage() {
         {/* THEME */}
         <TabsContent value="theme" className="space-y-4">
           <Card className="p-6 space-y-6">
-            <h2 className="font-heading text-lg font-semibold">Cores</h2>
-
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <Label>Cor primária</Label>
-                <div className="w-10 h-10 rounded-lg border border-border" style={{ background: primaryPreview }} />
-              </div>
-              <SliderRow label="Matiz" value={local.primaryHue} min={0} max={360}
-                onChange={v => set('primaryHue', v)} />
-              <SliderRow label="Saturação" value={local.primarySaturation} min={0} max={100}
-                onChange={v => set('primarySaturation', v)} suffix="%" />
-              <SliderRow label="Luminosidade" value={local.primaryLightness} min={20} max={80}
-                onChange={v => set('primaryLightness', v)} suffix="%" />
+            <div>
+              <h2 className="font-heading text-lg font-semibold">Aparência</h2>
+              <p className="text-sm text-muted-foreground mt-0.5">Escolha um tema pronto, ou personalize a cor principal.</p>
             </div>
 
-            <div className="border-t border-border pt-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <Label>Fundo da aplicação</Label>
-                <div className="w-10 h-10 rounded-lg border border-border" style={{ background: bgPreview }} />
-              </div>
-              <SliderRow label="Matiz" value={local.backgroundHue} min={0} max={360}
-                onChange={v => set('backgroundHue', v)} />
-              <SliderRow label="Saturação" value={local.backgroundSaturation} min={0} max={50}
-                onChange={v => set('backgroundSaturation', v)} suffix="%" />
-              <SliderRow label="Luminosidade" value={local.backgroundLightness} min={4} max={98}
-                onChange={v => set('backgroundLightness', v)} suffix="%" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {THEME_PRESETS.map(preset => (
+                <PresetCard
+                  key={preset.label}
+                  label={preset.label}
+                  values={preset.values}
+                  active={activePreset?.label === preset.label}
+                  onClick={() => setLocal(p => ({ ...p, ...preset.values }))}
+                />
+              ))}
             </div>
 
-            <div className="flex flex-wrap gap-2 pt-4 border-t border-border">
-              <PresetButton label="Laranja escuro" onClick={() => setLocal(p => ({ ...p, primaryHue: 30, primarySaturation: 95, primaryLightness: 55, backgroundHue: 220, backgroundSaturation: 20, backgroundLightness: 10 }))} />
-              <PresetButton label="Verde escuro" onClick={() => setLocal(p => ({ ...p, primaryHue: 142, primarySaturation: 71, primaryLightness: 45, backgroundHue: 160, backgroundSaturation: 15, backgroundLightness: 9 }))} />
-              <PresetButton label="Azul escuro" onClick={() => setLocal(p => ({ ...p, primaryHue: 210, primarySaturation: 90, primaryLightness: 55, backgroundHue: 220, backgroundSaturation: 25, backgroundLightness: 8 }))} />
-              <PresetButton label="Roxo escuro" onClick={() => setLocal(p => ({ ...p, primaryHue: 270, primarySaturation: 80, primaryLightness: 60, backgroundHue: 260, backgroundSaturation: 20, backgroundLightness: 10 }))} />
-              <PresetButton label="Claro" onClick={() => setLocal(p => ({ ...p, primaryHue: 30, primarySaturation: 95, primaryLightness: 50, backgroundHue: 30, backgroundSaturation: 20, backgroundLightness: 96 }))} />
+            <div className="rounded-xl overflow-hidden border border-border">
+              <div
+                className="p-4 space-y-3 transition-colors"
+                style={{ background: `hsl(${themeTokens.background})`, color: `hsl(${themeTokens.foreground})` }}
+              >
+                <div className="rounded-lg p-3 space-y-2" style={{ background: `hsl(${themeTokens.card})` }}>
+                  <p className="text-sm font-semibold">Pré-visualização</p>
+                  <p className="text-xs" style={{ color: `hsl(${themeTokens.mutedForeground})` }}>
+                    Assim vai ficar a aplicação depois de guardar.
+                  </p>
+                  <button
+                    type="button"
+                    className="text-xs font-medium px-3 py-1.5 rounded-md"
+                    style={{ background: `hsl(${themeTokens.primary})`, color: `hsl(${themeTokens.primaryForeground})` }}
+                  >
+                    Botão principal
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="border-t border-border pt-4">
+              <button
+                type="button"
+                onClick={() => setAdvancedThemeOpen(o => !o)}
+                className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground"
+              >
+                <SlidersHorizontal className="w-4 h-4" />
+                Personalizar cores manualmente
+                <ChevronDown className={cn('w-4 h-4 transition-transform', advancedThemeOpen && 'rotate-180')} />
+              </button>
+
+              {advancedThemeOpen && (
+                <div className="mt-5 space-y-6">
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <Label>Cor primária</Label>
+                      <div className="w-10 h-10 rounded-lg border border-border" style={{ background: primaryPreview }} />
+                    </div>
+                    <SliderRow label="Matiz" value={local.primaryHue} min={0} max={360}
+                      onChange={v => set('primaryHue', v)} />
+                    <SliderRow label="Saturação" value={local.primarySaturation} min={0} max={100}
+                      onChange={v => set('primarySaturation', v)} suffix="%" />
+                    <SliderRow label="Luminosidade" value={local.primaryLightness} min={20} max={80}
+                      onChange={v => set('primaryLightness', v)} suffix="%" />
+                  </div>
+
+                  <div className="border-t border-border pt-6 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <Label>Fundo da aplicação</Label>
+                      <div className="w-10 h-10 rounded-lg border border-border" style={{ background: bgPreview }} />
+                    </div>
+                    <SliderRow label="Matiz" value={local.backgroundHue} min={0} max={360}
+                      onChange={v => set('backgroundHue', v)} />
+                    <SliderRow label="Saturação" value={local.backgroundSaturation} min={0} max={50}
+                      onChange={v => set('backgroundSaturation', v)} suffix="%" />
+                    <SliderRow label="Luminosidade" value={local.backgroundLightness} min={4} max={98}
+                      onChange={v => set('backgroundLightness', v)} suffix="%" />
+                  </div>
+                </div>
+              )}
             </div>
           </Card>
         </TabsContent>
@@ -384,8 +445,23 @@ function SliderRow({ label, value, min, max, onChange, suffix = '' }: { label: s
   );
 }
 
-function PresetButton({ label, onClick }: { label: string; onClick: () => void }) {
+function PresetCard({ label, values, active, onClick }: { label: string; values: ThemeColors; active: boolean; onClick: () => void }) {
+  const primary = `hsl(${values.primaryHue} ${values.primarySaturation}% ${values.primaryLightness}%)`;
+  const bg = `hsl(${values.backgroundHue} ${values.backgroundSaturation}% ${values.backgroundLightness}%)`;
   return (
-    <Button type="button" variant="outline" size="sm" onClick={onClick}>{label}</Button>
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'flex items-center gap-3 rounded-xl border p-3 text-left transition-colors',
+        active ? 'border-primary ring-1 ring-primary' : 'border-border hover:border-primary/50',
+      )}
+    >
+      <span className="relative w-9 h-9 rounded-full border border-border/60 shrink-0" style={{ background: bg }}>
+        <span className="absolute inset-1.5 rounded-full" style={{ background: primary }} />
+      </span>
+      <span className="flex-1 min-w-0 text-sm font-medium truncate">{label}</span>
+      {active && <Check className="w-4 h-4 text-primary shrink-0" />}
+    </button>
   );
 }

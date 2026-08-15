@@ -116,16 +116,123 @@ export async function fetchSettings(tenantId: string): Promise<AppSettings> {
   return merged;
 }
 
+export interface ThemeTokens {
+  background: string; foreground: string;
+  card: string; cardForeground: string;
+  muted: string; mutedForeground: string;
+  secondary: string; secondaryForeground: string;
+  border: string;
+  primary: string; primaryForeground: string;
+  sidebarBackground: string; sidebarAccent: string;
+}
+
+const clampPct = (n: number) => Math.min(100, Math.max(0, n));
+
+/** HSL (0-360, 0-100, 0-100) -> sRGB channels in 0..1. */
+function hslToRgb(h: number, s: number, l: number): [number, number, number] {
+  const S = s / 100, L = l / 100;
+  const c = (1 - Math.abs(2 * L - 1)) * S;
+  const hp = h / 60;
+  const x = c * (1 - Math.abs((hp % 2) - 1));
+  const [r1, g1, b1] =
+    hp < 1 ? [c, x, 0] : hp < 2 ? [x, c, 0] : hp < 3 ? [0, c, x] :
+    hp < 4 ? [0, x, c] : hp < 5 ? [x, 0, c] : [c, 0, x];
+  const m = L - c / 2;
+  return [r1 + m, g1 + m, b1 + m];
+}
+
+/** WCAG relative luminance of an HSL color. */
+function relativeLuminance(h: number, s: number, l: number): number {
+  const lin = (v: number) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+  const [r, g, b] = hslToRgb(h, s, l);
+  return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+/**
+ * Escolhe texto branco ou quase-preto conforme o que dá mais contraste real
+ * (fórmula de contraste WCAG) contra uma cor HSL arbitrária — matiz e
+ * saturação mudam o brilho percebido tanto quanto a luminosidade (ex:
+ * amarelo a 50% de luminosidade é bem mais claro que azul a 50%), por isso
+ * decidir só pela luminosidade (como uma versão anterior fazia) dava texto
+ * ilegível em várias combinações de cor primária.
+ */
+function pickForeground(h: number, s: number, l: number): string {
+  const L = relativeLuminance(h, s, l);
+  const contrastWithWhite = 1.05 / (L + 0.05);
+  const contrastWithBlack = (L + 0.05) / 0.05;
+  return contrastWithWhite >= contrastWithBlack ? '0 0% 100%' : '0 0% 10%';
+}
+
+/**
+ * Deriva TODOS os tokens de cor a partir só de matiz/saturação/luminosidade
+ * escolhidos (não só --background e --primary, como fazia antes) — sem
+ * isto, texto/cartões/bordas ficavam sempre fixos no cinza-azulado escuro
+ * original em index.css, e qualquer fundo claro (ex: preset "Claro") saía
+ * com texto quase-branco sobre fundo quase-branco, ilegível. Usado tanto
+ * para aplicar o tema real (applyTheme) como para a pré-visualização ao
+ * vivo em SettingsPage, para as duas nunca poderem divergir.
+ */
+export function deriveThemeTokens(s: AppSettings): ThemeTokens {
+  const { primaryHue: ph, primarySaturation: ps, primaryLightness: pl } = s;
+  const { backgroundHue: bh, backgroundSaturation: bs, backgroundLightness: bl } = s;
+  const isLight = bl >= 50;
+
+  const primaryForeground = pickForeground(ph, ps, pl);
+
+  // Texto principal — baixa saturação (não compete com a cor de marca),
+  // sempre no extremo oposto do fundo para garantir contraste alto.
+  const foreground = isLight ? `${bh} 15% 15%` : `${bh} 20% 95%`;
+  const mutedForeground = isLight ? `${bh} 10% 40%` : `${bh} 12% 60%`;
+
+  // Superfícies (cartões, secundário, bordas) — deslocam-se a partir do
+  // fundo na mesma matiz/saturação escolhida, em vez de ficarem sempre
+  // cinza-azulado fixo, para ficarem coerentes com a cor de fundo escolhida.
+  const toward = (delta: number) => clampPct(isLight ? bl - delta : bl + delta);
+  const sat = (delta: number) => Math.max(0, bs - delta);
+
+  return {
+    background: `${bh} ${bs}% ${bl}%`,
+    foreground,
+    card: `${bh} ${bs}% ${toward(4)}%`,
+    cardForeground: foreground,
+    muted: `${bh} ${sat(5)}% ${toward(7)}%`,
+    mutedForeground,
+    secondary: `${bh} ${sat(3)}% ${toward(9)}%`,
+    secondaryForeground: foreground,
+    border: `${bh} ${bs}% ${toward(isLight ? 16 : 10)}%`,
+    primary: `${ph} ${ps}% ${pl}%`,
+    primaryForeground,
+    sidebarBackground: `${bh} ${bs}% ${clampPct(isLight ? bl - 3 : bl - 2)}%`,
+    sidebarAccent: `${bh} ${sat(5)}% ${toward(6)}%`,
+  };
+}
+
 export function applyTheme(s: AppSettings): void {
   const root = document.documentElement;
-  const p = `${s.primaryHue} ${s.primarySaturation}% ${s.primaryLightness}%`;
-  const bg = `${s.backgroundHue} ${s.backgroundSaturation}% ${s.backgroundLightness}%`;
-  root.style.setProperty('--primary', p);
-  root.style.setProperty('--accent', p);
-  root.style.setProperty('--ring', p);
-  root.style.setProperty('--sidebar-primary', p);
-  root.style.setProperty('--sidebar-ring', p);
-  root.style.setProperty('--background', bg);
-  const sidebarL = Math.max(0, s.backgroundLightness - 2);
-  root.style.setProperty('--sidebar-background', `${s.backgroundHue} ${s.backgroundSaturation}% ${sidebarL}%`);
+  const t = deriveThemeTokens(s);
+  root.style.setProperty('--background', t.background);
+  root.style.setProperty('--foreground', t.foreground);
+  root.style.setProperty('--card', t.card);
+  root.style.setProperty('--card-foreground', t.cardForeground);
+  root.style.setProperty('--popover', t.card);
+  root.style.setProperty('--popover-foreground', t.cardForeground);
+  root.style.setProperty('--muted', t.muted);
+  root.style.setProperty('--muted-foreground', t.mutedForeground);
+  root.style.setProperty('--secondary', t.secondary);
+  root.style.setProperty('--secondary-foreground', t.secondaryForeground);
+  root.style.setProperty('--border', t.border);
+  root.style.setProperty('--input', t.border);
+  root.style.setProperty('--primary', t.primary);
+  root.style.setProperty('--primary-foreground', t.primaryForeground);
+  root.style.setProperty('--accent', t.primary);
+  root.style.setProperty('--accent-foreground', t.primaryForeground);
+  root.style.setProperty('--ring', t.primary);
+  root.style.setProperty('--sidebar-background', t.sidebarBackground);
+  root.style.setProperty('--sidebar-foreground', t.foreground);
+  root.style.setProperty('--sidebar-accent', t.sidebarAccent);
+  root.style.setProperty('--sidebar-accent-foreground', t.foreground);
+  root.style.setProperty('--sidebar-border', t.border);
+  root.style.setProperty('--sidebar-primary', t.primary);
+  root.style.setProperty('--sidebar-primary-foreground', t.primaryForeground);
+  root.style.setProperty('--sidebar-ring', t.primary);
 }
