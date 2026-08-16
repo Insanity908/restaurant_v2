@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Coffee, CreditCard, BarChart3, Users, Package, ChefHat, ShieldCheck, Check } from 'lucide-react';
 import { PLANS, formatMT } from '@/lib/billing';
 import InstallAppButton from '@/components/InstallAppButton';
+import { HeroShowcase, ProductShowcaseSection } from '@/components/landing/ProductShowcase';
 
 const FEATURES = [
   { icon: CreditCard, title: 'POS rápido', desc: 'Pagamentos, recibos e fecho de caixa otimizados para toque.' },
@@ -29,24 +30,36 @@ export default function LandingPage() {
         </nav>
       </header>
 
-      <section className="container mx-auto px-6 py-16 text-center max-w-3xl">
-        <span className="inline-block text-xs font-medium px-3 py-1 rounded-full bg-primary/10 text-primary border border-primary/20 mb-4">
-          POS / ERP para restaurantes — Moçambique
-        </span>
-        <h1 className="font-heading text-4xl md:text-5xl font-bold leading-tight">
-          O sistema completo para a sua <span className="text-primary">cadeia de restaurantes</span>
-        </h1>
-        <p className="text-muted-foreground mt-4 text-lg">
-          Mesas, cozinha, caixa, stock, equipa e relatórios — num só lugar, mesmo offline.
-        </p>
-        <div className="flex flex-wrap justify-center gap-3 mt-8">
-          <Link to="/signup"><Button size="lg">Começar grátis (7 dias)</Button></Link>
-          <a href="#pricing"><Button size="lg" variant="outline">Ver pacotes</Button></a>
-          <InstallAppButton variant="cta" />
+      <section className="container mx-auto px-6 py-12 lg:py-16 grid lg:grid-cols-2 gap-12 lg:gap-8 items-center">
+        <div className="text-center lg:text-left max-w-xl mx-auto lg:mx-0">
+          <span className="inline-block text-xs font-medium px-3 py-1 rounded-full bg-primary/10 text-primary border border-primary/20 mb-4">
+            POS / ERP para restaurantes — Moçambique
+          </span>
+          <h1 className="font-heading text-4xl md:text-5xl font-bold leading-tight">
+            O sistema completo para a sua <span className="text-primary">cadeia de restaurantes</span>
+          </h1>
+          <p className="text-muted-foreground mt-4 text-lg">
+            Mesas, cozinha, caixa, stock, equipa e relatórios — num só lugar, mesmo offline.
+          </p>
+          <div className="flex flex-wrap justify-center lg:justify-start gap-3 mt-8">
+            <Link to="/signup"><Button size="lg">Começar grátis (7 dias)</Button></Link>
+            <a href="#pricing"><Button size="lg" variant="outline">Ver pacotes</Button></a>
+            <InstallAppButton variant="cta" />
+          </div>
+        </div>
+        <div className="pt-4 lg:pt-0">
+          <HeroShowcase />
         </div>
       </section>
 
-      <section className="container mx-auto px-6 pb-16 grid md:grid-cols-3 gap-4">
+      <ProductShowcaseSection />
+
+      <section className="container mx-auto px-6 pb-16">
+        <div className="text-center max-w-2xl mx-auto mb-8">
+          <h2 className="font-heading text-3xl font-bold">Tudo o que precisa, num só sistema</h2>
+          <p className="text-muted-foreground mt-2">Sem depender de vários apps nem de internet estável.</p>
+        </div>
+        <div className="grid md:grid-cols-3 gap-4">
         {FEATURES.map(f => (
           <div key={f.title} className="glass rounded-xl p-5">
             <div className="w-10 h-10 rounded-lg bg-primary/15 flex items-center justify-center mb-3">
@@ -56,6 +69,7 @@ export default function LandingPage() {
             <p className="text-sm text-muted-foreground mt-1">{f.desc}</p>
           </div>
         ))}
+        </div>
       </section>
 
       <section id="pricing" className="container mx-auto px-6 pb-20">

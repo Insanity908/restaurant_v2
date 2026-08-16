@@ -912,6 +912,75 @@ using (public.is_superadmin(auth.uid()))
 with check (public.is_superadmin(auth.uid()));
 
 -- =============================================================================
+-- 18c) feedback_submissions — permite a QUALQUER membro de um tenant (não só
+--      admin) enviar feedback directo ao superadmin da plataforma, visível
+--      na tab "Feedback" do Super Admin.
+-- =============================================================================
+create table public.feedback_submissions (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  submitted_by uuid references auth.users(id),
+  -- Nome/papel de quem enviou, guardados como estavam no momento — não
+  -- dependem de profiles/user_roles continuarem a existir mais tarde.
+  name text not null,
+  role text not null,
+  message text not null,
+  status text not null default 'unread' check (status in ('unread', 'read')),
+  created_at timestamptz not null default now()
+);
+grant select, insert, update on public.feedback_submissions to authenticated;
+grant all on public.feedback_submissions to service_role;
+alter table public.feedback_submissions enable row level security;
+
+-- Qualquer membro do tenant pode enviar feedback pelo seu próprio tenant.
+create policy "Tenant members submit feedback"
+on public.feedback_submissions for insert to authenticated
+with check (public.is_tenant_member(tenant_id));
+
+-- Só o superadmin lê e revê (marca como lido).
+create policy "Superadmin reads feedback"
+on public.feedback_submissions for select to authenticated
+using (public.is_superadmin(auth.uid()));
+
+create policy "Superadmin updates feedback"
+on public.feedback_submissions for update to authenticated
+using (public.is_superadmin(auth.uid()))
+with check (public.is_superadmin(auth.uid()));
+
+-- =============================================================================
+-- 18d) preset_images — biblioteca global de imagens padrão gerida pelo
+--      superadmin, para os utilizadores escolherem no Menu e no Inventário
+--      em vez de terem de carregar uma foto própria.
+-- =============================================================================
+create table public.preset_images (
+  id uuid primary key default gen_random_uuid(),
+  category text not null,
+  label text not null,
+  storage_path text not null,
+  created_at timestamptz not null default now()
+);
+grant select, insert, update, delete on public.preset_images to authenticated;
+grant all on public.preset_images to service_role;
+alter table public.preset_images enable row level security;
+
+create policy "Anyone reads preset images"
+on public.preset_images for select to authenticated
+using (true);
+
+create policy "Superadmin inserts preset images"
+on public.preset_images for insert to authenticated
+with check (public.is_superadmin(auth.uid()));
+
+create policy "Superadmin updates preset images"
+on public.preset_images for update to authenticated
+using (public.is_superadmin(auth.uid()))
+with check (public.is_superadmin(auth.uid()));
+
+create policy "Superadmin deletes preset images"
+on public.preset_images for delete to authenticated
+using (public.is_superadmin(auth.uid()));
+
+-- =============================================================================
 -- 19) platform_config — guarda o email que vira superadmin automaticamente
 --     no primeiro signup. Não tem policies para authenticated/anon: RLS sem
 --     policies = ninguém do lado do cliente lê/escreve isto. Só a função
@@ -1042,6 +1111,28 @@ using (
   bucket_id = 'receipt-logos'
   and public.is_tenant_admin((storage.foldername(name))[1]::uuid)
 );
+
+-- preset-images: bucket global (sem prefixo de tenant_id) — leitura por
+-- qualquer autenticado, escrita só pelo superadmin.
+insert into storage.buckets (id, name, public)
+values ('preset-images', 'preset-images', false)
+on conflict (id) do nothing;
+
+create policy "preset-images read by anyone"
+on storage.objects for select to authenticated
+using (bucket_id = 'preset-images');
+
+create policy "preset-images write by superadmin"
+on storage.objects for insert to authenticated
+with check (bucket_id = 'preset-images' and public.is_superadmin(auth.uid()));
+
+create policy "preset-images update by superadmin"
+on storage.objects for update to authenticated
+using (bucket_id = 'preset-images' and public.is_superadmin(auth.uid()));
+
+create policy "preset-images delete by superadmin"
+on storage.objects for delete to authenticated
+using (bucket_id = 'preset-images' and public.is_superadmin(auth.uid()));
 
 -- =============================================================================
 -- 22) REALTIME — POS/Mesas/Cozinha precisam de live updates

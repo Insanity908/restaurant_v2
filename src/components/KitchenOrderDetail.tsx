@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Clock, Play, Check, ChevronLeft, ChevronRight, HandPlatter, Printer } from 'lucide-react';
-import { Order, MenuItem, UserRole } from '@/types/restaurant';
-import { getMenuItemImage } from '@/lib/helpers';
+import { Order, MenuItem, InventoryItem, UserRole } from '@/types/restaurant';
+import { getMenuItemImage, findMenuItemImagePath } from '@/lib/helpers';
+import StorageImage from '@/components/StorageImage';
+import { MENU_BUCKET } from '@/lib/storage';
 import { printReceipt, printServedItems } from '@/lib/receipt';
 import { cn } from '@/lib/utils';
 
@@ -15,7 +17,8 @@ interface PrepStep {
 interface Ingredient {
   name: string;
   qty: string;
-  icon: string;
+  icon?: string;
+  image?: string;
 }
 
 // Mock recipes — keyed by item name
@@ -91,6 +94,7 @@ const DEFAULT_RECIPE: { ingredients: Ingredient[]; steps: PrepStep[]; temp?: str
 interface Props {
   order: Order | null;
   menuItems?: MenuItem[];
+  inventory?: InventoryItem[];
   onClose: () => void;
   canManage: boolean;
   canServe?: boolean;
@@ -100,11 +104,18 @@ interface Props {
   onServe?: (itemId?: string) => void;
 }
 
-function resolveRecipe(itemName: string, menuItemId: string, menuItems?: MenuItem[]): { ingredients: Ingredient[]; steps: PrepStep[]; temp?: string } {
+// Ingrediente ligado a um item do inventário (inventoryItemId) herda a
+// imagem/ícone de lá — é uma imagem partilhada, não uma cópia por receita.
+function resolveRecipe(itemName: string, menuItemId: string, menuItems?: MenuItem[], inventory?: InventoryItem[]): { ingredients: Ingredient[]; steps: PrepStep[]; temp?: string } {
   const mi = menuItems?.find(m => m.id === menuItemId);
   if (mi?.recipe && (mi.recipe.ingredients.length || mi.recipe.steps.length)) {
     return {
-      ingredients: mi.recipe.ingredients.map(i => ({ name: i.name, qty: i.qty, icon: i.icon || '🍽️' })),
+      ingredients: mi.recipe.ingredients.map(i => {
+        const linked = i.inventoryItemId ? inventory?.find(inv => inv.id === i.inventoryItemId) : undefined;
+        return linked
+          ? { name: i.name, qty: i.qty, icon: linked.icon, image: linked.image }
+          : { name: i.name, qty: i.qty, icon: i.icon || '🍽️' };
+      }),
       steps: mi.recipe.steps.map(s => ({ label: s.label, icon: s.icon || '👨‍🍳' })),
       temp: mi.recipe.temp,
     };
@@ -112,7 +123,7 @@ function resolveRecipe(itemName: string, menuItemId: string, menuItems?: MenuIte
   return RECIPES[itemName] || DEFAULT_RECIPE;
 }
 
-export default function KitchenOrderDetail({ order, menuItems, onClose, canManage, canServe, viewerRole, onStart, onComplete, onServe }: Props) {
+export default function KitchenOrderDetail({ order, menuItems, inventory, onClose, canManage, canServe, viewerRole, onStart, onComplete, onServe }: Props) {
   const [activeIdx, setActiveIdx] = useState(0);
 
   useEffect(() => {
@@ -243,10 +254,10 @@ export default function KitchenOrderDetail({ order, menuItems, onClose, canManag
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-6 overflow-y-auto">
               {/* LEFT — main item */}
-              <OrderItemPanel order={order} activeItem={activeItem} />
+              <OrderItemPanel order={order} activeItem={activeItem} menuItems={menuItems} />
 
               {/* CENTER — ingredients */}
-              <IngredientsPanel activeItem={activeItem} menuItems={menuItems} />
+              <IngredientsPanel activeItem={activeItem} menuItems={menuItems} inventory={inventory} />
 
               {/* RIGHT — preparation */}
               <PreparationPanel activeItem={activeItem} menuItems={menuItems} />
@@ -293,9 +304,9 @@ export default function KitchenOrderDetail({ order, menuItems, onClose, canManag
   );
 }
 
-function OrderItemPanel({ order, activeItem }: { order: Order; activeItem?: Order['items'][number] }) {
+function OrderItemPanel({ order, activeItem, menuItems }: { order: Order; activeItem?: Order['items'][number]; menuItems?: MenuItem[] }) {
   const main = activeItem ?? order.items[0];
-  const img = main ? getMenuItemImage(main.name) : undefined;
+  const imgPath = main ? findMenuItemImagePath(main.menuItemId, menuItems ?? []) : undefined;
   const readyCount = order.items.filter(i => i.status === 'ready' || i.status === 'served').length;
   const progress = order.items.length ? Math.round((readyCount / order.items.length) * 100) : 0;
   const elapsed = Math.floor((Date.now() - new Date(order.createdAt).getTime()) / 60000);
@@ -306,11 +317,14 @@ function OrderItemPanel({ order, activeItem }: { order: Order; activeItem?: Orde
     <div className="space-y-4">
       <p className="text-xs uppercase tracking-widest text-muted-foreground">Prato em foco</p>
       <div className="rounded-2xl overflow-hidden bg-secondary aspect-[4/3]">
-        {img ? (
-          <img src={img} alt={main?.name} className="w-full h-full object-cover" />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-6xl">🍽️</div>
-        )}
+        <StorageImage
+          bucket={MENU_BUCKET}
+          path={imgPath}
+          fallbackSrc={main ? getMenuItemImage(main.name) : undefined}
+          alt={main?.name ?? ''}
+          className="w-full h-full object-cover"
+          placeholder={<div className="w-full h-full flex items-center justify-center text-6xl">🍽️</div>}
+        />
       </div>
       <div>
         <h2 className="text-2xl font-bold text-foreground">{main?.name ?? 'Pedido'}</h2>
@@ -359,8 +373,8 @@ function OrderItemPanel({ order, activeItem }: { order: Order; activeItem?: Orde
   );
 }
 
-function IngredientsPanel({ activeItem, menuItems }: { activeItem?: Order['items'][number]; menuItems?: MenuItem[] }) {
-  const recipe = activeItem ? resolveRecipe(activeItem.name, activeItem.menuItemId, menuItems) : DEFAULT_RECIPE;
+function IngredientsPanel({ activeItem, menuItems, inventory }: { activeItem?: Order['items'][number]; menuItems?: MenuItem[]; inventory?: InventoryItem[] }) {
+  const recipe = activeItem ? resolveRecipe(activeItem.name, activeItem.menuItemId, menuItems, inventory) : DEFAULT_RECIPE;
   const qty = activeItem?.quantity ?? 1;
 
   return (
@@ -375,7 +389,11 @@ function IngredientsPanel({ activeItem, menuItems }: { activeItem?: Order['items
             key={idx}
             className="flex items-center gap-3 p-3 rounded-xl bg-secondary/40 border border-transparent"
           >
-            <span className="text-2xl">{ing.icon}</span>
+            {ing.image ? (
+              <StorageImage bucket={MENU_BUCKET} path={ing.image} alt={ing.name} className="w-8 h-8 rounded-md object-cover shrink-0" />
+            ) : (
+              <span className="text-2xl shrink-0">{ing.icon}</span>
+            )}
             <span className="text-sm font-medium text-foreground">
               {ing.name}: <span className="text-muted-foreground">{ing.qty}</span>
             </span>

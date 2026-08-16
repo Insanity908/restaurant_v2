@@ -5,8 +5,10 @@ import { useAuth } from '@/context/AuthContext';
 import { cn } from '@/lib/utils';
 import { Users, Plus, Pencil, Trash2, X, Clock, Eye, Printer } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { Table as TableType, Order } from '@/types/restaurant';
-import { formatPrice, getMenuItemImage } from '@/lib/helpers';
+import { Table as TableType, Order, MenuItem } from '@/types/restaurant';
+import { formatPrice, getMenuItemImage, findMenuItemImagePath } from '@/lib/helpers';
+import StorageImage from '@/components/StorageImage';
+import { MENU_BUCKET } from '@/lib/storage';
 import { printReceipt, printServedItems } from '@/lib/receipt';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
@@ -19,7 +21,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export default function TablesPage() {
-  const { tables, orders, addTable, updateTable, deleteTable, logPrint } = useRestaurant();
+  const { tables, orders, menuItems, addTable, updateTable, deleteTable, logPrint } = useRestaurant();
   const { hasRole } = useAuth();
   const navigate = useNavigate();
   const canManage = hasRole(['admin', 'manager']);
@@ -184,7 +186,7 @@ export default function TablesPage() {
         }}
       />
 
-      <OrderTrackerDialog order={trackOrder} onClose={() => setTrackOrderId(null)} onLogPrint={logPrint} />
+      <OrderTrackerDialog order={trackOrder} menuItems={menuItems} onClose={() => setTrackOrderId(null)} onLogPrint={logPrint} />
     </PageShell>
   );
 }
@@ -346,7 +348,7 @@ function Field({ label, htmlFor, children }: { label: string; htmlFor?: string; 
   );
 }
 
-function OrderTrackerDialog({ order, onClose, onLogPrint }: { order: Order | null; onClose: () => void; onLogPrint?: (orderId: string, kind: 'receipt' | 'served-items', note?: string) => void }) {
+function OrderTrackerDialog({ order, menuItems, onClose, onLogPrint }: { order: Order | null; menuItems: MenuItem[]; onClose: () => void; onLogPrint?: (orderId: string, kind: 'receipt' | 'served-items', note?: string) => void }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -412,14 +414,17 @@ function OrderTrackerDialog({ order, onClose, onLogPrint }: { order: Order | nul
                 <h3 className="text-sm font-bold text-foreground mb-3">Itens do pedido</h3>
                 <div className="space-y-2">
                   {order.items.map(item => {
-                    const img = getMenuItemImage(item.name);
+                    const imgPath = findMenuItemImagePath(item.menuItemId, menuItems);
                     return (
                       <div key={item.id} className="flex items-center gap-3 p-3 rounded-xl bg-secondary/40">
-                        {img ? (
-                          <img src={img} alt={item.name} className="w-12 h-12 rounded-lg object-cover" />
-                        ) : (
-                          <div className="w-12 h-12 rounded-lg bg-secondary flex items-center justify-center text-xl">🍽️</div>
-                        )}
+                        <StorageImage
+                          bucket={MENU_BUCKET}
+                          path={imgPath}
+                          fallbackSrc={getMenuItemImage(item.name)}
+                          alt={item.name}
+                          className="w-12 h-12 rounded-lg object-cover shrink-0"
+                          placeholder={<div className="w-12 h-12 rounded-lg bg-secondary flex items-center justify-center text-xl shrink-0">🍽️</div>}
+                        />
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-foreground truncate">{item.name}</p>
                           <p className="text-xs text-muted-foreground">x{item.quantity} · {formatPrice(item.price * item.quantity)}</p>

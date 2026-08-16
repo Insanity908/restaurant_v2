@@ -25,6 +25,10 @@ export interface AppSettings {
   taxId: string;
   address: string;
   phone: string;
+  /** Minutos sem iniciar preparação até a cozinha ver o alerta de atraso. */
+  kitchenDelayMinutes: number;
+  /** Minutos prontos sem servir até o garçom/caixa ver o alerta de atraso. */
+  waiterDelayMinutes: number;
 }
 
 const CACHE_BASE = 'app_settings_v1';
@@ -52,6 +56,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   taxId: '',
   address: '',
   phone: '',
+  kitchenDelayMinutes: 15,
+  waiterDelayMinutes: 15,
 };
 
 // In-memory cache mirrors localStorage for O(1) sync reads.

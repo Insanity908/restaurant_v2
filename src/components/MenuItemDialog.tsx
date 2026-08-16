@@ -7,12 +7,13 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Plus, Trash2, ImagePlus, ChefHat, Package, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, ImagePlus, ChefHat, Package, AlertCircle, Images } from 'lucide-react';
 import { validateQtyAgainstUnit } from '@/lib/units';
 import { toast } from 'sonner';
 import { uploadTenantImage, MENU_BUCKET } from '@/lib/storage';
 import { useStorageImage } from '@/hooks/useStorageImage';
-import { PRESET_MENU_IMAGES } from '@/lib/helpers';
+import StorageImage from '@/components/StorageImage';
+import ImagePickerDialog from '@/components/ImagePickerDialog';
 
 const CATEGORIES = ['Popular', 'Entradas', 'Pratos Principais', 'Bebidas', 'Sobremesas'];
 
@@ -36,6 +37,7 @@ export default function MenuItemDialog({ open, onClose, onSave, item, inventory 
   const [steps, setSteps] = useState<RecipeStep[]>([]);
   const [temp, setTemp] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const imageUrl = useStorageImage(MENU_BUCKET, image);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -175,25 +177,16 @@ export default function MenuItemDialog({ open, onClose, onSave, item, inventory 
 
           </div>
 
-          {/* Preset images — quick pick instead of uploading */}
-          <div className="space-y-1.5">
-            <Label className="text-muted-foreground text-xs">Ou escolha uma imagem padrão</Label>
-            <div className="flex gap-2">
-              {PRESET_MENU_IMAGES.map(preset => (
-                <button
-                  key={preset.url}
-                  type="button"
-                  onClick={() => setImage(preset.url)}
-                  title={preset.label}
-                  className={`relative w-14 h-14 rounded-lg overflow-hidden border-2 transition-colors ${
-                    image === preset.url ? 'border-primary' : 'border-border hover:border-primary/50'
-                  }`}
-                >
-                  <img src={preset.url} alt={preset.label} className="w-full h-full object-cover" />
-                </button>
-              ))}
-            </div>
-          </div>
+          {/* Preset images — quick pick from the superadmin-managed gallery instead of uploading */}
+          <Button type="button" variant="outline" onClick={() => setPickerOpen(true)} className="w-full gap-2">
+            <Images className="w-4 h-4" /> Escolher da galeria
+          </Button>
+          <ImagePickerDialog
+            open={pickerOpen}
+            onOpenChange={setPickerOpen}
+            onSelect={setImage}
+            defaultCategory={category !== 'Popular' ? category : undefined}
+          />
 
           {/* Name & Price */}
           <div className="grid grid-cols-2 gap-3">
@@ -287,13 +280,28 @@ export default function MenuItemDialog({ open, onClose, onSave, item, inventory 
                 return (
                   <div key={idx} className="space-y-1.5 rounded-lg bg-secondary/40 p-2 border border-border/40">
                     <div className="flex items-center gap-2">
-                      <Input
-                        value={ing.icon || ''}
-                        onChange={e => updateIngredient(idx, 'icon', e.target.value)}
-                        placeholder="🧀"
-                        className="bg-secondary border-border w-12 h-9 text-sm text-center"
-                        maxLength={4}
-                      />
+                      {linked ? (
+                        <div
+                          title="Imagem/ícone vem do ingrediente ligado no inventário"
+                          className="w-12 h-9 shrink-0 rounded-md bg-secondary border border-border overflow-hidden flex items-center justify-center"
+                        >
+                          {linked.image ? (
+                            <StorageImage bucket={MENU_BUCKET} path={linked.image} alt={linked.name} className="w-full h-full object-cover" />
+                          ) : linked.icon ? (
+                            <span className="text-base">{linked.icon}</span>
+                          ) : (
+                            <Package className="w-4 h-4 text-muted-foreground" />
+                          )}
+                        </div>
+                      ) : (
+                        <Input
+                          value={ing.icon || ''}
+                          onChange={e => updateIngredient(idx, 'icon', e.target.value)}
+                          placeholder="🧀"
+                          className="bg-secondary border-border w-12 h-9 text-sm text-center"
+                          maxLength={4}
+                        />
+                      )}
                       <Input
                         value={ing.name}
                         onChange={e => updateIngredient(idx, 'name', e.target.value)}

@@ -10,7 +10,32 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.5"
+    PostgrestVersion: "14.15"
+  }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
   }
   public: {
     Tables: {
@@ -90,11 +115,54 @@ export type Database = {
           },
         ]
       }
+      feedback_submissions: {
+        Row: {
+          created_at: string
+          id: string
+          message: string
+          name: string
+          role: string
+          status: string
+          submitted_by: string | null
+          tenant_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          message: string
+          name: string
+          role: string
+          status?: string
+          submitted_by?: string | null
+          tenant_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          message?: string
+          name?: string
+          role?: string
+          status?: string
+          submitted_by?: string | null
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "feedback_submissions_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       inventory_items: {
         Row: {
           cost_per_unit: number
           current_stock: number
+          icon: string | null
           id: string
+          image: string | null
           linked_menu_item_ids: string[]
           min_stock: number
           name: string
@@ -106,7 +174,9 @@ export type Database = {
         Insert: {
           cost_per_unit?: number
           current_stock?: number
+          icon?: string | null
           id?: string
+          image?: string | null
           linked_menu_item_ids?: string[]
           min_stock?: number
           name: string
@@ -118,7 +188,9 @@ export type Database = {
         Update: {
           cost_per_unit?: number
           current_stock?: number
+          icon?: string | null
           id?: string
+          image?: string | null
           linked_menu_item_ids?: string[]
           min_stock?: number
           name?: string
@@ -340,6 +412,7 @@ export type Database = {
           customer_phone: string | null
           discount: number
           id: string
+          packaging_fee: number
           paid: boolean
           payment_method: Database["public"]["Enums"]["payment_method"] | null
           status: Database["public"]["Enums"]["order_status"]
@@ -364,6 +437,7 @@ export type Database = {
           customer_phone?: string | null
           discount?: number
           id?: string
+          packaging_fee?: number
           paid?: boolean
           payment_method?: Database["public"]["Enums"]["payment_method"] | null
           status?: Database["public"]["Enums"]["order_status"]
@@ -388,6 +462,7 @@ export type Database = {
           customer_phone?: string | null
           discount?: number
           id?: string
+          packaging_fee?: number
           paid?: boolean
           payment_method?: Database["public"]["Enums"]["payment_method"] | null
           status?: Database["public"]["Enums"]["order_status"]
@@ -469,6 +544,45 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      platform_config: {
+        Row: {
+          key: string
+          value: string | null
+        }
+        Insert: {
+          key: string
+          value?: string | null
+        }
+        Update: {
+          key?: string
+          value?: string | null
+        }
+        Relationships: []
+      }
+      preset_images: {
+        Row: {
+          category: string
+          created_at: string
+          id: string
+          label: string
+          storage_path: string
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          id?: string
+          label: string
+          storage_path: string
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          id?: string
+          label?: string
+          storage_path?: string
+        }
+        Relationships: []
       }
       profiles: {
         Row: {
@@ -910,6 +1024,13 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      can_assign_role: {
+        Args: {
+          _role: Database["public"]["Enums"]["app_role"]
+          _tenant_id: string
+        }
+        Returns: boolean
+      }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -920,6 +1041,10 @@ export type Database = {
       }
       is_superadmin: { Args: { _user_id: string }; Returns: boolean }
       is_tenant_admin: { Args: { _tenant_id: string }; Returns: boolean }
+      is_tenant_manager_or_above: {
+        Args: { _tenant_id: string }
+        Returns: boolean
+      }
       is_tenant_member: { Args: { _tenant_id: string }; Returns: boolean }
       resolve_login_email: { Args: { identifier: string }; Returns: string }
       resolve_login_phone: { Args: { identifier: string }; Returns: string }
@@ -1064,6 +1189,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       app_role: [

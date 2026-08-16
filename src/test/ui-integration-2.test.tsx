@@ -367,3 +367,50 @@ describe('SuperAdminPage — pagamentos pendentes', () => {
     expect(activatePlanMock).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// SuperAdminPage — tab "Feedback": mensagens enviadas por qualquer
+// utilizador (não só admins) via FeedbackDialog.
+// ---------------------------------------------------------------------------
+describe('SuperAdminPage — feedback', () => {
+  const markFeedbackStatusMock = vi.fn();
+  const feedbackItem = {
+    id: 'fb-1', tenantId: 'tenant-4', tenantName: 'Restaurante Feedback',
+    name: 'Garçom Teste', role: 'waiter', message: 'O ecrã de caixa está lento',
+    status: 'unread' as const, createdAt: new Date().toISOString(),
+  };
+
+  beforeEach(() => {
+    vi.resetModules();
+    markFeedbackStatusMock.mockReset().mockResolvedValue(true);
+    vi.doMock('@/lib/tenants', () => ({
+      tenantStore: { getAll: () => [], daysUntilExpiry: () => 0, block: vi.fn(), unblock: vi.fn(), extend: vi.fn(), reduce: vi.fn(), activatePlan: vi.fn(), remove: vi.fn() },
+      fetchTenants: vi.fn().mockResolvedValue([]),
+      fetchTenantTeams: vi.fn().mockResolvedValue({}),
+    }));
+    vi.doMock('@/lib/paymentAccounts', () => ({
+      getPaymentAccounts: () => ({}), savePaymentAccounts: vi.fn(), fetchPaymentAccounts: vi.fn().mockResolvedValue({}),
+    }));
+    vi.doMock('@/lib/paymentSubmissions', () => ({
+      fetchPendingSubmissions: vi.fn().mockResolvedValue([]), markSubmissionStatus: vi.fn(),
+    }));
+    vi.doMock('@/lib/feedback', () => ({
+      fetchFeedback: vi.fn().mockResolvedValue([feedbackItem]),
+      markFeedbackStatus: markFeedbackStatusMock,
+    }));
+  });
+
+  it('mostra o feedback recebido e marca como lido', async () => {
+    const { default: SuperAdminPage } = await import('@/pages/SuperAdminPage');
+    const user = userEvent.setup();
+    render(<SuperAdminPage />);
+
+    await user.click(await screen.findByRole('tab', { name: /feedback/i }));
+    expect(await screen.findByText('O ecrã de caixa está lento')).toBeInTheDocument();
+    expect(screen.getByText('Garçom Teste')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: /marcar como lido/i }));
+
+    await waitFor(() => expect(markFeedbackStatusMock).toHaveBeenCalledWith('fb-1', 'read'));
+  });
+});

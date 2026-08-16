@@ -10,6 +10,8 @@ interface ReceiptOptions {
   showTotals?: boolean;
   brand?: string;
   logoUrl?: string;
+  cashReceived?: number;
+  change?: number;
 }
 
 function escape(str: string): string {
@@ -54,6 +56,8 @@ export function buildReceiptHTML(order: Order, opts: ReceiptOptions = {}): strin
       ${tip > 0 ? `<div class="row"><span>Gorjeta</span><span>${escape(formatPrice(tip))}</span></div>` : ''}
       <div class="row total"><span>Total</span><span>${escape(formatPrice(total))}</span></div>
       ${order.paymentMethod ? `<div class="row small"><span>Pagamento</span><span>${escape(order.paymentMethod)}</span></div>` : ''}
+      ${opts.cashReceived !== undefined ? `<div class="row small"><span>Valor Recebido</span><span>${escape(formatPrice(opts.cashReceived))}</span></div>` : ''}
+      ${opts.change !== undefined ? `<div class="row small"><span>Troco</span><span>${escape(formatPrice(opts.change))}</span></div>` : ''}
     </div>` : `
     <div class="totals">
       <div class="row total"><span>Subtotal itens</span><span>${escape(formatPrice(subtotal))}</span></div>

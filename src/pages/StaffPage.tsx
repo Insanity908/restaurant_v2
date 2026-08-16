@@ -23,6 +23,7 @@ import { validateIntlPhone, maskIntlPhone } from '@/lib/validators';
 import { supabase } from '@/integrations/supabase/client';
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
+import { errorBodyMessage, extractFunctionErrorMessage } from '@/lib/functionError';
 
 // Nota: 'superadmin' é um papel de plataforma (gestão de todos os
 // restaurantes), nunca um funcionário de uma unidade — por isso não aparece
@@ -138,31 +139,8 @@ export default function StaffPage() {
     });
     setSaving(false);
     if (error || !data?.userId) {
-      // For a non-2xx response, supabase-js's FunctionsHttpError.message is
-      // always the generic "Edge Function returned a non-2xx status code" —
-      // the function's actual JSON error body only lives in error.context
-      // (the raw Response), so it has to be parsed out explicitly to show
-      // the real reason (e.g. "Username já está em uso").
-      let serverMessage: string | undefined;
-      // Duck-typed on purpose: `instanceof Response` can fail across realms
-      // (e.g. a fetch intercepted by test tooling), even when `.context` is
-      // a perfectly usable Response-shaped object.
-      const res = error?.context as { clone?: () => { json: () => Promise<unknown> }; json?: () => Promise<unknown> } | undefined;
-      if (res && typeof res.json === 'function') {
-        // clone() can throw *synchronously* (not just reject) when the body
-        // was already consumed upstream — a plain .catch() on the chain
-        // won't see that, so the whole read needs a real try/catch.
-        try {
-          const body = (await (typeof res.clone === 'function' ? res.clone().json() : res.json())) as { error?: string };
-          serverMessage = body?.error;
-        } catch {
-          try {
-            const body = (await res.json()) as { error?: string };
-            serverMessage = body?.error;
-          } catch { /* fall through to the generic message below */ }
-        }
-      }
-      toast.error(serverMessage || (data as { error?: string } | null)?.error || error?.message || 'Falha ao criar conta do funcionário');
+      const serverMessage = await extractFunctionErrorMessage(error);
+      toast.error(serverMessage || errorBodyMessage(data) || error?.message || 'Falha ao criar conta do funcionário');
       return;
     }
 

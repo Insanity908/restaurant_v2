@@ -25,6 +25,7 @@ export default function POSPage() {
   const [tip, setTip] = useState(0);
   const [packagingFee, setPackagingFee] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'mobile-money'>('cash');
+  const [cashReceived, setCashReceived] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
   const [historyOrderId, setHistoryOrderId] = useState<string | null>(null);
 
@@ -50,6 +51,7 @@ export default function POSPage() {
 
   // Auto-link if order already has a customer
   useEffect(() => {
+    setCashReceived('');
     if (!selectedOrder) { setLinkedCustomer(null); setRedeemInput(''); setPhoneLookup(''); return; }
     if (selectedOrder.customerId) {
       const c = customerStore.getAll().find(x => x.id === selectedOrder.customerId);
@@ -89,6 +91,10 @@ export default function POSPage() {
   const grandTotal = Math.max(0, subtotal - discount) + (isTakeawayOrDelivery ? packagingFee : 0) + tip;
   const willEarn = linkedCustomer && loyalty.enabled ? Math.floor(Math.max(0, subtotal - discount) * POINTS_PER_MT) : 0;
 
+  const cashReceivedNum = cashReceived.trim() === '' ? null : Number(cashReceived);
+  const change = cashReceivedNum !== null ? cashReceivedNum - grandTotal : null;
+  const cashInsufficient = paymentMethod === 'cash' && change !== null && change < 0;
+
   const handleLookup = () => {
     const c = customerStore.findByPhone(phoneLookup);
     if (c) { setLinkedCustomer(c); toast.success(`Cliente ${c.name} ligado`); }
@@ -98,7 +104,7 @@ export default function POSPage() {
   const [confirmingPayment, setConfirmingPayment] = useState(false);
 
   const handlePayment = async () => {
-    if (!selectedOrderId) return;
+    if (!selectedOrderId || cashInsufficient) return;
     setConfirmingPayment(true);
     const result = await completeOrder(selectedOrderId, paymentMethod, tip, {
       customerId: linkedCustomer?.id,
@@ -131,6 +137,7 @@ export default function POSPage() {
       setSelectedOrderId(null);
       setTip(0);
       setPackagingFee(0);
+      setCashReceived('');
       setRedeemInput('');
       setLinkedCustomer(null);
       setPhoneLookup('');
@@ -374,6 +381,28 @@ export default function POSPage() {
                 </div>
               </div>
 
+              {paymentMethod === 'cash' && (
+                <div className="space-y-2">
+                  <label className="text-sm text-muted-foreground" htmlFor="cash-received">Valor Recebido (MT)</label>
+                  <input
+                    id="cash-received"
+                    type="number"
+                    min={0}
+                    value={cashReceived}
+                    onChange={e => setCashReceived(e.target.value)}
+                    placeholder={formatPrice(grandTotal).replace(' MT', '')}
+                    className="w-full bg-secondary text-secondary-foreground rounded-xl px-3 py-2.5 text-sm border border-border"
+                  />
+                  {change !== null && (
+                    cashInsufficient ? (
+                      <p className="text-xs font-medium text-destructive">Falta {formatPrice(-change)}</p>
+                    ) : (
+                      <p className="text-xs font-medium text-success">Troco: {formatPrice(change)}</p>
+                    )
+                  )}
+                </div>
+              )}
+
               {!allServed && (
                 <div className="flex items-start gap-2 rounded-xl bg-warning/10 border border-warning/30 p-3 text-xs text-warning">
                   <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
@@ -386,7 +415,15 @@ export default function POSPage() {
               <div className="grid grid-cols-2 gap-2">
                 <button
                   onClick={() => {
-                    printReceipt({ ...selectedOrder, tip, packagingFee: isTakeawayOrDelivery ? packagingFee : 0, paymentMethod }, { title: 'Recibo / Conta' });
+                    printReceipt(
+                      { ...selectedOrder, tip, packagingFee: isTakeawayOrDelivery ? packagingFee : 0, paymentMethod },
+                      {
+                        title: 'Recibo / Conta',
+                        ...(!cashInsufficient && cashReceivedNum !== null
+                          ? { cashReceived: cashReceivedNum, change: change ?? undefined }
+                          : {}),
+                      },
+                    );
                     logPrint(selectedOrder.id, 'receipt', 'Recibo / Conta');
                   }}
                   className="flex items-center justify-center gap-2 bg-secondary text-secondary-foreground py-2.5 rounded-xl font-bold text-sm hover:bg-secondary/80 transition-colors"
@@ -424,8 +461,8 @@ export default function POSPage() {
                 </button>
                 <button
                   onClick={handlePayment}
-                  disabled={!allServed || confirmingPayment}
-                  title={!allServed ? 'Todos os pratos devem ser servidos antes' : undefined}
+                  disabled={!allServed || confirmingPayment || cashInsufficient}
+                  title={!allServed ? 'Todos os pratos devem ser servidos antes' : cashInsufficient ? 'Valor recebido insuficiente' : undefined}
                   className="flex-1 bg-success text-success-foreground py-3.5 rounded-xl font-bold text-sm hover:bg-success/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {confirmingPayment ? 'A confirmar…' : 'Confirmar Pagamento'}

@@ -2,6 +2,7 @@ import { supabase } from '@/integrations/supabase/client';
 
 export const MENU_BUCKET = 'menu-images';
 export const LOGO_BUCKET = 'receipt-logos';
+export const PRESET_IMAGES_BUCKET = 'preset-images';
 
 const SIGNED_TTL = 60 * 60 * 24 * 7; // 7 days
 const CACHE_KEY = 'storage_signed_urls_v1';
@@ -73,6 +74,19 @@ export async function uploadTenantImage(bucket: string, file: File): Promise<str
   const tenantId = localStorage.getItem('current_tenant_id');
   if (!tenantId) throw new Error('Nenhum restaurante activo');
   const path = `${tenantId}/${crypto.randomUUID()}.${extOf(file)}`;
+  const { error } = await supabase.storage.from(bucket).upload(path, file, {
+    cacheControl: '3600',
+    contentType: file.type || 'image/jpeg',
+    upsert: false,
+  });
+  if (error) throw new Error(error.message);
+  await resolveStorageUrl(bucket, path);
+  return path;
+}
+
+/** Upload into a global (non-tenant) folder — used for the superadmin-managed preset image library. */
+export async function uploadGlobalImage(bucket: string, folder: string, file: File): Promise<string> {
+  const path = `${folder}/${crypto.randomUUID()}.${extOf(file)}`;
   const { error } = await supabase.storage.from(bucket).upload(path, file, {
     cacheControl: '3600',
     contentType: file.type || 'image/jpeg',

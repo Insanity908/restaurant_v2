@@ -15,6 +15,7 @@ import { validateIntlPhone, maskIntlPhone } from '@/lib/validators';
 import { supabase } from '@/integrations/supabase/client';
 import type { UserRole } from '@/types/restaurant';
 import { toast } from 'sonner';
+import { errorBodyMessage, extractFunctionErrorMessage } from '@/lib/functionError';
 
 type Invite = {
   name: string;
@@ -25,15 +26,6 @@ type Invite = {
 
 const emptyInvite = (): Invite => ({ name: '', role: 'cashier', phone: '', password: '' });
 const JUST_ONBOARDED_KEY = 'onboarding_just_created';
-
-async function extractFunctionErrorMessage(error: unknown): Promise<string | undefined> {
-  if (error && typeof error === 'object' && 'context' in error && (error as { context: unknown }).context instanceof Response) {
-    return (error as { context: Response }).context.clone().json()
-      .then((body: { error?: string }) => body?.error)
-      .catch(() => undefined);
-  }
-  return undefined;
-}
 
 export default function OnboardingPage() {
   const navigate = useNavigate();
@@ -139,7 +131,7 @@ export default function OnboardingPage() {
       });
       if (error || !data?.userId) {
         const serverMessage = await extractFunctionErrorMessage(error);
-        failed.push(`${v.name.trim()} (${serverMessage || (data as { error?: string } | null)?.error || error?.message || 'erro desconhecido'})`);
+        failed.push(`${v.name.trim()} (${serverMessage || errorBodyMessage(data) || error?.message || 'erro desconhecido'})`);
         continue;
       }
       staffStore.add({ id: data.userId as string, name: v.name.trim(), role: v.role });

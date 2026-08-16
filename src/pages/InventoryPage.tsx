@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import PageShell from '@/components/PageShell';
 import { useRestaurant } from '@/hooks/useRestaurant';
-import { formatPrice } from '@/lib/helpers';
+import { formatPrice, truncateList } from '@/lib/helpers';
 import { InventoryItem } from '@/types/restaurant';
 import { Package, AlertTriangle, Plus, Pencil, Trash2, X, Search, ImagePlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -16,6 +16,8 @@ import { toast } from 'sonner';
 import { uploadTenantImage, MENU_BUCKET } from '@/lib/storage';
 import { useStorageImage } from '@/hooks/useStorageImage';
 import StorageImage from '@/components/StorageImage';
+import DismissibleAlert from '@/components/DismissibleAlert';
+import ImagePickerDialog from '@/components/ImagePickerDialog';
 
 export default function InventoryPage() {
   const {
@@ -26,10 +28,11 @@ export default function InventoryPage() {
   const canEdit = hasPermission('inventory.edit');
 
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<'all' | 'low'>('all');
+  const [filter, setFilter] = useState<'all' | 'low' | 'zero'>('all');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<InventoryItem | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Form state
@@ -89,7 +92,7 @@ export default function InventoryPage() {
   };
 
   const displayed = inventory
-    .filter(i => filter === 'low' ? i.currentStock <= i.minStock : true)
+    .filter(i => filter === 'low' ? i.currentStock <= i.minStock : filter === 'zero' ? i.currentStock === 0 : true)
     .filter(i => i.name.toLowerCase().includes(search.toLowerCase()));
 
   const totalValue = inventory.reduce((sum, i) => sum + i.currentStock * i.costPerUnit, 0);
@@ -98,18 +101,17 @@ export default function InventoryPage() {
     <PageShell title="Inventário" subtitle="Controlo de stock e ingredientes">
       {/* Low stock alert banner */}
       {lowStockItems.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
-          className="mb-4 p-3 rounded-xl bg-warning/10 border border-warning/30 flex items-start gap-3"
-        >
-          <AlertTriangle className="w-5 h-5 text-warning shrink-0 mt-0.5" />
-          <div>
-            <p className="text-sm font-medium text-warning">Stock Baixo — {lowStockItems.length} {lowStockItems.length === 1 ? 'item' : 'itens'}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {lowStockItems.map(i => i.name).join(', ')}
-            </p>
+        <DismissibleAlert dismissKey={lowStockItems.map(i => i.id).sort().join(',')} className="mb-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-warning shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-warning">Stock Baixo — {lowStockItems.length} {lowStockItems.length === 1 ? 'item' : 'itens'}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {truncateList(lowStockItems.map(i => i.name))}
+              </p>
+            </div>
           </div>
-        </motion.div>
+        </DismissibleAlert>
       )}
 
       {/* Stats row */}
@@ -140,7 +142,7 @@ export default function InventoryPage() {
           />
         </div>
         <div className="flex gap-2">
-          {(['all', 'low'] as const).map(f => (
+          {(['all', 'low', 'zero'] as const).map(f => (
             <button
               key={f}
               onClick={() => setFilter(f)}
@@ -149,7 +151,7 @@ export default function InventoryPage() {
                 filter === f ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'
               )}
             >
-              {f === 'all' ? 'Todos' : 'Stock Baixo'}
+              {f === 'all' ? 'Todos' : f === 'low' ? 'Stock Baixo' : 'Sem Stock'}
             </button>
           ))}
         </div>
@@ -283,6 +285,14 @@ export default function InventoryPage() {
                 />
               </div>
             </div>
+            <Button type="button" variant="outline" size="sm" onClick={() => setPickerOpen(true)} className="w-full gap-2">
+              <ImagePlus className="w-3.5 h-3.5" /> Escolher da galeria
+            </Button>
+            <ImagePickerDialog
+              open={pickerOpen}
+              onOpenChange={setPickerOpen}
+              onSelect={path => setForm(f => ({ ...f, image: path }))}
+            />
             <div>
               <Label className="text-muted-foreground text-xs">Nome</Label>
               <Input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="bg-secondary border-border mt-1" />

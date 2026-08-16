@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import PageShell from '@/components/PageShell';
 import { useRestaurant } from '@/hooks/useRestaurant';
-import { getMenuItemImage, formatPrice } from '@/lib/helpers';
+import { getMenuItemImage, findMenuItemImagePath, formatPrice } from '@/lib/helpers';
 import { MenuItem, Modifier, OrderItem } from '@/types/restaurant';
 import { Plus, Minus, ShoppingCart, X, Pencil, Trash2, Settings2, PlusCircle, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -76,6 +76,9 @@ export default function MenuPage() {
         return prev.map(i => i.id === existing.id ? { ...i, quantity: i.quantity + 1 } : i);
       }
       const extra = (modifiers ?? []).reduce((s, m) => s + m.price, 0);
+      // Bebidas não passam por preparação na cozinha — já nascem prontas,
+      // só falta o garçom servir.
+      const initialStatus: OrderItem['status'] = menuItem.category === 'Bebidas' ? 'ready' : 'pending';
       return [...prev, {
         id: generateId(),
         menuItemId: menuItem.id,
@@ -83,7 +86,7 @@ export default function MenuPage() {
         quantity: 1,
         price: menuItem.price + extra,
         modifiers: modifiers && modifiers.length > 0 ? modifiers : undefined,
-        status: 'pending' as const,
+        status: initialStatus,
       }];
     });
   };
@@ -369,10 +372,17 @@ export default function MenuPage() {
 
               <div className="flex-1 overflow-y-auto p-4 space-y-3">
                 {cart.map(item => {
-                  const img = getMenuItemImage(item.name);
+                  const imgPath = findMenuItemImagePath(item.menuItemId, menuItems);
                   return (
                     <div key={item.id} className="flex items-center gap-3 bg-secondary/50 rounded-xl p-3">
-                      {img && <img src={img} alt={item.name} className="w-12 h-12 rounded-lg object-cover" />}
+                      <StorageImage
+                        bucket={MENU_BUCKET}
+                        path={imgPath}
+                        fallbackSrc={getMenuItemImage(item.name)}
+                        alt={item.name}
+                        className="w-12 h-12 rounded-lg object-cover shrink-0"
+                        placeholder={<div className="w-12 h-12 rounded-lg bg-secondary flex items-center justify-center text-xl shrink-0">🍽️</div>}
+                      />
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-foreground truncate">{item.name}</p>
                         {item.modifiers && item.modifiers.length > 0 && (

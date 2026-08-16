@@ -1,8 +1,9 @@
 import PageShell from '@/components/PageShell';
 import { useRestaurant } from '@/hooks/useRestaurant';
-import { formatPrice } from '@/lib/helpers';
+import { formatPrice, truncateList } from '@/lib/helpers';
 import { TrendingUp, ShoppingBag, DollarSign, Clock, AlertTriangle } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import DismissibleAlert from '@/components/DismissibleAlert';
 
 export default function DashboardPage() {
   const { orders, activeOrders, menuItems, tables, lowStockItems } = useRestaurant();
@@ -50,15 +51,15 @@ export default function DashboardPage() {
 
       {/* Low stock alert */}
       {lowStockItems.length > 0 && (
-        <Link to="/inventory" className="block mb-6 p-3 rounded-xl bg-warning/10 border border-warning/30 hover:bg-warning/15 transition-colors">
-          <div className="flex items-center gap-3">
+        <DismissibleAlert dismissKey={lowStockItems.map(i => i.id).sort().join(',')} className="mb-6">
+          <Link to="/inventory" className="flex items-center gap-3 hover:opacity-90 transition-opacity">
             <AlertTriangle className="w-5 h-5 text-warning shrink-0" />
             <div className="flex-1">
               <p className="text-sm font-medium text-warning">Alerta de Stock Baixo — {lowStockItems.length} {lowStockItems.length === 1 ? 'item' : 'itens'}</p>
-              <p className="text-xs text-muted-foreground mt-0.5">{lowStockItems.map(i => i.name).join(', ')}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{truncateList(lowStockItems.map(i => i.name))}</p>
             </div>
-          </div>
-        </Link>
+          </Link>
+        </DismissibleAlert>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

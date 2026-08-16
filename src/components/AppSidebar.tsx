@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutGrid, UtensilsCrossed, ChefHat, CreditCard, BarChart3, Settings, Coffee, Package, LogOut, Users, Clock, UserCircle, ShieldCheck, MoreHorizontal, ChevronsUpDown, Check, Plus } from 'lucide-react';
+import { LayoutGrid, UtensilsCrossed, ChefHat, CreditCard, BarChart3, Settings, Coffee, Package, LogOut, Users, Clock, UserCircle, ShieldCheck, MoreHorizontal, ChevronsUpDown, Check, Plus, MessageSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useOptionalAuth, ROUTE_PERMISSIONS } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,7 @@ import { useStorageImage } from '@/hooks/useStorageImage';
 import { LOGO_BUCKET } from '@/lib/storage';
 import InstallAppButton from '@/components/InstallAppButton';
 import RestaurantSwitcherDialog from '@/components/RestaurantSwitcherDialog';
+import FeedbackDialog from '@/components/FeedbackDialog';
 
 
 const navItems = [
@@ -87,6 +88,7 @@ export default function AppSidebar() {
   const { tenant, status, daysLeft } = useLicense();
   const iconUrl = useStorageImage(LOGO_BUCKET, settings.iconUrl);
   const [switcherOpen, setSwitcherOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   if (!user) return null;
 
@@ -148,6 +150,16 @@ export default function AppSidebar() {
             <p className="text-[11px] text-primary">{ROLE_LABEL[user.role]}</p>
           </div>
           <InstallAppButton variant="compact" />
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setFeedbackOpen(true)}
+            className="w-full justify-center lg:justify-start gap-2 text-muted-foreground hover:text-foreground"
+            aria-label="Enviar feedback"
+          >
+            <MessageSquare className="w-4 h-4 shrink-0" />
+            <span className="hidden lg:inline">Feedback</span>
+          </Button>
           <Button
             variant="ghost"
             size="sm"
@@ -221,6 +233,9 @@ export default function AppSidebar() {
                   <Coffee className="w-4 h-4 mr-2" /> Restaurantes
                 </DropdownMenuItem>
               )}
+              <DropdownMenuItem onClick={() => setFeedbackOpen(true)} className="cursor-pointer">
+                <MessageSquare className="w-4 h-4 mr-2" /> Feedback
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={logout} className="text-destructive focus:text-destructive cursor-pointer">
                 <LogOut className="w-4 h-4 mr-2" /> Sair
               </DropdownMenuItem>
@@ -230,6 +245,7 @@ export default function AppSidebar() {
       </nav>
 
       <RestaurantSwitcherDialog open={switcherOpen} onOpenChange={setSwitcherOpen} />
+      <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
     </>
   );
 }

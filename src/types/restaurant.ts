@@ -16,7 +16,7 @@ export interface RecipeIngredient {
   name: string;
   qty: string;
   icon?: string;
-  image?: string; // storage path — só usado quando não ligado a um produto do inventário
+  image?: string; // storage path — herda a imagem do ingrediente do inventário quando ligado (inventoryItemId)
   inventoryItemId?: string;
 }
 

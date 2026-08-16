@@ -3,7 +3,11 @@ import PageShell from '@/components/PageShell';
 import KitchenOrderDetail from '@/components/KitchenOrderDetail';
 import { useRestaurant } from '@/hooks/useRestaurant';
 import { useAuth } from '@/context/AuthContext';
-import { getMenuItemImage, formatPrice } from '@/lib/helpers';
+import { getMenuItemImage, findMenuItemImagePath, formatPrice, truncateList } from '@/lib/helpers';
+import StorageImage from '@/components/StorageImage';
+import DismissibleAlert from '@/components/DismissibleAlert';
+import { MENU_BUCKET } from '@/lib/storage';
+import { useSettings } from '@/hooks/useSettings';
 import { cn } from '@/lib/utils';
 import { Clock, AlertTriangle, X, HandPlatter } from 'lucide-react';
 import { motion } from 'framer-motion';
@@ -11,7 +15,6 @@ import { toast } from 'sonner';
 import type { Order, OrderItem } from '@/types/restaurant';
 
 const STATUS_CYCLE: Array<'pending' | 'preparing' | 'ready'> = ['pending', 'preparing', 'ready'];
-const DELAY_THRESHOLD_MIN = 15;
 
 function orderLabel(order: { type: 'dine-in' | 'takeaway' | 'delivery'; tableNumber?: number }): string {
   if (order.type === 'dine-in') return `Mesa ${order.tableNumber}`;
@@ -25,8 +28,11 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export default function KitchenPage() {
-  const { orders, updateOrderItemStatus, updateOrder, cancelOrder, menuItems } = useRestaurant();
+  const { orders, updateOrderItemStatus, updateOrder, cancelOrder, menuItems, inventory } = useRestaurant();
   const { user } = useAuth();
+  const { settings } = useSettings();
+  const kitchenDelayMin = settings.kitchenDelayMinutes;
+  const waiterDelayMin = settings.waiterDelayMinutes;
   const [now, setNow] = useState(new Date());
   const [alertedReadyOrders, setAlertedReadyOrders] = useState<string[]>([]);
   const [alertedPendingDelayOrders, setAlertedPendingDelayOrders] = useState<string[]>([]);
@@ -37,6 +43,9 @@ export default function KitchenPage() {
   const canManageKitchen = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'kitchen';
   const canServe = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'waiter' || user?.role === 'cashier';
   const shouldReceiveReadyAlerts = isWaiterOrCashier;
+  // Admin/manager veem os dois papéis no mesmo ecrã — usa o limiar mais
+  // apertado para não deixar passar um atraso que interessaria a qualquer um.
+  const delayThresholdMin = isKitchen ? kitchenDelayMin : isWaiterOrCashier ? waiterDelayMin : Math.min(kitchenDelayMin, waiterDelayMin);
 
   // Todos os pedidos ainda em curso, independentemente do que cada papel vê
   // no board — os alertas de atraso não devem depender de o pedido já ter
@@ -93,20 +102,20 @@ export default function KitchenPage() {
     if (!isKitchen) return;
 
     const stalePendingOrders = activeOrders.filter(order =>
-      getElapsedMin(order.createdAt) > DELAY_THRESHOLD_MIN && order.items.some(i => i.status === 'pending')
+      getElapsedMin(order.createdAt) > kitchenDelayMin && order.items.some(i => i.status === 'pending')
     );
     const newStale = stalePendingOrders.filter(order => !alertedPendingDelayOrders.includes(order.id));
 
     newStale.forEach(order => {
       toast.warning('Prato por iniciar', {
-        description: `${orderLabel(order)} está há mais de ${DELAY_THRESHOLD_MIN} min à espera — comece a preparar.`,
+        description: `${orderLabel(order)} está há mais de ${kitchenDelayMin} min à espera — comece a preparar.`,
       });
     });
 
     if (newStale.length > 0) {
       setAlertedPendingDelayOrders(prev => [...prev, ...newStale.map(order => order.id)]);
     }
-  }, [activeOrders, alertedPendingDelayOrders, isKitchen, now]);
+  }, [activeOrders, alertedPendingDelayOrders, isKitchen, kitchenDelayMin, now]);
 
   // Garçom/Caixa: um prato específico ficou "pronto" há demasiado tempo sem
   // ser servido (não o pedido inteiro desde a criação — o que interessa aqui
@@ -121,23 +130,23 @@ export default function KitchenPage() {
         const readyEvent = [...(order.events ?? [])].reverse().find(e => e.type === 'item-ready' && e.itemId === item.id);
         if (!readyEvent) return;
         const elapsed = Math.floor((now.getTime() - new Date(readyEvent.at).getTime()) / 60000);
-        if (elapsed > DELAY_THRESHOLD_MIN) staleReadyItems.push({ order, item });
+        if (elapsed > waiterDelayMin) staleReadyItems.push({ order, item });
       });
     });
     const newStale = staleReadyItems.filter(({ item }) => !alertedReadyDelayItems.includes(item.id));
 
     newStale.forEach(({ order, item }) => {
       toast.warning('Prato pronto por servir', {
-        description: `${item.name} (${orderLabel(order)}) está pronto há mais de ${DELAY_THRESHOLD_MIN} min — sirva antes que arrefeça.`,
+        description: `${item.name} (${orderLabel(order)}) está pronto há mais de ${waiterDelayMin} min — sirva antes que arrefeça.`,
       });
     });
 
     if (newStale.length > 0) {
       setAlertedReadyDelayItems(prev => [...prev, ...newStale.map(({ item }) => item.id)]);
     }
-  }, [activeOrders, alertedReadyDelayItems, isWaiterOrCashier, now]);
+  }, [activeOrders, alertedReadyDelayItems, isWaiterOrCashier, waiterDelayMin, now]);
 
-  const delayedCount = kitchenOrders.filter(o => getElapsedMin(o.createdAt) > DELAY_THRESHOLD_MIN).length;
+  const delayedOrders = kitchenOrders.filter(o => getElapsedMin(o.createdAt) > delayThresholdMin);
 
   const cycleItemStatus = (orderId: string, itemId: string, currentStatus: string) => {
     const idx = STATUS_CYCLE.indexOf(currentStatus as any);
@@ -155,15 +164,31 @@ export default function KitchenPage() {
           <span className="text-sm text-muted-foreground">
             Pedidos ativos: <strong className="text-foreground">{kitchenOrders.length}</strong>
           </span>
-          {delayedCount > 0 && (
+          {delayedOrders.length > 0 && (
             <span className="flex items-center gap-1.5 bg-destructive/15 text-destructive px-3 py-1.5 rounded-lg text-sm font-medium">
               <AlertTriangle className="w-4 h-4" />
-              Atrasados: {delayedCount}
+              Atrasados: {delayedOrders.length}
             </span>
           )}
         </div>
       }
     >
+      {delayedOrders.length > 0 && (
+        <DismissibleAlert dismissKey={delayedOrders.map(o => o.id).sort().join(',')} tone="destructive" className="mb-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-destructive shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-medium text-destructive">
+                {delayedOrders.length} {delayedOrders.length === 1 ? 'pedido atrasado' : 'pedidos atrasados'}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {truncateList(delayedOrders.map(orderLabel))}
+              </p>
+            </div>
+          </div>
+        </DismissibleAlert>
+      )}
+
       {kitchenOrders.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
           <span className="text-5xl mb-4">👨‍🍳</span>
@@ -174,7 +199,7 @@ export default function KitchenPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {kitchenOrders.map(order => {
             const elapsed = getElapsedMin(order.createdAt);
-            const isDelayed = elapsed > DELAY_THRESHOLD_MIN;
+            const isDelayed = elapsed > delayThresholdMin;
             const allReady = order.items.every(i => i.status === 'ready');
             // Items visíveis por papel
             const visibleItems = isKitchen
@@ -225,7 +250,7 @@ export default function KitchenPage() {
                 {/* Items — each clickable to cycle status */}
                 <div className="p-3 space-y-2">
                   {visibleItems.map(item => {
-                    const img = getMenuItemImage(item.name);
+                    const imgPath = findMenuItemImagePath(item.menuItemId, menuItems);
                     const isReady = item.status === 'ready';
                     const canServeItem = isReady && canServe;
                     const canCycle = canManageKitchen && !isReady;
@@ -248,11 +273,14 @@ export default function KitchenPage() {
                         )}
                         title={canServeItem ? 'Marcar como servido' : undefined}
                       >
-                        {img ? (
-                          <img src={img} alt={item.name} className="w-10 h-10 rounded-lg object-cover" />
-                        ) : (
-                          <div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center text-xs">🍽️</div>
-                        )}
+                        <StorageImage
+                          bucket={MENU_BUCKET}
+                          path={imgPath}
+                          fallbackSrc={getMenuItemImage(item.name)}
+                          alt={item.name}
+                          className="w-10 h-10 rounded-lg object-cover shrink-0"
+                          placeholder={<div className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center text-xs shrink-0">🍽️</div>}
+                        />
                         <div className="flex-1 min-w-0">
                           <p className="text-sm text-foreground truncate">{item.name}</p>
                           {item.modifiers && item.modifiers.length > 0 && (
@@ -332,6 +360,7 @@ export default function KitchenPage() {
       <KitchenOrderDetail
         order={detailOrder}
         menuItems={menuItems}
+        inventory={inventory}
         onClose={() => setDetailOrderId(null)}
         canManage={canManageKitchen}
         canServe={canServe}

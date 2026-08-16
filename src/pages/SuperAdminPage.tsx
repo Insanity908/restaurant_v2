@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PageShell from '@/components/PageShell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,12 +12,16 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Lock, Unlock, Trash2, Clock, Search, Building2, TrendingUp, Users, BarChart3, Copy, Landmark, Save, CheckCircle2, Inbox } from 'lucide-react';
+import { Lock, Unlock, Trash2, Clock, Search, Building2, TrendingUp, Users, BarChart3, Copy, Landmark, Save, CheckCircle2, Inbox, MessageSquare, Mail, MailOpen, Images, ImagePlus } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid } from 'recharts';
 import { tenantStore, fetchTenants, fetchTenantTeams, type TenantTeam } from '@/lib/tenants';
 import { PLANS, formatMT } from '@/lib/billing';
 import { getPaymentAccounts, savePaymentAccounts, fetchPaymentAccounts, type PaymentAccounts } from '@/lib/paymentAccounts';
 import { fetchPendingSubmissions, markSubmissionStatus, type PaymentSubmission } from '@/lib/paymentSubmissions';
+import { fetchFeedback, markFeedbackStatus, type FeedbackSubmission } from '@/lib/feedback';
+import { fetchPresetImages, uploadPresetImage, deletePresetImage, type PresetImage } from '@/lib/presetImages';
+import { PRESET_IMAGES_BUCKET } from '@/lib/storage';
+import StorageImage from '@/components/StorageImage';
 import type { Tenant, BillingPlan } from '@/types/restaurant';
 import { toast } from 'sonner';
 
@@ -58,6 +62,56 @@ export default function SuperAdminPage() {
     setPendingSubs(await fetchPendingSubmissions().catch(() => []));
   }, []);
   useEffect(() => { void refreshPending(); }, [refreshPending]);
+
+  const [feedback, setFeedback] = useState<FeedbackSubmission[]>([]);
+  const refreshFeedback = useCallback(async () => {
+    setFeedback(await fetchFeedback().catch(() => []));
+  }, []);
+  useEffect(() => { void refreshFeedback(); }, [refreshFeedback]);
+  const unreadFeedbackCount = feedback.filter(f => f.status === 'unread').length;
+
+  const toggleFeedbackStatus = async (f: FeedbackSubmission) => {
+    const next = f.status === 'unread' ? 'read' : 'unread';
+    const ok = await markFeedbackStatus(f.id, next);
+    if (!ok) { toast.error('Não foi possível actualizar'); return; }
+    void refreshFeedback();
+  };
+
+  const [presetImages, setPresetImages] = useState<PresetImage[]>([]);
+  const refreshPresetImages = useCallback(async () => {
+    setPresetImages(await fetchPresetImages().catch(() => []));
+  }, []);
+  useEffect(() => { void refreshPresetImages(); }, [refreshPresetImages]);
+  const presetCategories = useMemo(
+    () => Array.from(new Set(presetImages.map(i => i.category))).sort(),
+    [presetImages],
+  );
+
+  const [uploadCategory, setUploadCategory] = useState('');
+  const [uploadLabel, setUploadLabel] = useState('');
+  const [uploadingPreset, setUploadingPreset] = useState(false);
+  const presetFileRef = useRef<HTMLInputElement>(null);
+
+  const handlePresetUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!uploadCategory.trim()) { toast.error('Indique uma categoria'); return; }
+    if (file.size > 3 * 1024 * 1024) { toast.error('Imagem muito grande (máx 3MB)'); return; }
+    const label = uploadLabel.trim() || file.name.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    setUploadingPreset(true);
+    const ok = await uploadPresetImage(file, uploadCategory.trim(), label);
+    setUploadingPreset(false);
+    if (!ok) { toast.error('Falha ao carregar imagem'); return; }
+    setUploadLabel('');
+    void refreshPresetImages();
+  };
+
+  const handlePresetDelete = async (img: PresetImage) => {
+    const ok = await deletePresetImage(img.id, img.storagePath);
+    if (!ok) { toast.error('Não foi possível remover'); return; }
+    void refreshPresetImages();
+  };
 
   const filtered = useMemo(
     () => tenants.filter(t => !query || t.name.toLowerCase().includes(query.toLowerCase()) || t.ownerEmail.includes(query.toLowerCase())),
@@ -201,6 +255,11 @@ export default function SuperAdminPage() {
           </TabsTrigger>
           <TabsTrigger value="payments">Pagamentos</TabsTrigger>
           <TabsTrigger value="accounts"><Landmark className="w-3.5 h-3.5 mr-1" />Contas de recebimento</TabsTrigger>
+          <TabsTrigger value="feedback">
+            <MessageSquare className="w-3.5 h-3.5 mr-1" />Feedback
+            {unreadFeedbackCount > 0 && <Badge variant="outline" className="ml-1.5 border-primary/30 text-primary">{unreadFeedbackCount}</Badge>}
+          </TabsTrigger>
+          <TabsTrigger value="gallery"><Images className="w-3.5 h-3.5 mr-1" />Galeria</TabsTrigger>
           <TabsTrigger value="system"><BarChart3 className="w-3.5 h-3.5 mr-1" />Relatórios de sistema</TabsTrigger>
         </TabsList>
 
@@ -368,6 +427,101 @@ export default function SuperAdminPage() {
                   </div>
                 ))}
               </div>
+            )}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="feedback">
+          <div className="glass rounded-xl p-5 mt-4">
+            {feedback.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sem feedback recebido.</p>
+            ) : (
+              <div className="space-y-2">
+                {feedback.map(f => (
+                  <div key={f.id} className={`flex items-start justify-between gap-3 text-sm py-3 border-b border-border/40 last:border-0 ${f.status === 'unread' ? '' : 'opacity-70'}`}>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="font-medium">{f.name}</p>
+                        <Badge variant="outline" className="text-[10px]">{f.role}</Badge>
+                        {f.tenantName && <span className="text-xs text-muted-foreground">{f.tenantName}</span>}
+                        {f.status === 'unread' && <Badge variant="outline" className="text-[10px] border-primary/30 text-primary">Novo</Badge>}
+                      </div>
+                      <p className="text-sm mt-1 whitespace-pre-wrap">{f.message}</p>
+                      <p className="text-xs text-muted-foreground mt-1">{new Date(f.createdAt).toLocaleString('pt-MZ')}</p>
+                    </div>
+                    <Button size="icon" variant="ghost" aria-label={f.status === 'unread' ? 'Marcar como lido' : 'Marcar como não lido'} onClick={() => toggleFeedbackStatus(f)}>
+                      {f.status === 'unread' ? <Mail className="w-4 h-4" /> : <MailOpen className="w-4 h-4 text-muted-foreground" />}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </TabsContent>
+
+        <TabsContent value="gallery">
+          <div className="glass rounded-xl p-5 mt-4 space-y-4">
+            <div>
+              <h3 className="font-heading font-semibold">Nova imagem</h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Fica disponível para todos os restaurantes escolherem no Menu e no Inventário.
+              </p>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label className="text-muted-foreground text-xs">Categoria</Label>
+                <Input
+                  list="preset-categories"
+                  value={uploadCategory}
+                  onChange={e => setUploadCategory(e.target.value)}
+                  placeholder="Ex: Bebidas"
+                />
+                <datalist id="preset-categories">
+                  {presetCategories.map(c => <option key={c} value={c} />)}
+                </datalist>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-muted-foreground text-xs">Rótulo (opcional)</Label>
+                <Input value={uploadLabel} onChange={e => setUploadLabel(e.target.value)} placeholder="Ex: Coca-Cola" />
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-2"
+              disabled={uploadingPreset}
+              onClick={() => presetFileRef.current?.click()}
+            >
+              <ImagePlus className="w-4 h-4" /> {uploadingPreset ? 'A carregar…' : 'Escolher ficheiro'}
+            </Button>
+            <input ref={presetFileRef} type="file" accept="image/*" className="hidden" onChange={handlePresetUpload} disabled={uploadingPreset} />
+          </div>
+
+          <div className="glass rounded-xl p-5 mt-4">
+            {presetImages.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sem imagens na galeria.</p>
+            ) : (
+              presetCategories.map(cat => (
+                <div key={cat} className="mb-5 last:mb-0">
+                  <p className="text-xs font-medium text-muted-foreground mb-2">{cat}</p>
+                  <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
+                    {presetImages.filter(i => i.category === cat).map(img => (
+                      <div key={img.id} className="relative group aspect-square rounded-lg overflow-hidden border border-border">
+                        <StorageImage bucket={PRESET_IMAGES_BUCKET} path={img.storagePath} alt={img.label} className="w-full h-full object-cover" />
+                        <button
+                          type="button"
+                          onClick={() => handlePresetDelete(img)}
+                          aria-label={`Remover ${img.label}`}
+                          className="absolute inset-0 bg-background/70 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"
+                        >
+                          <Trash2 className="w-4 h-4 text-destructive" />
+                        </button>
+                        <span className="absolute inset-x-0 bottom-0 bg-background/80 text-[9px] px-1 py-0.5 truncate">{img.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))
             )}
           </div>
         </TabsContent>

@@ -362,6 +362,35 @@ export default function SettingsPage() {
               </div>
             </div>
           </Card>
+
+          <Card className="p-6 space-y-5">
+            <div>
+              <h2 className="font-heading text-lg font-semibold">Alertas de atraso</h2>
+              <p className="text-xs text-muted-foreground mt-1">
+                Tempo de espera até a Cozinha mostrar o aviso de atraso.
+              </p>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Cozinheiro — prato por iniciar (min)</Label>
+                <Input
+                  type="number" min={1}
+                  value={local.kitchenDelayMinutes}
+                  onChange={e => set('kitchenDelayMinutes', Math.max(1, Number(e.target.value) || 1))}
+                />
+                <p className="text-xs text-muted-foreground">Tempo pendente sem começar a preparar.</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Garçom — prato pronto por servir (min)</Label>
+                <Input
+                  type="number" min={1}
+                  value={local.waiterDelayMinutes}
+                  onChange={e => set('waiterDelayMinutes', Math.max(1, Number(e.target.value) || 1))}
+                />
+                <p className="text-xs text-muted-foreground">Tempo pronto à espera de ser servido.</p>
+              </div>
+            </div>
+          </Card>
         </TabsContent>
 
         {/* BILLING SAAS — super-admin only */}
