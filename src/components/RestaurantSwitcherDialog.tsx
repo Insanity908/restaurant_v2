@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Check, Coffee, Plus } from 'lucide-react';
 import { useOptionalAuth } from '@/context/AuthContext';
 import { tenantStore } from '@/lib/tenants';
+import { PLANS, formatMT } from '@/lib/billing';
 import { toast } from 'sonner';
 
 interface RestaurantSwitcherDialogProps {
@@ -64,6 +65,10 @@ export default function RestaurantSwitcherDialog({ open, onOpenChange }: Restaur
         </div>
         <div className="pt-2 border-t border-border space-y-2">
           <Label htmlFor="new-restaurant-name">Adicionar restaurante</Label>
+          <p className="text-[11px] text-muted-foreground">
+            Começa com 7 dias grátis. Depois disso, precisa da sua própria subscrição
+            (a partir de {formatMT(PLANS['basic-monthly'].price)}/mês) para continuar activo — ver /billing.
+          </p>
           <div className="flex gap-2">
             <Input
               id="new-restaurant-name"

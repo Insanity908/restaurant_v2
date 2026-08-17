@@ -26,10 +26,16 @@ create extension if not exists pgcrypto;
 -- 1) ENUMS
 -- =============================================================================
 create type public.app_role as enum ('superadmin','admin','manager','waiter','cashier','kitchen');
-create type public.billing_plan as enum ('monthly','quarterly','semiannual','annual');
+-- Os 4 primeiros valores são implicitamente o nível "Profissional" (sem
+-- restrições); os "basic-*" são o nível "Básico" (com restrições — ver
+-- planTier()/BASIC_LIMITS em src/lib/billing.ts e a RPC submit_customer_order).
+create type public.billing_plan as enum (
+  'monthly','quarterly','semiannual','annual',
+  'basic-monthly','basic-quarterly','basic-semiannual','basic-annual'
+);
 create type public.subscription_status as enum ('trial','active','expired','blocked');
 create type public.order_type as enum ('dine-in','takeaway','delivery');
-create type public.order_status as enum ('active','preparing','ready','completed','cancelled');
+create type public.order_status as enum ('awaiting-confirmation','active','preparing','ready','completed','cancelled');
 create type public.order_item_status as enum ('pending','preparing','ready','served');
 create type public.table_status as enum ('free','occupied','reserved');
 create type public.payment_method as enum ('cash','card','mobile-money');
@@ -489,6 +495,16 @@ on public.menu_items for all to authenticated
 using (public.is_tenant_manager_or_above(tenant_id))
 with check (public.is_tenant_manager_or_above(tenant_id));
 
+-- Cardápio legível por qualquer visitante (sem sessão) — é o que a página
+-- pública de pedido (QR/entrega) usa para montar o carrinho. Dados de
+-- cardápio não são sensíveis; não há como restringir por tenant via RLS
+-- aqui porque um visitante anónimo não tem sessão nenhuma — a app já
+-- filtra sempre por tenant_id na query, isto só garante que não vê itens
+-- indisponíveis.
+create policy "Anyone reads available menu items"
+on public.menu_items for select to anon
+using (available = true);
+
 -- =============================================================================
 -- 10) restaurant_tables (mesas — nome evita a palavra reservada "tables")
 -- =============================================================================
@@ -563,6 +579,8 @@ create table public.customers (
   nuit text,
   birthday text,
   notes text,
+  -- Morada de entrega guardada/reutilizável do cliente (fidelização).
+  address text,
   points_adjustment int not null default 0,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -595,6 +613,10 @@ create table public.orders (
   customer_id uuid references public.customers(id) on delete set null,
   customer_name text,
   customer_phone text,
+  -- Snapshot da morada usada neste pedido específico — só para 'delivery'
+  -- submetido pelo próprio cliente (não é só um FK para customers.address
+  -- porque a morada guardada pode mudar depois deste pedido).
+  delivery_address text,
   total numeric(12,2) not null default 0,
   discount numeric(12,2) not null default 0,
   tip numeric(12,2) not null default 0,
@@ -715,6 +737,186 @@ after insert on public.order_items
 for each row execute function public.deduct_inventory_on_order_item();
 
 revoke execute on function public.deduct_inventory_on_order_item() from public, anon, authenticated;
+
+-- =============================================================================
+-- 13b) Pedido pelo cliente (QR na mesa / entrega), sem sessão — RPCs
+--      SECURITY DEFINER. Mesmo padrão de resolve_login_email/
+--      resolve_login_phone: em vez de abrir `anon` a INSERT/SELECT
+--      directos em orders/order_items/customers, expomos só estas três
+--      operações estreitas, cada uma validando tudo no servidor.
+-- =============================================================================
+
+-- Verifica telefone já registado na fidelização antes do cliente montar o
+-- carrinho de entrega, e devolve a morada guardada para pré-preencher.
+create or replace function public.verify_loyalty_customer(p_tenant_id uuid, p_phone text)
+returns jsonb
+language sql stable security definer set search_path = public
+as $$
+  select jsonb_build_object('id', c.id, 'name', c.name, 'address', c.address)
+  from public.customers c
+  where c.tenant_id = p_tenant_id
+    and regexp_replace(c.phone, '\D', '', 'g') = regexp_replace(p_phone, '\D', '', 'g')
+  limit 1;
+$$;
+
+-- Submete o pedido do cliente. Nunca confia em preços/nomes vindos do
+-- browser — relê tudo de menu_items no servidor. p_items:
+-- [{"menu_item_id": uuid, "quantity": int, "modifiers": [{"id": uuid}], "notes": text}]
+create or replace function public.submit_customer_order(
+  p_tenant_id uuid,
+  p_table_id uuid,
+  p_customer_phone text,
+  p_customer_name text,
+  p_items jsonb,
+  p_delivery_address text default null
+)
+returns uuid
+language plpgsql security definer set search_path = public
+as $$
+declare
+  v_order_id uuid := gen_random_uuid();
+  v_type public.order_type;
+  v_table_number int;
+  v_customer_id uuid;
+  v_customer_name text;
+  v_delivery_address text;
+  v_item jsonb;
+  v_modifier jsonb;
+  v_item_id uuid;
+  v_item_name text;
+  v_item_price numeric;
+  v_item_available boolean;
+  v_item_mods jsonb;
+  v_qty int;
+  v_line_price numeric;
+  v_line_mods jsonb;
+  v_mod_name text;
+  v_mod_price numeric;
+  v_order_total numeric := 0;
+  v_plan public.billing_plan;
+begin
+  -- O plano Básico não inclui pedido pelo cliente (QR/entrega) — a página
+  -- pública não tem sessão, esta é a única fronteira que importa a sério.
+  select plan into v_plan from public.subscriptions where tenant_id = p_tenant_id;
+  if v_plan is not null and v_plan::text like 'basic-%' then
+    raise exception 'not available on this plan';
+  end if;
+
+  if p_table_id is not null then
+    v_type := 'dine-in';
+    select number into v_table_number from public.restaurant_tables
+    where id = p_table_id and tenant_id = p_tenant_id;
+    if v_table_number is null then
+      raise exception 'invalid table';
+    end if;
+  else
+    v_type := 'delivery';
+    if p_customer_phone is null or length(trim(p_customer_phone)) = 0 then
+      raise exception 'phone required for delivery';
+    end if;
+    if p_delivery_address is null or length(trim(p_delivery_address)) = 0 then
+      raise exception 'delivery address required';
+    end if;
+    select c.id, c.name, c.address into v_customer_id, v_customer_name, v_delivery_address
+    from public.customers c
+    where c.tenant_id = p_tenant_id
+      and regexp_replace(c.phone, '\D', '', 'g') = regexp_replace(p_customer_phone, '\D', '', 'g')
+    limit 1;
+    if v_customer_id is null then
+      raise exception 'customer not registered';
+    end if;
+    -- A morada indicada agora é a que vale para este pedido, e fica
+    -- guardada no perfil para ser sugerida da próxima vez.
+    v_delivery_address := trim(p_delivery_address);
+    if v_delivery_address is distinct from (select address from public.customers where id = v_customer_id) then
+      update public.customers set address = v_delivery_address where id = v_customer_id;
+    end if;
+  end if;
+
+  if p_items is null or jsonb_array_length(p_items) = 0 then
+    raise exception 'empty order';
+  end if;
+
+  insert into public.orders (
+    id, tenant_id, table_id, table_number, type, status,
+    customer_id, customer_name, customer_phone, delivery_address,
+    total, paid, created_by
+  ) values (
+    v_order_id, p_tenant_id, p_table_id, v_table_number, v_type, 'awaiting-confirmation',
+    v_customer_id, coalesce(v_customer_name, nullif(trim(p_customer_name), '')), p_customer_phone, v_delivery_address,
+    0, false, jsonb_build_object('source', 'customer')
+  );
+
+  for v_item in select * from jsonb_array_elements(p_items)
+  loop
+    select id, name, price, available, modifiers
+    into v_item_id, v_item_name, v_item_price, v_item_available, v_item_mods
+    from public.menu_items
+    where id = (v_item->>'menu_item_id')::uuid and tenant_id = p_tenant_id;
+
+    if v_item_id is null or not v_item_available then
+      raise exception 'invalid or unavailable item';
+    end if;
+
+    v_qty := greatest(1, coalesce((v_item->>'quantity')::int, 1));
+    v_line_price := v_item_price;
+    v_line_mods := '[]'::jsonb;
+
+    for v_modifier in select * from jsonb_array_elements(coalesce(v_item->'modifiers', '[]'::jsonb))
+    loop
+      select m->>'name', (m->>'price')::numeric into v_mod_name, v_mod_price
+      from jsonb_array_elements(coalesce(v_item_mods, '[]'::jsonb)) m
+      where m->>'id' = v_modifier->>'id';
+
+      if v_mod_name is not null then
+        v_line_price := v_line_price + coalesce(v_mod_price, 0);
+        v_line_mods := v_line_mods || jsonb_build_object('id', v_modifier->>'id', 'name', v_mod_name, 'price', coalesce(v_mod_price, 0));
+      end if;
+    end loop;
+
+    insert into public.order_items (id, order_id, menu_item_id, name, quantity, price, modifiers, notes, status)
+    values (gen_random_uuid(), v_order_id, v_item_id, v_item_name, v_qty, v_line_price, v_line_mods, nullif(trim(v_item->>'notes'), ''), 'pending');
+
+    v_order_total := v_order_total + (v_line_price * v_qty);
+  end loop;
+
+  update public.orders set total = v_order_total where id = v_order_id;
+
+  if p_table_id is not null then
+    update public.restaurant_tables set status = 'occupied', current_order_id = v_order_id where id = p_table_id;
+  end if;
+
+  return v_order_id;
+end;
+$$;
+
+-- Acompanhamento pelo cliente — devolve só o essencial (nunca a lista
+-- completa de pedidos do tenant), chamado por polling na página pública.
+create or replace function public.get_order_status(p_order_id uuid)
+returns jsonb
+language sql stable security definer set search_path = public
+as $$
+  select jsonb_build_object(
+    'id', o.id,
+    'status', o.status,
+    'type', o.type,
+    'tableNumber', o.table_number,
+    'total', o.total,
+    'createdAt', o.created_at,
+    'items', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'name', oi.name, 'quantity', oi.quantity, 'status', oi.status
+      ) order by oi.id)
+      from public.order_items oi where oi.order_id = o.id
+    ), '[]'::jsonb)
+  )
+  from public.orders o
+  where o.id = p_order_id;
+$$;
+
+grant execute on function public.verify_loyalty_customer(uuid, text) to anon, authenticated;
+grant execute on function public.submit_customer_order(uuid, uuid, text, text, jsonb, text) to anon, authenticated;
+grant execute on function public.get_order_status(uuid) to anon, authenticated;
 
 -- =============================================================================
 -- 14) shifts — turnos (Todos os papéis têm "Turnos" na sua área)
@@ -840,6 +1042,10 @@ create table public.system_payment_accounts (
   stripe_link_quarterly text,
   stripe_link_semiannual text,
   stripe_link_annual text,
+  -- Número de WhatsApp do superadmin — usado pelas páginas de preços/
+  -- faturação para abrir uma conversa a pedir activação do plano escolhido,
+  -- em vez de checkout automático.
+  superadmin_whatsapp text,
   updated_at timestamptz not null default now()
 );
 insert into public.system_payment_accounts (id) values (1) on conflict do nothing;
@@ -864,6 +1070,58 @@ using (
 
 create policy "Only superadmin writes payment accounts"
 on public.system_payment_accounts for all to authenticated
+using (public.is_superadmin(auth.uid()))
+with check (public.is_superadmin(auth.uid()));
+
+-- =============================================================================
+-- 17b) billing_plans — valores + serviços/funcionalidades de cada plano de
+--      subscrição, configuráveis pelo superadmin (antes fixos no código).
+--      Leitura aberta a `anon` porque a Landing (pública) mostra os preços.
+-- =============================================================================
+create table public.billing_plans (
+  id public.billing_plan primary key,
+  label text not null,
+  months int not null,
+  price numeric(12,2) not null,
+  savings text,
+  features jsonb not null default '[]'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
+insert into public.billing_plans (id, label, months, price, savings, features) values
+  ('monthly', 'Mensal', 1, 3600, null,
+   '["Mesas e funcionários ilimitados", "Programa de fidelização", "Pedido pelo cliente (QR / entrega)", "Relatórios completos com exportação CSV/PDF"]'),
+  ('quarterly', 'Trimestral', 3, 9000, 'Poupa 17%',
+   '["Mesas e funcionários ilimitados", "Programa de fidelização", "Pedido pelo cliente (QR / entrega)", "Relatórios completos com exportação CSV/PDF"]'),
+  ('semiannual', 'Semestral', 6, 16000, 'Poupa 26%',
+   '["Mesas e funcionários ilimitados", "Programa de fidelização", "Pedido pelo cliente (QR / entrega)", "Relatórios completos com exportação CSV/PDF"]'),
+  ('annual', 'Anual', 12, 30000, 'Poupa 31%',
+   '["Mesas e funcionários ilimitados", "Programa de fidelização", "Pedido pelo cliente (QR / entrega)", "Relatórios completos com exportação CSV/PDF"]'),
+  ('basic-monthly', 'Mensal', 1, 2200, null,
+   '["Até 10 mesas", "Até 5 funcionários", "Suporte por email"]'),
+  ('basic-quarterly', 'Trimestral', 3, 5500, 'Poupa 17%',
+   '["Até 10 mesas", "Até 5 funcionários", "Suporte por email"]'),
+  ('basic-semiannual', 'Semestral', 6, 9800, 'Poupa 26%',
+   '["Até 10 mesas", "Até 5 funcionários", "Suporte por email"]'),
+  ('basic-annual', 'Anual', 12, 18300, 'Poupa 31%',
+   '["Até 10 mesas", "Até 5 funcionários", "Suporte por email"]')
+on conflict (id) do nothing;
+
+grant select on public.billing_plans to anon;
+grant select, insert, update, delete on public.billing_plans to authenticated;
+grant all on public.billing_plans to service_role;
+alter table public.billing_plans enable row level security;
+
+create trigger trg_billing_plans_updated
+before update on public.billing_plans
+for each row execute function public.update_updated_at_column();
+
+create policy "Anyone reads billing plans"
+on public.billing_plans for select to anon, authenticated
+using (true);
+
+create policy "Only superadmin writes billing plans"
+on public.billing_plans for all to authenticated
 using (public.is_superadmin(auth.uid()))
 with check (public.is_superadmin(auth.uid()));
 
@@ -1061,6 +1319,12 @@ using (
   bucket_id = 'menu-images'
   and public.is_tenant_member((storage.foldername(name))[1]::uuid)
 );
+
+-- A página pública de pedido (QR/entrega) mostra fotos de pratos como
+-- `anon` — fotos de cardápio não são sensíveis.
+create policy "menu-images read by anyone"
+on storage.objects for select to anon
+using (bucket_id = 'menu-images');
 
 create policy "menu-images write by tenant admin/manager"
 on storage.objects for insert to authenticated

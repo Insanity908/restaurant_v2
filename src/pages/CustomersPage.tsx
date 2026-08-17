@@ -10,7 +10,7 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
-import { Search, Plus, Pencil, Trash2, Phone, Cake, Award, TrendingUp, Gift, Users as UsersIcon, AlertCircle, Download, FileText, CloudOff, RefreshCw, Settings2 } from 'lucide-react';
+import { Search, Plus, Pencil, Trash2, Phone, Cake, Award, TrendingUp, Gift, Users as UsersIcon, AlertCircle, Download, FileText, CloudOff, RefreshCw, Settings2, QrCode, X, MessageCircle, Copy } from 'lucide-react';
 import { customerStore, orderStore, subscribeOperations } from '@/lib/store';
 import { Customer, Order } from '@/types/restaurant';
 import { maskMzPhone, maskNuit, validateMzMobile, validateNuit } from '@/lib/validators';
@@ -18,7 +18,9 @@ import { toast } from 'sonner';
 import { buildCustomerReport, exportCustomersCSV, exportCustomersPDF } from '@/lib/customerReport';
 import { getLoyaltySettings, saveLoyaltySettings, tierFromPoints, LoyaltySettings } from '@/lib/loyaltySettings';
 import { useAuth } from '@/context/AuthContext';
+import { useLicense } from '@/hooks/useLicense';
 import { cn } from '@/lib/utils';
+import QRCode from 'qrcode';
 
 
 interface CustomerStats {
@@ -72,7 +74,9 @@ export default function CustomersPage() {
   const [editing, setEditing] = useState<Customer | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Customer | null>(null);
   const [detail, setDetail] = useState<Customer | null>(null);
+  const [deliveryLinkOpen, setDeliveryLinkOpen] = useState(false);
   const { user, hasPermission, catalogVersion } = useAuth();
+  const { isBasic } = useLicense();
   const isManager = user?.role === 'manager' || user?.role === 'admin';
   const canEditCustomers = hasPermission('customers.edit');
 
@@ -212,6 +216,15 @@ export default function CustomersPage() {
           }}>
             <FileText className="w-4 h-4" /> PDF
           </Button>
+          <Button
+            variant="outline" size="sm" className="flex-1 md:flex-none"
+            onClick={() => {
+              if (isBasic) { toast.error('Pedido pelo cliente (entrega) disponível no plano Profissional'); return; }
+              setDeliveryLinkOpen(true);
+            }}
+          >
+            <QrCode className="w-4 h-4" /> Link de Entrega
+          </Button>
         </div>
       </div>
 
@@ -241,7 +254,14 @@ export default function CustomersPage() {
         </TabsContent>
 
         <TabsContent value="loyalty">
-          {!loyalty.enabled ? (
+          {isBasic ? (
+            <Card className="p-6 text-center bg-secondary/30">
+              <Gift className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+              <p className="text-sm text-muted-foreground">
+                Programa de fidelidade disponível no plano Profissional.
+              </p>
+            </Card>
+          ) : !loyalty.enabled ? (
             <Card className="p-6 text-center bg-secondary/30">
               <Gift className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
               <p className="text-sm text-muted-foreground mb-3">
@@ -283,7 +303,14 @@ export default function CustomersPage() {
 
         {isManager && (
           <TabsContent value="settings">
-            <LoyaltySettingsPanel value={loyalty} onSave={(patch) => { const next = saveLoyaltySettings(patch); setLoyalty(next); toast.success('Configurações guardadas'); }} />
+            {isBasic ? (
+              <Card className="p-6 text-center bg-secondary/30">
+                <Gift className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                <p className="text-sm text-muted-foreground">Programa de fidelidade disponível no plano Profissional.</p>
+              </Card>
+            ) : (
+              <LoyaltySettingsPanel value={loyalty} onSave={(patch) => { const next = saveLoyaltySettings(patch); setLoyalty(next); toast.success('Configurações guardadas'); }} />
+            )}
           </TabsContent>
         )}
       </Tabs>
@@ -303,10 +330,13 @@ export default function CustomersPage() {
           stats={computeStats(detail, orders, loyalty)}
           loyalty={loyalty}
           canEdit={canEditCustomers}
+          tenantId={user?.tenantId}
           onClose={() => setDetail(null)}
           onChanged={() => { refresh(); setDetail(customerStore.getAll().find(c => c.id === detail.id) || null); }}
         />
       )}
+
+      <DeliveryLinkDialog open={deliveryLinkOpen} tenantId={user?.tenantId} onClose={() => setDeliveryLinkOpen(false)} />
 
       <AlertDialog open={!!confirmDelete} onOpenChange={o => !o && setConfirmDelete(null)}>
         <AlertDialogContent>
@@ -503,6 +533,7 @@ function CustomerDialog({
     email: customer?.email ?? '',
     nuit: customer?.nuit ?? '',
     birthday: customer?.birthday ?? '',
+    address: customer?.address ?? '',
     notes: customer?.notes ?? '',
   });
 
@@ -523,6 +554,7 @@ function CustomerDialog({
       email: form.email || undefined,
       nuit: form.nuit || undefined,
       birthday: form.birthday || undefined,
+      address: form.address || undefined,
       notes: form.notes || undefined,
     };
     if (customer) {
@@ -559,6 +591,9 @@ function CustomerDialog({
               <Input value={form.birthday} onChange={e => setForm({ ...form, birthday: e.target.value })} placeholder="03-15" />
             </FieldRow>
           </div>
+          <FieldRow label="Morada de entrega">
+            <Input value={form.address} onChange={e => setForm({ ...form, address: e.target.value })} placeholder="Para pedidos de entrega — opcional" />
+          </FieldRow>
           <FieldRow label="Notas">
             <Textarea value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Preferências, alergias…" rows={3} />
           </FieldRow>
@@ -589,11 +624,12 @@ function FieldRow({ label, error, children }: { label: string; error?: string | 
 /* ------------------------------ Detail dialog ----------------------------- */
 
 function CustomerDetailDialog({
-  customer, stats, loyalty, canEdit, onClose, onChanged,
+  customer, stats, loyalty, canEdit, tenantId, onClose, onChanged,
 }: {
-  customer: Customer; stats: CustomerStats; loyalty: LoyaltySettings; canEdit?: boolean; onClose: () => void; onChanged: () => void;
+  customer: Customer; stats: CustomerStats; loyalty: LoyaltySettings; canEdit?: boolean; tenantId?: string; onClose: () => void; onChanged: () => void;
 }) {
   const [redeemQty, setRedeemQty] = useState('');
+  const { isBasic: isBasicTier } = useLicense();
 
   const redeem = () => {
     const n = parseInt(redeemQty, 10);
@@ -632,7 +668,23 @@ function CustomerDetailDialog({
         </div>
 
         {customer.phone && <p className="text-sm text-muted-foreground mt-2"><Phone className="w-3 h-3 inline mr-1" /> {customer.phone}</p>}
+        {customer.address && <p className="text-sm text-muted-foreground mt-1">Morada: {customer.address}</p>}
         {customer.notes && <p className="text-sm mt-2 p-3 rounded-md bg-secondary/40">{customer.notes}</p>}
+
+        {tenantId && customer.phone && !isBasicTier && (
+          <Button
+            variant="outline" size="sm" className="mt-3 gap-2"
+            onClick={() => {
+              const digits = customer.phone.replace(/\D/g, '');
+              const waPhone = digits.startsWith('258') ? digits : `258${digits}`;
+              const link = `${window.location.origin}/pedir/${tenantId}/entrega`;
+              const text = encodeURIComponent(`Olá ${customer.name}! Pode fazer o seu pedido de entrega aqui: ${link}`);
+              window.open(`https://wa.me/${waPhone}?text=${text}`, '_blank');
+            }}
+          >
+            <MessageCircle className="w-4 h-4" /> Enviar link de entrega por WhatsApp
+          </Button>
+        )}
 
         {loyalty.enabled && (
           <div className="mt-4">
@@ -686,6 +738,55 @@ function CustomerDetailDialog({
         <DialogFooter>
           <Button onClick={onClose}>Fechar</Button>
         </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* --------------------------- Link de entrega ------------------------------ */
+
+function DeliveryLinkDialog({ open, tenantId, onClose }: { open: boolean; tenantId?: string; onClose: () => void }) {
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const link = tenantId ? `${window.location.origin}/pedir/${tenantId}/entrega` : null;
+
+  useEffect(() => {
+    if (!open || !link) { setDataUrl(null); return; }
+    let active = true;
+    QRCode.toDataURL(link, { width: 240, margin: 1 }).then(d => { if (active) setDataUrl(d); });
+    return () => { active = false; };
+  }, [open, link]);
+
+  return (
+    <Dialog open={open} onOpenChange={o => !o && onClose()}>
+      <DialogContent className="w-[95vw] max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center justify-between">
+            Link de Entrega
+            <button onClick={onClose} aria-label="Fechar" className="p-1 rounded-md hover:bg-secondary/60">
+              <X className="w-4 h-4" />
+            </button>
+          </DialogTitle>
+        </DialogHeader>
+        <p className="text-xs text-muted-foreground">
+          Qualquer cliente já registado na fidelização pode usar este link para fazer o próprio pedido de entrega —
+          basta partilhá-lo (WhatsApp, redes sociais, cartão de mesa...). Também podes enviá-lo a um cliente específico
+          a partir do respetivo cartão nesta página.
+        </p>
+        {dataUrl ? (
+          <img src={dataUrl} alt="QR code do link de entrega" className="mx-auto rounded-lg" />
+        ) : (
+          <div className="w-[240px] h-[240px] mx-auto rounded-lg bg-secondary animate-pulse" />
+        )}
+        <div className="flex items-center gap-2">
+          <Input readOnly value={link ?? ''} className="text-xs" />
+          <Button
+            size="icon" variant="outline"
+            onClick={() => { if (link) { navigator.clipboard.writeText(link); toast.success('Link copiado'); } }}
+            aria-label="Copiar link"
+          >
+            <Copy className="w-4 h-4" />
+          </Button>
+        </div>
       </DialogContent>
     </Dialog>
   );

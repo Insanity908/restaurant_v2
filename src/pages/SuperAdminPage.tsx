@@ -12,10 +12,11 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Lock, Unlock, Trash2, Clock, Search, Building2, TrendingUp, Users, BarChart3, Copy, Landmark, Save, CheckCircle2, Inbox, MessageSquare, Mail, MailOpen, Images, ImagePlus } from 'lucide-react';
+import { Lock, Unlock, Trash2, Clock, Search, Building2, TrendingUp, Users, BarChart3, Copy, Landmark, Save, CheckCircle2, Inbox, MessageSquare, Mail, MailOpen, Images, ImagePlus, Wallet } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid } from 'recharts';
 import { tenantStore, fetchTenants, fetchTenantTeams, type TenantTeam } from '@/lib/tenants';
-import { PLANS, formatMT } from '@/lib/billing';
+import { PLANS, formatMT, fetchPlans, savePlans, type PlanConfig } from '@/lib/billing';
+import { Textarea } from '@/components/ui/textarea';
 import { getPaymentAccounts, savePaymentAccounts, fetchPaymentAccounts, type PaymentAccounts } from '@/lib/paymentAccounts';
 import { fetchPendingSubmissions, markSubmissionStatus, type PaymentSubmission } from '@/lib/paymentSubmissions';
 import { fetchFeedback, markFeedbackStatus, type FeedbackSubmission } from '@/lib/feedback';
@@ -86,6 +87,22 @@ export default function SuperAdminPage() {
     () => Array.from(new Set(presetImages.map(i => i.category))).sort(),
     [presetImages],
   );
+
+  const [planForm, setPlanForm] = useState<Record<BillingPlan, PlanConfig>>(PLANS);
+  const [savingPlans, setSavingPlans] = useState(false);
+  useEffect(() => { void fetchPlans().then(() => setPlanForm({ ...PLANS })).catch(() => { /* keep defaults */ }); }, []);
+
+  const updatePlan = (id: BillingPlan, patch: Partial<PlanConfig>) => {
+    setPlanForm(prev => ({ ...prev, [id]: { ...prev[id], ...patch } }));
+  };
+
+  const handleSavePlans = async () => {
+    setSavingPlans(true);
+    const ok = await savePlans(planForm);
+    setSavingPlans(false);
+    if (!ok) { toast.error('Não foi possível guardar os planos'); return; }
+    toast.success('Planos atualizados');
+  };
 
   const [uploadCategory, setUploadCategory] = useState('');
   const [uploadLabel, setUploadLabel] = useState('');
@@ -255,6 +272,7 @@ export default function SuperAdminPage() {
           </TabsTrigger>
           <TabsTrigger value="payments">Pagamentos</TabsTrigger>
           <TabsTrigger value="accounts"><Landmark className="w-3.5 h-3.5 mr-1" />Contas de recebimento</TabsTrigger>
+          <TabsTrigger value="plans"><Wallet className="w-3.5 h-3.5 mr-1" />Planos</TabsTrigger>
           <TabsTrigger value="feedback">
             <MessageSquare className="w-3.5 h-3.5 mr-1" />Feedback
             {unreadFeedbackCount > 0 && <Badge variant="outline" className="ml-1.5 border-primary/30 text-primary">{unreadFeedbackCount}</Badge>}
@@ -409,6 +427,10 @@ export default function SuperAdminPage() {
 
         <TabsContent value="accounts">
           <PaymentAccountsForm />
+        </TabsContent>
+
+        <TabsContent value="plans">
+          <PlansForm value={planForm} onChange={updatePlan} onSave={handleSavePlans} saving={savingPlans} />
         </TabsContent>
 
         <TabsContent value="payments">
@@ -916,9 +938,81 @@ function PaymentAccountsForm() {
           <Label>Notas / instruções</Label>
           <Input value={data.notes || ''} onChange={e => set('notes', e.target.value)} placeholder="Ex: enviar comprovativo para..." />
         </div>
+        <div className="space-y-1.5 sm:col-span-2">
+          <Label>WhatsApp do superadmin (activação de planos)</Label>
+          <Input
+            value={data.superadminWhatsapp || ''}
+            onChange={e => set('superadminWhatsapp', e.target.value)}
+            placeholder="258 84 000 0000"
+          />
+          <p className="text-[11px] text-muted-foreground">
+            Usado pelos botões de subscrição em /pricing e /billing para abrir uma conversa a pedir activação do plano.
+          </p>
+        </div>
       </div>
       <Button onClick={() => { savePaymentAccounts(data); toast.success('Dados de recebimento guardados'); }}>
         <Save className="w-4 h-4" /> Guardar
+      </Button>
+    </div>
+  );
+}
+
+function PlansForm({
+  value, onChange, onSave, saving,
+}: {
+  value: Record<BillingPlan, PlanConfig>;
+  onChange: (id: BillingPlan, patch: Partial<PlanConfig>) => void;
+  onSave: () => void;
+  saving: boolean;
+}) {
+  const order: BillingPlan[] = ['monthly', 'quarterly', 'semiannual', 'annual'];
+  return (
+    <div className="glass rounded-xl p-5 mt-4 space-y-4">
+      <div>
+        <h2 className="font-heading font-semibold">Planos de subscrição</h2>
+        <p className="text-xs text-muted-foreground mt-1">
+          Valores e serviços incluídos em cada plano — usados na página de preços e na ativação manual de restaurantes.
+        </p>
+      </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {order.map(id => {
+          const p = value[id];
+          return (
+            <div key={id} className="rounded-xl border border-border p-4 space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Nome</Label>
+                  <Input value={p.label} onChange={e => onChange(id, { label: e.target.value })} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Meses</Label>
+                  <Input type="number" min={1} value={p.months} onChange={e => onChange(id, { months: Math.max(1, parseInt(e.target.value) || 1) })} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Preço (MT)</Label>
+                  <Input type="number" min={0} value={p.price} onChange={e => onChange(id, { price: Math.max(0, parseFloat(e.target.value) || 0) })} />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Selo (opcional)</Label>
+                  <Input value={p.savings || ''} onChange={e => onChange(id, { savings: e.target.value })} placeholder="Poupa 17%" />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-xs">Serviços incluídos (um por linha)</Label>
+                <Textarea
+                  value={p.features.join('\n')}
+                  onChange={e => onChange(id, { features: e.target.value.split('\n') })}
+                  onBlur={e => onChange(id, { features: e.target.value.split('\n').map(f => f.trim()).filter(Boolean) })}
+                  rows={5}
+                  className="text-sm"
+                />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <Button onClick={onSave} disabled={saving}>
+        <Save className="w-4 h-4" /> {saving ? 'A guardar…' : 'Guardar planos'}
       </Button>
     </div>
   );

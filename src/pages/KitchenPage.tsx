@@ -51,7 +51,7 @@ export default function KitchenPage() {
   // no board — os alertas de atraso não devem depender de o pedido já ter
   // (ou não) um item "pronto" a aparecer no ecrã de quem os recebe.
   const activeOrders = useMemo(
-    () => orders.filter(o => !o.paid && o.status !== 'cancelled' && o.status !== 'completed'),
+    () => orders.filter(o => !o.paid && o.status !== 'cancelled' && o.status !== 'completed' && o.status !== 'awaiting-confirmation'),
     [orders],
   );
 

@@ -220,6 +220,34 @@ export function useRestaurant() {
     refresh();
   }, [orders, refresh, user]);
 
+  // Pedidos submetidos pelo próprio cliente (QR/entrega) entram como
+  // 'awaiting-confirmation' — só chegam à Cozinha depois do Caixa confirmar
+  // aqui. O stock já foi deduzido no servidor quando a RPC inseriu as
+  // order_items (trigger deduct_inventory_on_order_item, corre em qualquer
+  // insert independentemente do estado do pedido — mesmo mecanismo que já
+  // vale para qualquer pedido criado por um membro da equipa), por isso não
+  // há nada a descontar aqui, só mudar o estado.
+  const confirmPendingOrder = useCallback((orderId: string) => {
+    const order = orders.find(o => o.id === orderId);
+    if (!order || order.status !== 'awaiting-confirmation') return;
+    orderStore.update(orderId, { status: 'active' });
+    refresh();
+  }, [orders, refresh]);
+
+  const rejectPendingOrder = useCallback((orderId: string) => {
+    const order = orders.find(o => o.id === orderId);
+    if (!order || order.status !== 'awaiting-confirmation') return;
+    orderStore.update(orderId, {
+      status: 'cancelled',
+      cancelledBy: actorFrom(user),
+      cancelledAt: new Date().toISOString(),
+    });
+    if (order.tableId) {
+      tableStore.update(order.tableId, { status: 'free', currentOrderId: undefined });
+    }
+    refresh();
+  }, [orders, refresh, user]);
+
   const syncInventoryLinks = useCallback((menuItemId: string, recipe?: MenuItem['recipe']) => {
     // Map inventory id -> qty string from the recipe (e.g. "200 g", "0,25kg", "1 un")
     const qtyByInvId = new Map<string, string>();
@@ -294,8 +322,9 @@ export function useRestaurant() {
   }, [refresh]);
 
   const lowStockItems = inventory.filter(i => i.currentStock <= i.minStock);
-  const activeOrders = orders.filter(o => !o.paid && o.status !== 'cancelled');
+  const activeOrders = orders.filter(o => !o.paid && o.status !== 'cancelled' && o.status !== 'awaiting-confirmation');
   const kitchenOrders = orders.filter(o => ['active', 'preparing'].includes(o.status) && !o.paid);
+  const pendingConfirmationOrders = orders.filter(o => o.status === 'awaiting-confirmation');
 
   // Tables CRUD
   const addTable = useCallback((table: Omit<Table, 'id'>) => {
@@ -314,9 +343,10 @@ export function useRestaurant() {
   }, [refresh]);
 
   return {
-    menuItems, tables, orders, activeOrders, kitchenOrders,
+    menuItems, tables, orders, activeOrders, kitchenOrders, pendingConfirmationOrders,
     inventory, lowStockItems,
     createOrder, appendOrderItems, updateOrder, updateOrderItemStatus, completeOrder, cancelOrder,
+    confirmPendingOrder, rejectPendingOrder,
     addMenuItem, updateMenuItem, deleteMenuItem,
     addInventoryItem, updateInventoryItem, deleteInventoryItem,
     addTable, updateTable, deleteTable,

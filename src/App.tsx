@@ -1,6 +1,6 @@
 import { lazy, Suspense } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { BrowserRouter, Route, Routes, useLocation } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -33,11 +33,18 @@ const BillingSuccessPage = lazy(() => import("@/pages/BillingSuccessPage"));
 const BlockedPage = lazy(() => import("@/pages/BlockedPage"));
 const SuperAdminPage = lazy(() => import("@/pages/SuperAdminPage"));
 const OnboardingPage = lazy(() => import("@/pages/OnboardingPage"));
+const CustomerOrderPage = lazy(() => import("@/pages/CustomerOrderPage"));
+const CustomerTrackingPage = lazy(() => import("@/pages/CustomerTrackingPage"));
+const PricingPage = lazy(() => import("@/pages/PricingPage"));
+const BillingPage = lazy(() => import("@/pages/BillingPage"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
 const queryClient = new QueryClient();
 
 const NO_SIDEBAR_PATHS = ['/login', '/signup', '/landing', '/blocked', '/billing/success'];
+// Páginas públicas do cliente (QR/entrega) — sem sessão, nunca mostram a
+// barra lateral da equipa.
+const NO_SIDEBAR_PREFIXES = ['/pedir/', '/pedido/'];
 
 function PageFallback() {
   return (
@@ -51,6 +58,7 @@ function ConditionalSidebar() {
   const location = useLocation();
   const auth = useOptionalAuth();
   if (NO_SIDEBAR_PATHS.includes(location.pathname)) return null;
+  if (NO_SIDEBAR_PREFIXES.some(p => location.pathname.startsWith(p))) return null;
   if (!auth?.user && location.pathname === '/') return null;
   return <AppSidebar />;
 }
@@ -81,6 +89,9 @@ const App = () => (
               <Route path="/landing" element={<LandingPage />} />
               <Route path="/blocked" element={<BlockedPage />} />
               <Route path="/billing/success" element={<BillingSuccessPage />} />
+              <Route path="/pedir/:tenantId/mesa/:tableId" element={<CustomerOrderPage />} />
+              <Route path="/pedir/:tenantId/entrega" element={<CustomerOrderPage />} />
+              <Route path="/pedido/:orderId" element={<CustomerTrackingPage />} />
               <Route path="/" element={<HomeRoute />} />
               <Route path="/menu" element={<RequireAuth><MenuPage /></RequireAuth>} />
               <Route path="/tables" element={<RequireAuth><TablesPage /></RequireAuth>} />
@@ -92,10 +103,8 @@ const App = () => (
               <Route path="/shifts" element={<RequireAuth><ShiftsPage /></RequireAuth>} />
               <Route path="/customers" element={<RequireAuth><CustomersPage /></RequireAuth>} />
               <Route path="/settings" element={<RequireAuth><SettingsPage /></RequireAuth>} />
-              {/* Facturação/planos ainda não estão prontos para produção — bloqueados
-                  por agora, a reactivar quando essa área estiver concluída. */}
-              <Route path="/pricing" element={<Navigate to="/" replace />} />
-              <Route path="/billing" element={<Navigate to="/" replace />} />
+              <Route path="/pricing" element={<RequireAuth><PricingPage /></RequireAuth>} />
+              <Route path="/billing" element={<RequireAuth><BillingPage /></RequireAuth>} />
               <Route path="/onboarding" element={<RequireAuth><OnboardingPage /></RequireAuth>} />
               <Route path="/admin" element={<RequireSuperAdmin><SuperAdminPage /></RequireSuperAdmin>} />
               <Route path="*" element={<NotFound />} />

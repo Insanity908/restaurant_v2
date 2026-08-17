@@ -65,8 +65,39 @@ export type Database = {
           },
         ]
       }
+      billing_plans: {
+        Row: {
+          features: Json
+          id: Database["public"]["Enums"]["billing_plan"]
+          label: string
+          months: number
+          price: number
+          savings: string | null
+          updated_at: string
+        }
+        Insert: {
+          features?: Json
+          id: Database["public"]["Enums"]["billing_plan"]
+          label: string
+          months: number
+          price: number
+          savings?: string | null
+          updated_at?: string
+        }
+        Update: {
+          features?: Json
+          id?: Database["public"]["Enums"]["billing_plan"]
+          label?: string
+          months?: number
+          price?: number
+          savings?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       customers: {
         Row: {
+          address: string | null
           birthday: string | null
           created_at: string
           email: string | null
@@ -80,6 +111,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          address?: string | null
           birthday?: string | null
           created_at?: string
           email?: string | null
@@ -93,6 +125,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          address?: string | null
           birthday?: string | null
           created_at?: string
           email?: string | null
@@ -410,6 +443,7 @@ export type Database = {
           customer_id: string | null
           customer_name: string | null
           customer_phone: string | null
+          delivery_address: string | null
           discount: number
           id: string
           packaging_fee: number
@@ -435,6 +469,7 @@ export type Database = {
           customer_id?: string | null
           customer_name?: string | null
           customer_phone?: string | null
+          delivery_address?: string | null
           discount?: number
           id?: string
           packaging_fee?: number
@@ -460,6 +495,7 @@ export type Database = {
           customer_id?: string | null
           customer_name?: string | null
           customer_phone?: string | null
+          delivery_address?: string | null
           discount?: number
           id?: string
           packaging_fee?: number
@@ -897,6 +933,7 @@ export type Database = {
           stripe_link_quarterly: string | null
           stripe_link_semiannual: string | null
           stripe_publishable_key: string | null
+          superadmin_whatsapp: string | null
           updated_at: string
         }
         Insert: {
@@ -912,6 +949,7 @@ export type Database = {
           stripe_link_quarterly?: string | null
           stripe_link_semiannual?: string | null
           stripe_publishable_key?: string | null
+          superadmin_whatsapp?: string | null
           updated_at?: string
         }
         Update: {
@@ -927,6 +965,7 @@ export type Database = {
           stripe_link_quarterly?: string | null
           stripe_link_semiannual?: string | null
           stripe_publishable_key?: string | null
+          superadmin_whatsapp?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -1031,6 +1070,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      get_order_status: { Args: { p_order_id: string }; Returns: Json }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -1048,6 +1088,21 @@ export type Database = {
       is_tenant_member: { Args: { _tenant_id: string }; Returns: boolean }
       resolve_login_email: { Args: { identifier: string }; Returns: string }
       resolve_login_phone: { Args: { identifier: string }; Returns: string }
+      submit_customer_order: {
+        Args: {
+          p_customer_name: string
+          p_customer_phone: string
+          p_delivery_address?: string
+          p_items: Json
+          p_table_id: string
+          p_tenant_id: string
+        }
+        Returns: string
+      }
+      verify_loyalty_customer: {
+        Args: { p_phone: string; p_tenant_id: string }
+        Returns: Json
+      }
     }
     Enums: {
       app_role:
@@ -1057,9 +1112,23 @@ export type Database = {
         | "waiter"
         | "cashier"
         | "kitchen"
-      billing_plan: "monthly" | "quarterly" | "semiannual" | "annual"
+      billing_plan:
+        | "monthly"
+        | "quarterly"
+        | "semiannual"
+        | "annual"
+        | "basic-monthly"
+        | "basic-quarterly"
+        | "basic-semiannual"
+        | "basic-annual"
       order_item_status: "pending" | "preparing" | "ready" | "served"
-      order_status: "active" | "preparing" | "ready" | "completed" | "cancelled"
+      order_status:
+        | "active"
+        | "preparing"
+        | "ready"
+        | "completed"
+        | "cancelled"
+        | "awaiting-confirmation"
       order_type: "dine-in" | "takeaway" | "delivery"
       payment_method: "cash" | "card" | "mobile-money"
       subscription_status: "trial" | "active" | "expired" | "blocked"
@@ -1202,9 +1271,25 @@ export const Constants = {
         "cashier",
         "kitchen",
       ],
-      billing_plan: ["monthly", "quarterly", "semiannual", "annual"],
+      billing_plan: [
+        "monthly",
+        "quarterly",
+        "semiannual",
+        "annual",
+        "basic-monthly",
+        "basic-quarterly",
+        "basic-semiannual",
+        "basic-annual",
+      ],
       order_item_status: ["pending", "preparing", "ready", "served"],
-      order_status: ["active", "preparing", "ready", "completed", "cancelled"],
+      order_status: [
+        "active",
+        "preparing",
+        "ready",
+        "completed",
+        "cancelled",
+        "awaiting-confirmation",
+      ],
       order_type: ["dine-in", "takeaway", "delivery"],
       payment_method: ["cash", "card", "mobile-money"],
       subscription_status: ["trial", "active", "expired", "blocked"],

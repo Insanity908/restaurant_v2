@@ -39,6 +39,9 @@ describe('StaffPage — criar novo funcionário', () => {
     vi.doMock('@/integrations/supabase/client', () => ({
       supabase: { functions: { invoke: invokeMock } },
     }));
+    vi.doMock('@/hooks/useLicense', () => ({
+      useLicense: () => ({ isBasic: false, tier: 'pro' }),
+    }));
   });
 
   it('preenche o formulário (nome/função/telefone/password), cria a conta real via edge function e adiciona ao roster local', async () => {
@@ -155,6 +158,9 @@ describe('TablesPage — criar e editar mesa', () => {
     vi.doMock('@/context/AuthContext', () => ({
       useAuth: () => ({ hasRole: (roles: string[]) => roles.includes('admin') }),
     }));
+    vi.doMock('@/hooks/useLicense', () => ({
+      useLicense: () => ({ isBasic: false, tier: 'pro' }),
+    }));
   });
 
   it('cria uma mesa nova com o número e lugares introduzidos', async () => {
@@ -162,6 +168,7 @@ describe('TablesPage — criar e editar mesa', () => {
       useRestaurant: () => ({
         tables: [], orders: [], addTable: addTableMock, updateTable: updateTableMock,
         deleteTable: vi.fn(), logPrint: vi.fn(),
+        pendingConfirmationOrders: [], confirmPendingOrder: vi.fn(), rejectPendingOrder: vi.fn(),
       }),
     }));
     const { default: TablesPage } = await import('@/pages/TablesPage');
@@ -185,6 +192,7 @@ describe('TablesPage — criar e editar mesa', () => {
         tables: [{ id: 't-1', number: 2, seats: 4, status: 'free' }],
         orders: [], addTable: addTableMock, updateTable: updateTableMock,
         deleteTable: vi.fn(), logPrint: vi.fn(),
+        pendingConfirmationOrders: [], confirmPendingOrder: vi.fn(), rejectPendingOrder: vi.fn(),
       }),
     }));
     const { default: TablesPage } = await import('@/pages/TablesPage');

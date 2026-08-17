@@ -2,8 +2,10 @@ import { useState, useEffect, useMemo } from 'react';
 import PageShell from '@/components/PageShell';
 import { useRestaurant } from '@/hooks/useRestaurant';
 import { useAuth } from '@/context/AuthContext';
+import { useLicense } from '@/hooks/useLicense';
+import { BASIC_LIMITS } from '@/lib/billing';
 import { cn } from '@/lib/utils';
-import { Users, Plus, Pencil, Trash2, X, Clock, Eye, Printer } from 'lucide-react';
+import { Users, Plus, Pencil, Trash2, X, Clock, Eye, Printer, QrCode, Check, Ban, Bell } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Table as TableType, Order, MenuItem } from '@/types/restaurant';
 import { formatPrice, getMenuItemImage, findMenuItemImagePath } from '@/lib/helpers';
@@ -12,6 +14,7 @@ import { MENU_BUCKET } from '@/lib/storage';
 import { printReceipt, printServedItems } from '@/lib/receipt';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
+import QRCode from 'qrcode';
 
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Pendente',
@@ -21,17 +24,44 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 export default function TablesPage() {
-  const { tables, orders, menuItems, addTable, updateTable, deleteTable, logPrint } = useRestaurant();
-  const { hasRole } = useAuth();
+  const {
+    tables, orders, menuItems, addTable, updateTable, deleteTable, logPrint,
+    pendingConfirmationOrders, confirmPendingOrder, rejectPendingOrder,
+  } = useRestaurant();
+  const { user, hasRole } = useAuth();
+  const { isBasic } = useLicense();
   const navigate = useNavigate();
   const canManage = hasRole(['admin', 'manager']);
+  const canConfirm = hasRole(['admin', 'manager', 'cashier']);
+  const tableLimitReached = isBasic && tables.length >= BASIC_LIMITS.maxTables;
+
+  const handleNewTable = () => {
+    if (tableLimitReached) {
+      toast.error(`Limite de ${BASIC_LIMITS.maxTables} mesas do plano Básico atingido`, {
+        description: 'Mude para o plano Profissional para ter mesas ilimitadas.',
+      });
+      return;
+    }
+    setCreating(true);
+  };
+
+  const handleQrClick = (table: TableType) => {
+    if (isBasic) {
+      toast.error('Pedido pelo cliente (QR) disponível no plano Profissional');
+      return;
+    }
+    setQrTable(table);
+  };
 
   const [editing, setEditing] = useState<TableType | null>(null);
   const [creating, setCreating] = useState(false);
   const [trackOrderId, setTrackOrderId] = useState<string | null>(null);
+  const [qrTable, setQrTable] = useState<TableType | null>(null);
 
   const getTableOrder = (tableId: string) =>
-    orders.find(o => o.tableId === tableId && !o.paid && o.status !== 'cancelled');
+    orders.find(o => o.tableId === tableId && !o.paid && o.status !== 'cancelled' && o.status !== 'awaiting-confirmation');
+  const getPendingOrder = (tableId: string) =>
+    pendingConfirmationOrders.find(o => o.tableId === tableId);
 
   const trackOrder = trackOrderId ? orders.find(o => o.id === trackOrderId) ?? null : null;
 
@@ -42,7 +72,7 @@ export default function TablesPage() {
       actions={
         canManage && (
           <button
-            onClick={() => setCreating(true)}
+            onClick={handleNewTable}
             className="flex items-center gap-2 px-4 py-2 rounded-xl bg-primary text-primary-foreground font-bold hover:opacity-90 transition-opacity touch-target"
           >
             <Plus className="w-4 h-4" /> Nova Mesa
@@ -50,6 +80,14 @@ export default function TablesPage() {
         )
       }
     >
+      {canConfirm && (
+        <PendingConfirmationPanel
+          orders={pendingConfirmationOrders}
+          onConfirm={confirmPendingOrder}
+          onReject={rejectPendingOrder}
+        />
+      )}
+
       <div className="flex items-center gap-4 mb-6 flex-wrap">
         <Legend color="success" label="Disponível" />
         <Legend color="destructive" label="Ocupada" />
@@ -59,6 +97,7 @@ export default function TablesPage() {
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
         {tables.map(table => {
           const order = getTableOrder(table.id);
+          const pendingOrder = getPendingOrder(table.id);
           const occupied = table.status === 'occupied';
           const reserved = table.status === 'reserved';
 
@@ -72,6 +111,15 @@ export default function TablesPage() {
                 !occupied && !reserved && 'border-success/40 bg-success/5',
               )}
             >
+              <div className="absolute top-2 left-2">
+                <button
+                  onClick={() => handleQrClick(table)}
+                  className="p-1.5 rounded-md bg-secondary/70 hover:bg-secondary transition-colors"
+                  title="Mostrar QR code para pedir"
+                >
+                  <QrCode className="w-3.5 h-3.5" />
+                </button>
+              </div>
               {canManage && (
                 <div className="absolute top-2 right-2 flex gap-1">
                   <button
@@ -128,6 +176,12 @@ export default function TablesPage() {
                   </span>
                   <ElapsedBadge createdAt={order.createdAt} />
                 </div>
+              )}
+
+              {pendingOrder && (
+                <span className="flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-md bg-warning/15 text-warning">
+                  <Bell className="w-3 h-3" /> Pedido do cliente por confirmar
+                </span>
               )}
 
               <div className="w-full flex flex-col gap-2 pt-2">
@@ -187,7 +241,118 @@ export default function TablesPage() {
       />
 
       <OrderTrackerDialog order={trackOrder} menuItems={menuItems} onClose={() => setTrackOrderId(null)} onLogPrint={logPrint} />
+
+      <TableQrDialog table={qrTable} tenantId={user?.tenantId} onClose={() => setQrTable(null)} />
     </PageShell>
+  );
+}
+
+function PendingConfirmationPanel({
+  orders, onConfirm, onReject,
+}: {
+  orders: Order[];
+  onConfirm: (orderId: string) => void;
+  onReject: (orderId: string) => void;
+}) {
+  if (orders.length === 0) return null;
+  return (
+    <div className="glass rounded-2xl border border-warning/30 bg-warning/5 p-4 mb-6 space-y-3">
+      <h2 className="flex items-center gap-2 font-heading text-sm font-bold text-warning">
+        <Bell className="w-4 h-4" /> Pedidos do cliente por confirmar ({orders.length})
+      </h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {orders.map(order => (
+          <div key={order.id} className="rounded-xl bg-background/60 border border-border p-3 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-bold">
+                {order.type === 'dine-in' ? `Mesa ${order.tableNumber}` : `Entrega — ${order.customerName ?? order.customerPhone}`}
+              </span>
+              <span className="text-xs text-muted-foreground">{formatPrice(order.total)}</span>
+            </div>
+            <ul className="text-xs text-muted-foreground space-y-0.5">
+              {order.items.map(item => (
+                <li key={item.id}>{item.quantity}x {item.name}{item.notes ? ` — ${item.notes}` : ''}</li>
+              ))}
+            </ul>
+            {order.deliveryAddress && (
+              <p className="text-xs text-muted-foreground">
+                Morada: {order.deliveryAddress.split('\n').map((line, idx) => (
+                  <span key={idx}>
+                    {idx > 0 && ' '}
+                    {/^https?:\/\//.test(line.trim()) ? (
+                      <a href={line.trim()} target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                        Ver no Google Maps
+                      </a>
+                    ) : line}
+                  </span>
+                ))}
+              </p>
+            )}
+            <div className="flex gap-2 pt-1">
+              <button
+                onClick={() => onReject(order.id)}
+                className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg bg-destructive/15 text-destructive text-xs font-bold hover:bg-destructive/25 transition-colors"
+              >
+                <Ban className="w-3.5 h-3.5" /> Rejeitar
+              </button>
+              <button
+                onClick={() => onConfirm(order.id)}
+                className="flex-1 flex items-center justify-center gap-1 py-1.5 rounded-lg bg-success text-success-foreground text-xs font-bold hover:opacity-90 transition-opacity"
+              >
+                <Check className="w-3.5 h-3.5" /> Confirmar
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TableQrDialog({ table, tenantId, onClose }: { table: TableType | null; tenantId?: string; onClose: () => void }) {
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const url = table && tenantId
+    ? `${window.location.origin}/pedir/${tenantId}/mesa/${table.id}?n=${table.number}`
+    : null;
+
+  useEffect(() => {
+    if (!url) { setDataUrl(null); return; }
+    let active = true;
+    QRCode.toDataURL(url, { width: 260, margin: 1 }).then(d => { if (active) setDataUrl(d); });
+    return () => { active = false; };
+  }, [url]);
+
+  if (!table) return null;
+
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="fixed inset-0 z-50 bg-background/70 backdrop-blur-md flex items-center justify-center p-4"
+      >
+        <motion.div
+          initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }}
+          onClick={e => e.stopPropagation()}
+          className="glass rounded-2xl w-full max-w-xs p-6 space-y-4 text-center"
+        >
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-bold text-foreground">Mesa {table.number}</h2>
+            <button onClick={onClose} aria-label="Fechar" className="p-1.5 rounded-md hover:bg-secondary/60">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            O cliente digitaliza este código para ver o cardápio e pedir directo desta mesa.
+          </p>
+          {dataUrl ? (
+            <img src={dataUrl} alt={`QR code da Mesa ${table.number}`} className="mx-auto rounded-lg" />
+          ) : (
+            <div className="w-[260px] h-[260px] mx-auto rounded-lg bg-secondary animate-pulse" />
+          )}
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
   );
 }
 

@@ -66,6 +66,7 @@ describe('Acessibilidade — TablesPage (dialog "Nova Mesa")', () => {
       useRestaurant: () => ({
         tables: [], orders: [], addTable: vi.fn(), updateTable: vi.fn(),
         deleteTable: vi.fn(), logPrint: vi.fn(),
+        pendingConfirmationOrders: [], confirmPendingOrder: vi.fn(), rejectPendingOrder: vi.fn(),
       }),
     }));
   });
@@ -197,7 +198,12 @@ describe('Acessibilidade — BillingPage', () => {
     }));
     vi.doMock('@/lib/paymentAccounts', () => ({
       getPaymentAccounts: () => ({}), hasAnyPaymentAccounts: () => false,
+      fetchPaymentAccounts: vi.fn().mockResolvedValue({}),
     }));
+    vi.doMock('@/lib/billing', async () => {
+      const actual = await vi.importActual<typeof import('@/lib/billing')>('@/lib/billing');
+      return { ...actual, fetchPlans: vi.fn().mockResolvedValue(undefined) };
+    });
   });
 
   it('a página de faturação não tem violações de acessibilidade', async () => {

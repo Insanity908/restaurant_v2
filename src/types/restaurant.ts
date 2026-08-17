@@ -62,10 +62,12 @@ export interface Order {
   tableNumber?: number;
   type: 'dine-in' | 'takeaway' | 'delivery';
   items: OrderItem[];
-  status: 'active' | 'preparing' | 'ready' | 'completed' | 'cancelled';
+  status: 'awaiting-confirmation' | 'active' | 'preparing' | 'ready' | 'completed' | 'cancelled';
   customerName?: string;
   customerPhone?: string;
   customerId?: string;
+  /** Snapshot da morada usada neste pedido — só para 'delivery' submetido pelo próprio cliente. */
+  deliveryAddress?: string;
   createdAt: string;
   updatedAt: string;
   total: number;
@@ -185,6 +187,8 @@ export interface Customer {
   nuit?: string;
   birthday?: string; // 'MM-DD' or full ISO
   notes?: string;
+  /** Morada de entrega guardada — reutilizada como sugestão em pedidos de entrega futuros. */
+  address?: string;
   pointsAdjustment: number; // manual additions/redemptions
   createdAt: string;
 }

@@ -6,7 +6,7 @@ import { hasPermission as checkPermission, fetchStaffPermissions, type Permissio
 import { fetchSettings } from '@/lib/settings';
 import { fetchLoyaltySettings } from '@/lib/loyaltySettings';
 import { fetchPaymentAccounts } from '@/lib/paymentAccounts';
-import { fetchStripeConfig } from '@/lib/billing';
+import { fetchStripeConfig, fetchPlans } from '@/lib/billing';
 import { fetchTenantCatalog } from '@/lib/store';
 import { toE164Phone } from '@/lib/validators';
 
@@ -155,6 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           fetchStaffPermissions(u.tenantId).catch(() => { }),
           fetchPaymentAccounts().catch(() => { }),
           fetchStripeConfig().catch(() => { }),
+          fetchPlans().catch(() => { }),
           fetchTenantCatalog(u.tenantId),
         ]).then(() => setCatalogVersion(v => v + 1));
       }

@@ -6,7 +6,12 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 import { z } from 'npm:zod@3';
 
-const PLAN_MONTHS: Record<string, number> = { monthly: 1, quarterly: 3, semiannual: 6, annual: 12 };
+// Os 4 primeiros são o nível "Profissional" (implícito, sem prefixo); os
+// "basic-*" são o nível "Básico" — ver planTier() em src/lib/billing.ts.
+const PLAN_MONTHS: Record<string, number> = {
+  monthly: 1, quarterly: 3, semiannual: 6, annual: 12,
+  'basic-monthly': 1, 'basic-quarterly': 3, 'basic-semiannual': 6, 'basic-annual': 12,
+};
 const TRIAL_DAYS = 7;
 
 const BodySchema = z.object({
@@ -14,7 +19,10 @@ const BodySchema = z.object({
   tenantId: z.string().uuid(),
   reason: z.string().max(300).optional(),
   days: z.number().int().min(1).max(3650).optional(),
-  plan: z.enum(['monthly', 'quarterly', 'semiannual', 'annual']).optional(),
+  plan: z.enum([
+    'monthly', 'quarterly', 'semiannual', 'annual',
+    'basic-monthly', 'basic-quarterly', 'basic-semiannual', 'basic-annual',
+  ]).optional(),
   ref: z.string().max(200).optional(),
 });
 

@@ -1,17 +1,23 @@
 import { Link } from 'react-router-dom';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import PageShell from '@/components/PageShell';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CreditCard, Copy, RefreshCw, Shield, ArrowUpCircle, TrendingUp, Landmark, Smartphone } from 'lucide-react';
+import { CreditCard, Copy, RefreshCw, Shield, ArrowUpCircle, TrendingUp, Landmark, Smartphone, MessageCircle } from 'lucide-react';
 import { useLicense } from '@/hooks/useLicense';
-import { PLANS, formatMT, buildCheckoutUrl, addMonths } from '@/lib/billing';
-import { getPaymentAccounts, hasAnyPaymentAccounts } from '@/lib/paymentAccounts';
+import { PLANS, formatMT, addMonths, fetchPlans, buildPlanWhatsAppLink, BASIC_PLANS, PRO_PLANS } from '@/lib/billing';
+import { getPaymentAccounts, hasAnyPaymentAccounts, fetchPaymentAccounts } from '@/lib/paymentAccounts';
 import { toast } from 'sonner';
 import type { BillingPlan } from '@/types/restaurant';
 
 export default function BillingPage() {
   const { tenant, status, daysLeft, refresh } = useLicense();
+  const [, forceRefresh] = useState(0);
+  useEffect(() => {
+    Promise.all([fetchPlans(), fetchPaymentAccounts()])
+      .then(() => forceRefresh(v => v + 1))
+      .catch(() => { /* keep defaults */ });
+  }, []);
 
   const totalPaid = useMemo(
     () => (tenant?.subscription.history || []).reduce((s, h) => s + PLANS[h.plan].price, 0),
@@ -41,7 +47,12 @@ export default function BillingPage() {
   };
 
   const handleSwitch = (plan: BillingPlan) => {
-    window.location.href = buildCheckoutUrl(plan, tenant.id);
+    const whatsapp = getPaymentAccounts().superadminWhatsapp;
+    if (!whatsapp) {
+      toast.error('O contacto de activação ainda não está configurado. Tente novamente mais tarde.');
+      return;
+    }
+    window.open(buildPlanWhatsAppLink(plan, tenant.name, whatsapp), '_blank');
   };
 
   const baseDate =
@@ -132,35 +143,40 @@ export default function BillingPage() {
             <ArrowUpCircle className="w-4 h-4" /> Trocar / Renovar plano
           </h2>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {(Object.keys(PLANS) as BillingPlan[]).map(key => {
-            const p = PLANS[key];
-            const isCurrent = sub.plan === key && status === 'active';
-            const newExpiry = addMonths(baseDate, p.months);
-            return (
-              <div key={key} className={`rounded-xl p-4 border ${isCurrent ? 'border-primary bg-primary/5' : 'border-border'}`}>
-                <div className="flex items-center justify-between">
-                  <h3 className="font-heading font-semibold">{p.label}</h3>
-                  {isCurrent && <Badge variant="outline" className="bg-primary/15 text-primary border-primary/30 text-[10px]">ATUAL</Badge>}
-                </div>
-                <p className="font-heading text-xl font-bold mt-1">{formatMT(p.price)}</p>
-                <p className="text-xs text-muted-foreground">{p.months} {p.months === 1 ? 'mês' : 'meses'}</p>
-                {p.savings && <p className="text-[11px] text-success mt-1">{p.savings}</p>}
-                <p className="text-[11px] text-muted-foreground mt-2">
-                  Nova expiração: <strong className="text-foreground">{newExpiry.toLocaleDateString('pt-MZ')}</strong>
-                </p>
-                <Button
-                  size="sm"
-                  className="w-full mt-3"
-                  variant={isCurrent ? 'outline' : 'default'}
-                  onClick={() => handleSwitch(key)}
-                >
-                  {isCurrent ? 'Renovar' : 'Mudar para este'}
-                </Button>
-              </div>
-            );
-          })}
-        </div>
+        {([{ label: 'Básico', plans: BASIC_PLANS }, { label: 'Profissional', plans: PRO_PLANS }] as const).map(({ label, plans }) => (
+          <div key={label} className="mb-5 last:mb-0">
+            <p className="text-xs font-medium text-muted-foreground mb-2">{label}</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {plans.map(key => {
+                const p = PLANS[key];
+                const isCurrent = sub.plan === key && status === 'active';
+                const newExpiry = addMonths(baseDate, p.months);
+                return (
+                  <div key={key} className={`rounded-xl p-4 border ${isCurrent ? 'border-primary bg-primary/5' : 'border-border'}`}>
+                    <div className="flex items-center justify-between">
+                      <h3 className="font-heading font-semibold">{p.label}</h3>
+                      {isCurrent && <Badge variant="outline" className="bg-primary/15 text-primary border-primary/30 text-[10px]">ATUAL</Badge>}
+                    </div>
+                    <p className="font-heading text-xl font-bold mt-1">{formatMT(p.price)}</p>
+                    <p className="text-xs text-muted-foreground">{p.months} {p.months === 1 ? 'mês' : 'meses'}</p>
+                    {p.savings && <p className="text-[11px] text-success mt-1">{p.savings}</p>}
+                    <p className="text-[11px] text-muted-foreground mt-2">
+                      Nova expiração: <strong className="text-foreground">{newExpiry.toLocaleDateString('pt-MZ')}</strong>
+                    </p>
+                    <Button
+                      size="sm"
+                      className="w-full mt-3 gap-1.5"
+                      variant={isCurrent ? 'outline' : 'default'}
+                      onClick={() => handleSwitch(key)}
+                    >
+                      <MessageCircle className="w-3.5 h-3.5" /> {isCurrent ? 'Renovar' : 'Mudar para este'}
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
 
       <div className="glass rounded-xl p-5">

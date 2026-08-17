@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { tenantStore, fetchTenant, refreshSubscription } from '@/lib/tenants';
+import { planTier } from '@/lib/billing';
 import { Tenant } from '@/types/restaurant';
 
 export function useLicense() {
@@ -36,13 +37,16 @@ export function useLicense() {
 
   const status = tenant?.subscription.status ?? null;
   const isActive = status === 'active' || status === 'trial';
-  // Temporariamente só o bloqueio manual do superadmin restringe o acesso —
-  // a expiração automática fica desligada enquanto a área de facturação
-  // não estiver pronta (sem isto, uma conta "expired" ficaria bloqueada sem
-  // nenhuma forma de pagar/renovar, já que /billing e /pricing também
-  // estão bloqueados por agora).
-  const isBlocked = status === 'blocked';
+  // /billing e /pricing estão abertos (pagamento manual por WhatsApp), por
+  // isso uma conta "expired" já tem para onde ir pagar/renovar — o
+  // bloqueio automático por expiração volta a estar activo.
+  const isBlocked = status === 'blocked' || status === 'expired';
   const daysLeft = tenant ? tenantStore.daysUntilExpiry(tenant) : 0;
 
-  return { tenant, status, isActive, isBlocked, daysLeft, refresh, syncFromServer };
+  // Nível do plano — 'basic' só se aplica fora do período de teste, para
+  // deixar experimentar tudo antes de escolher.
+  const tier = status === 'trial' ? 'pro' : planTier(tenant?.subscription.plan);
+  const isBasic = tier === 'basic';
+
+  return { tenant, status, isActive, isBlocked, daysLeft, tier, isBasic, refresh, syncFromServer };
 }

@@ -198,6 +198,7 @@ function orderRow(o: Partial<Order>, t?: string) {
   if (o.customerId !== undefined) row.customer_id = o.customerId && isUuid(o.customerId) ? o.customerId : null;
   if (o.customerName !== undefined) row.customer_name = o.customerName ?? null;
   if (o.customerPhone !== undefined) row.customer_phone = o.customerPhone ?? null;
+  if (o.deliveryAddress !== undefined) row.delivery_address = o.deliveryAddress ?? null;
   if (o.total !== undefined) row.total = o.total;
   if (o.discount !== undefined) row.discount = o.discount ?? 0;
   if (o.tip !== undefined) row.tip = o.tip ?? 0;
@@ -357,6 +358,7 @@ export async function fetchOrders(t: string): Promise<Order[]> {
     customerId: (r.customer_id as string) ?? undefined,
     customerName: (r.customer_name as string) ?? undefined,
     customerPhone: (r.customer_phone as string) ?? undefined,
+    deliveryAddress: (r.delivery_address as string) ?? undefined,
     total: Number(r.total ?? 0),
     discount: Number(r.discount ?? 0) || undefined,
     tip: Number(r.tip ?? 0) || undefined,
@@ -499,6 +501,7 @@ export const customerStore = {
         id: created.id, tenant_id: t, name: created.name, phone: created.phone,
         email: created.email ?? null, nuit: created.nuit ?? null, birthday: created.birthday ?? null,
         notes: created.notes ?? null, points_adjustment: created.pointsAdjustment,
+        address: created.address ?? null,
       }).then(({ error }) => warn('customers.insert', error));
     }
     return created;
@@ -519,6 +522,7 @@ export const customerStore = {
       if (updates.nuit !== undefined) row.nuit = updates.nuit ?? null;
       if (updates.birthday !== undefined) row.birthday = updates.birthday ?? null;
       if (updates.notes !== undefined) row.notes = updates.notes ?? null;
+      if (updates.address !== undefined) row.address = updates.address ?? null;
       if (updates.pointsAdjustment !== undefined) row.points_adjustment = updates.pointsAdjustment;
       if (Object.keys(row).length) {
         void cloud('customers').update(row as never).eq('id', id).eq('tenant_id', t)
@@ -548,6 +552,7 @@ export async function fetchCustomers(t: string): Promise<Customer[]> {
   const rows: Customer[] = (data ?? []).map(r => ({
     id: r.id, name: r.name, phone: r.phone, email: r.email ?? undefined,
     nuit: r.nuit ?? undefined, birthday: r.birthday ?? undefined, notes: r.notes ?? undefined,
+    address: r.address ?? undefined,
     pointsAdjustment: r.points_adjustment ?? 0, createdAt: r.created_at,
   }));
   customerStore.save(rows);

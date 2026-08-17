@@ -1,7 +1,8 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Coffee, CreditCard, BarChart3, Users, Package, ChefHat, ShieldCheck, Check } from 'lucide-react';
-import { PLANS, formatMT } from '@/lib/billing';
+import { PLANS, formatMT, fetchPlans, BASIC_PLANS, PRO_PLANS } from '@/lib/billing';
 import InstallAppButton from '@/components/InstallAppButton';
 import { HeroShowcase, ProductShowcaseSection } from '@/components/landing/ProductShowcase';
 
@@ -15,6 +16,9 @@ const FEATURES = [
 ];
 
 export default function LandingPage() {
+  const [, forceRefresh] = useState(0);
+  useEffect(() => { fetchPlans().then(() => forceRefresh(v => v + 1)).catch(() => { /* keep defaults */ }); }, []);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5">
       <header className="container mx-auto px-6 py-5 flex items-center justify-between">
@@ -75,30 +79,34 @@ export default function LandingPage() {
       <section id="pricing" className="container mx-auto px-6 pb-20">
         <h2 className="font-heading text-3xl font-bold text-center mb-2">Pacotes</h2>
         <p className="text-center text-muted-foreground mb-10">Escolha o plano que melhor se adapta ao seu negócio.</p>
-        <div className="grid md:grid-cols-3 gap-4 max-w-4xl mx-auto">
-          {(Object.keys(PLANS) as Array<keyof typeof PLANS>).map(key => {
-            const p = PLANS[key];
-            const highlight = key === 'semiannual';
-            return (
-              <div key={key} className={`glass-strong rounded-2xl p-6 flex flex-col ${highlight ? 'border-2 border-primary' : ''}`}>
-                {highlight && <span className="text-xs text-primary font-medium mb-2">MAIS POPULAR</span>}
-                <h3 className="font-heading text-xl font-bold">{p.label}</h3>
-                <div className="mt-3">
-                  <span className="font-heading text-4xl font-bold">{formatMT(p.price)}</span>
-                  <span className="text-muted-foreground text-sm"> / {p.months} meses</span>
-                </div>
-                {p.savings && <span className="text-xs text-success mt-1">{p.savings}</span>}
-                <ul className="mt-5 space-y-2 text-sm flex-1">
-                  <li className="flex gap-2"><Check className="w-4 h-4 text-success" /> Utilizadores ilimitados</li>
-                  <li className="flex gap-2"><Check className="w-4 h-4 text-success" /> POS, KDS, stock, relatórios</li>
-                  <li className="flex gap-2"><Check className="w-4 h-4 text-success" /> Offline-first</li>
-                  <li className="flex gap-2"><Check className="w-4 h-4 text-success" /> Suporte por email</li>
-                </ul>
-                <Link to="/signup" className="mt-6"><Button className="w-full">Começar</Button></Link>
-              </div>
-            );
-          })}
-        </div>
+        {([{ label: 'Básico', plans: BASIC_PLANS }, { label: 'Profissional', plans: PRO_PLANS }] as const).map(({ label, plans }) => (
+          <div key={label} className="mb-10 last:mb-0">
+            <h3 className="font-heading text-lg font-semibold text-center mb-4">{label}</h3>
+            <div className="grid md:grid-cols-4 gap-4 max-w-6xl mx-auto">
+              {plans.map(key => {
+                const p = PLANS[key];
+                const highlight = label === 'Profissional' && key === 'quarterly';
+                return (
+                  <div key={key} className={`glass-strong rounded-2xl p-6 flex flex-col ${highlight ? 'border-2 border-primary' : ''}`}>
+                    {highlight && <span className="text-xs text-primary font-medium mb-2">MAIS POPULAR</span>}
+                    <h4 className="font-heading text-xl font-bold">{p.label}</h4>
+                    <div className="mt-3">
+                      <span className="font-heading text-4xl font-bold">{formatMT(p.price)}</span>
+                      <span className="text-muted-foreground text-sm"> / {p.months} meses</span>
+                    </div>
+                    {p.savings && <span className="text-xs text-success mt-1">{p.savings}</span>}
+                    <ul className="mt-5 space-y-2 text-sm flex-1">
+                      {p.features.map(f => (
+                        <li key={f} className="flex gap-2"><Check className="w-4 h-4 text-success shrink-0" /> {f}</li>
+                      ))}
+                    </ul>
+                    <Link to="/signup" className="mt-6"><Button className="w-full">Começar</Button></Link>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </section>
 
       <footer className="border-t border-border/40 py-6 text-center text-xs text-muted-foreground">

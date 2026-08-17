@@ -24,6 +24,8 @@ import { supabase } from '@/integrations/supabase/client';
 import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import { errorBodyMessage, extractFunctionErrorMessage } from '@/lib/functionError';
+import { useLicense } from '@/hooks/useLicense';
+import { BASIC_LIMITS } from '@/lib/billing';
 
 // Nota: 'superadmin' é um papel de plataforma (gestão de todos os
 // restaurantes), nunca um funcionário de uma unidade — por isso não aparece
@@ -63,6 +65,7 @@ export default function StaffPage() {
   const [permsSel, setPermsSel] = useState<Set<Permission>>(new Set());
   const canManagePerms = user?.role === 'admin' || user?.role === 'superadmin';
   const canManageStaff = hasPermission('staff.manage');
+  const { isBasic } = useLicense();
 
   const refresh = () => {
     setStaff(staffStore.getAll());
@@ -84,6 +87,12 @@ export default function StaffPage() {
   });
 
   const openNew = () => {
+    if (isBasic && staff.length >= BASIC_LIMITS.maxStaff) {
+      toast.error(`Limite de ${BASIC_LIMITS.maxStaff} funcionários do plano Básico atingido`, {
+        description: 'Mude para o plano Profissional para ter funcionários ilimitados.',
+      });
+      return;
+    }
     setEditing(null);
     setForm(empty);
     setOpen(true);

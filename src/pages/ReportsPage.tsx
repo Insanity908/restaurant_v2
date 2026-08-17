@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
+import { useLicense } from '@/hooks/useLicense';
 import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isWithinInterval, differenceInMilliseconds, subMilliseconds } from 'date-fns';
 import { pt } from 'date-fns/locale';
 import PageShell from '@/components/PageShell';
@@ -97,6 +98,7 @@ const COLORS = [
 export default function ReportsPage() {
   const { user, hasPermission } = useAuth();
   const canFinancial = hasPermission('reports.financial');
+  const { isBasic } = useLicense();
   if (user?.role === 'superadmin') return <Navigate to="/admin" replace />;
   const { orders, inventory, menuItems } = useRestaurant();
   const [period, setPeriod] = useState<'daily' | 'monthly'>('daily');
@@ -449,14 +451,22 @@ export default function ReportsPage() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="bg-popover z-50">
-              <DropdownMenuItem onClick={() => handleExport('pdf')} className="gap-2 cursor-pointer">
-                <FileText className="w-4 h-4" />
-                Exportar PDF
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleExport('csv')} className="gap-2 cursor-pointer">
-                <FileSpreadsheet className="w-4 h-4" />
-                Exportar CSV
-              </DropdownMenuItem>
+              {isBasic ? (
+                <DropdownMenuItem disabled className="gap-2 opacity-60">
+                  Exportação disponível no plano Profissional
+                </DropdownMenuItem>
+              ) : (
+                <>
+                  <DropdownMenuItem onClick={() => handleExport('pdf')} className="gap-2 cursor-pointer">
+                    <FileText className="w-4 h-4" />
+                    Exportar PDF
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => handleExport('csv')} className="gap-2 cursor-pointer">
+                    <FileSpreadsheet className="w-4 h-4" />
+                    Exportar CSV
+                  </DropdownMenuItem>
+                </>
+              )}
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => {

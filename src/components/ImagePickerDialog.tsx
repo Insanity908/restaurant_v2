@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Search, ImageOff } from 'lucide-react';
+import { Search, ImageOff, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { fetchPresetImages, type PresetImage } from '@/lib/presetImages';
-import { PRESET_IMAGES_BUCKET } from '@/lib/storage';
+import { PRESET_IMAGES_BUCKET, MENU_BUCKET, uploadTenantImage } from '@/lib/storage';
+import { supabase } from '@/integrations/supabase/client';
 import StorageImage from '@/components/StorageImage';
+import { toast } from 'sonner';
 
 interface Props {
   open: boolean;
@@ -19,6 +21,7 @@ export default function ImagePickerDialog({ open, onOpenChange, onSelect, defaul
   const [loading, setLoading] = useState(false);
   const [category, setCategory] = useState<string>('Todas');
   const [search, setSearch] = useState('');
+  const [copyingId, setCopyingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -38,6 +41,27 @@ export default function ImagePickerDialog({ open, onOpenChange, onSelect, defaul
   const filtered = images
     .filter(i => category === 'Todas' || i.category === category)
     .filter(i => !search.trim() || i.label.toLowerCase().includes(search.trim().toLowerCase()));
+
+  // A galeria vive num bucket à parte ('preset-images'); todo o resto da
+  // app (preview, Menu, Cozinha, Mesas, recibos...) resolve `image` sempre
+  // contra MENU_BUCKET. Sem copiar o ficheiro para lá, a imagem "escolhida"
+  // nunca mais carregava em lado nenhum fora deste diálogo.
+  const handleSelect = async (img: PresetImage) => {
+    setCopyingId(img.id);
+    try {
+      const { data, error: dlErr } = await supabase.storage.from(PRESET_IMAGES_BUCKET).download(img.storagePath);
+      if (dlErr || !data) throw new Error(dlErr?.message ?? 'download failed');
+      const ext = img.storagePath.split('.').pop() || 'jpg';
+      const file = new File([data], `${img.label}.${ext}`, { type: data.type || 'image/jpeg' });
+      const newPath = await uploadTenantImage(MENU_BUCKET, file);
+      onSelect(newPath);
+      onOpenChange(false);
+    } catch (err) {
+      toast.error(`Não foi possível usar esta imagem: ${(err as Error).message}`);
+    } finally {
+      setCopyingId(null);
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -86,11 +110,17 @@ export default function ImagePickerDialog({ open, onOpenChange, onSelect, defaul
                 <button
                   key={img.id}
                   type="button"
-                  onClick={() => { onSelect(img.storagePath); onOpenChange(false); }}
+                  onClick={() => handleSelect(img)}
+                  disabled={copyingId !== null}
                   title={img.label}
-                  className="relative aspect-square rounded-lg overflow-hidden border-2 border-border hover:border-primary/50 transition-colors"
+                  className="relative aspect-square rounded-lg overflow-hidden border-2 border-border hover:border-primary/50 transition-colors disabled:opacity-60"
                 >
                   <StorageImage bucket={PRESET_IMAGES_BUCKET} path={img.storagePath} alt={img.label} className="w-full h-full object-cover" />
+                  {copyingId === img.id && (
+                    <div className="absolute inset-0 bg-background/70 flex items-center justify-center">
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    </div>
+                  )}
                   <span className="absolute inset-x-0 bottom-0 bg-background/80 text-[10px] px-1 py-0.5 truncate">{img.label}</span>
                 </button>
               ))}
