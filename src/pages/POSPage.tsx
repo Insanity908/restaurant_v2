@@ -395,9 +395,13 @@ export default function POSPage() {
                   />
                   {change !== null && (
                     cashInsufficient ? (
-                      <p className="text-xs font-medium text-destructive">Falta {formatPrice(-change)}</p>
+                      <p className="text-sm font-medium text-destructive">
+                        Falta <span className="text-xl font-bold">{formatPrice(-change)}</span>
+                      </p>
                     ) : (
-                      <p className="text-xs font-medium text-success">Troco: {formatPrice(change)}</p>
+                      <p className="text-sm font-medium text-success">
+                        Troco: <span className="text-xl font-bold">{formatPrice(change)}</span>
+                      </p>
                     )
                   )}
                 </div>

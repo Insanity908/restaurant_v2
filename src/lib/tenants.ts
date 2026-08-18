@@ -9,6 +9,7 @@
  */
 import { Tenant, BillingPlan, SubscriptionStatus } from '@/types/restaurant';
 import { supabase } from '@/integrations/supabase/client';
+import { extractFunctionErrorMessage } from './functionError';
 
 const KEY = 'tenants';
 const CURRENT_KEY = 'current_tenant_id';
@@ -155,9 +156,9 @@ export const refreshSubscription = (tenantId: string) => callSubscription({ acti
  * work at all, so we reuse it here with `additional: true` so it always
  * provisions a new tenant instead of returning the existing one.
  */
-export async function createTenant(input: { name: string; ownerEmail: string; ownerPhone?: string; ownerName?: string }): Promise<Tenant | null> {
+export async function createTenant(input: { name: string; ownerEmail: string; ownerPhone?: string; ownerName?: string }): Promise<{ tenant: Tenant | null; error?: string }> {
   const { data: auth } = await supabase.auth.getUser();
-  if (!auth.user) return null;
+  if (!auth.user) return { tenant: null };
 
   const { data, error } = await supabase.functions.invoke('bootstrap-tenant', {
     body: {
@@ -168,10 +169,26 @@ export async function createTenant(input: { name: string; ownerEmail: string; ow
     },
   });
   if (error || !data?.tenantId) {
-    console.warn('createTenant failed', error?.message ?? 'no tenantId returned');
-    return null;
+    const message = (await extractFunctionErrorMessage(error)) ?? error?.message;
+    console.warn('createTenant failed', message ?? 'no tenantId returned');
+    return { tenant: null, error: message };
   }
-  return fetchTenant(data.tenantId as string);
+  return { tenant: await fetchTenant(data.tenantId as string) };
+}
+
+/**
+ * True se algum OUTRO restaurante da mesma conta estiver no Profissional
+ * (activo) ou em teste — usado só para o desconto de 20% em restaurantes
+ * adicionais (ver MULTI_RESTAURANT_DISCOUNT em src/lib/billing.ts), não
+ * para bloquear nada: qualquer nível pode adicionar mais restaurantes.
+ * RLS permite ler porque o admin é membro de todos os tenants que possui.
+ */
+export async function hasProfessionalSibling(tenantIds: string[], currentTenantId: string): Promise<boolean> {
+  const others = tenantIds.filter(id => id !== currentTenantId);
+  if (others.length === 0) return false;
+  const { data, error } = await supabase.from('subscriptions').select('status, plan').in('tenant_id', others);
+  if (error || !data) return false;
+  return data.some(s => s.status === 'trial' || (s.status === 'active' && !(s.plan ?? '').startsWith('basic-')));
 }
 
 /* ------------------------------------------------------------------ */

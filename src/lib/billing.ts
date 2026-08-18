@@ -22,6 +22,13 @@ export const PRO_PLANS: BillingPlan[] = ['monthly', 'quarterly', 'semiannual', '
 /** Restrições reais do nível Básico — ver useLicense() e os pontos que as aplicam. */
 export const BASIC_LIMITS = { maxTables: 10, maxStaff: 5 };
 
+/** Desconto num restaurante adicional quando a conta já tem outro no Profissional (ver hasProfessionalSibling em src/lib/tenants.ts). */
+export const MULTI_RESTAURANT_DISCOUNT = 0.2;
+
+export function applyMultiRestaurantDiscount(price: number, eligible: boolean): number {
+  return eligible ? Math.round(price * (1 - MULTI_RESTAURANT_DISCOUNT)) : price;
+}
+
 // Valores por omissão (usados até `fetchPlans()` resolver, ou se a leitura
 // falhar) — mutados no próprio local pelo `fetchPlans`/`savePlans` abaixo,
 // em vez de o módulo exportar uma nova referência, para que todos os sítios
@@ -161,12 +168,16 @@ export function formatMT(n: number): string {
 }
 
 /** Abre uma conversa de WhatsApp com o superadmin a pedir activação do plano — pagamento manual, sem checkout automático. */
-export function buildPlanWhatsAppLink(plan: BillingPlan, tenantName: string, superadminWhatsapp: string): string {
+export function buildPlanWhatsAppLink(plan: BillingPlan, tenantName: string, superadminWhatsapp: string, discountEligible = false): string {
   const p = PLANS[plan];
   const digits = superadminWhatsapp.replace(/\D/g, '');
   const waPhone = digits.startsWith('258') ? digits : `258${digits}`;
+  const finalPrice = applyMultiRestaurantDiscount(p.price, discountEligible);
+  const priceText = discountEligible
+    ? `${formatMT(finalPrice)}, com 20% de desconto por já ter outro restaurante Profissional — preço normal ${formatMT(p.price)}`
+    : formatMT(p.price);
   const text = encodeURIComponent(
-    `Olá! Quero ativar o plano ${p.label} (${planTier(plan) === 'basic' ? 'Básico' : 'Profissional'}, ${formatMT(p.price)}) para o restaurante "${tenantName}".`,
+    `Olá! Quero ativar o plano ${p.label} (${planTier(plan) === 'basic' ? 'Básico' : 'Profissional'}, ${priceText}) para o restaurante "${tenantName}".`,
   );
   return `https://wa.me/${waPhone}?text=${text}`;
 }

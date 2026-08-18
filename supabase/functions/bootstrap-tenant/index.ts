@@ -67,6 +67,12 @@ Deno.serve(async (req) => {
         });
       }
     }
+    // Qualquer nível pode adicionar mais restaurantes (sem restrição) — se a
+    // conta já tiver outro restaurante no Profissional, esse novo restaurante
+    // tem 20% de desconto na subscrição (ver MULTI_RESTAURANT_DISCOUNT em
+    // src/lib/billing.ts — aplicado na exibição do preço em /pricing e /billing
+    // e mencionado na mensagem de WhatsApp; a activação continua manual, por
+    // isso não há nada a impor aqui no momento da criação).
 
     // 1) tenant
     const licenseKey = `lic_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;

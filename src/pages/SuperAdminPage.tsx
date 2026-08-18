@@ -12,16 +12,16 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Lock, Unlock, Trash2, Clock, Search, Building2, TrendingUp, Users, BarChart3, Copy, Landmark, Save, CheckCircle2, Inbox, MessageSquare, Mail, MailOpen, Images, ImagePlus, Wallet } from 'lucide-react';
+import { Lock, Unlock, Trash2, Clock, Search, Building2, TrendingUp, Users, BarChart3, Copy, Landmark, Save, CheckCircle2, Inbox, MessageSquare, Mail, MailOpen, Images, ImagePlus, Wallet, HardDrive, Database } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid } from 'recharts';
 import { tenantStore, fetchTenants, fetchTenantTeams, type TenantTeam } from '@/lib/tenants';
-import { PLANS, formatMT, fetchPlans, savePlans, type PlanConfig } from '@/lib/billing';
+import { PLANS, formatMT, fetchPlans, savePlans, BASIC_PLANS, PRO_PLANS, type PlanConfig } from '@/lib/billing';
 import { Textarea } from '@/components/ui/textarea';
 import { getPaymentAccounts, savePaymentAccounts, fetchPaymentAccounts, type PaymentAccounts } from '@/lib/paymentAccounts';
 import { fetchPendingSubmissions, markSubmissionStatus, type PaymentSubmission } from '@/lib/paymentSubmissions';
 import { fetchFeedback, markFeedbackStatus, type FeedbackSubmission } from '@/lib/feedback';
 import { fetchPresetImages, uploadPresetImage, deletePresetImage, type PresetImage } from '@/lib/presetImages';
-import { PRESET_IMAGES_BUCKET } from '@/lib/storage';
+import { PRESET_IMAGES_BUCKET, fetchStorageUsage, type StorageUsage } from '@/lib/storage';
 import StorageImage from '@/components/StorageImage';
 import type { Tenant, BillingPlan } from '@/types/restaurant';
 import { toast } from 'sonner';
@@ -733,6 +733,60 @@ export default function SuperAdminPage() {
 
 const CHART_COLORS = ['hsl(var(--primary))', 'hsl(var(--success))', 'hsl(var(--destructive))', 'hsl(var(--muted-foreground))'];
 
+const BUCKET_LABEL: Record<string, string> = {
+  'menu-images': 'Imagens do cardápio',
+  'receipt-logos': 'Logótipos',
+  'preset-images': 'Galeria de imagens',
+};
+
+function formatBytes(bytes: number): string {
+  if (bytes <= 0) return '0 MB';
+  const mb = bytes / (1024 * 1024);
+  if (mb < 1024) return `${mb.toFixed(1)} MB`;
+  return `${(mb / 1024).toFixed(2)} GB`;
+}
+
+function StorageUsageSection() {
+  const [usage, setUsage] = useState<StorageUsage | null>(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    fetchStorageUsage().then(setUsage).catch(() => setError(true));
+  }, []);
+
+  const totalStorage = usage ? Object.values(usage.buckets).reduce((s, v) => s + v, 0) : 0;
+
+  return (
+    <div className="glass rounded-xl p-5">
+      <h2 className="font-heading font-semibold mb-3 flex items-center gap-2">
+        <HardDrive className="w-4 h-4" /> Armazenamento (Supabase)
+      </h2>
+      {error ? (
+        <p className="text-sm text-muted-foreground">Não foi possível carregar os dados de armazenamento.</p>
+      ) : !usage ? (
+        <p className="text-sm text-muted-foreground">A carregar…</p>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {Object.entries(usage.buckets).map(([bucket, bytes]) => (
+            <div key={bucket} className="rounded-lg bg-secondary/40 p-3">
+              <p className="text-[11px] text-muted-foreground">{BUCKET_LABEL[bucket] || bucket}</p>
+              <p className="font-heading font-semibold">{formatBytes(bytes)}</p>
+            </div>
+          ))}
+          <div className="rounded-lg bg-secondary/40 p-3">
+            <p className="text-[11px] text-muted-foreground">Total de ficheiros</p>
+            <p className="font-heading font-semibold">{formatBytes(totalStorage)}</p>
+          </div>
+          <div className="rounded-lg bg-primary/10 p-3">
+            <p className="text-[11px] text-muted-foreground flex items-center gap-1"><Database className="w-3 h-3" /> Base de dados</p>
+            <p className="font-heading font-semibold">{formatBytes(usage.databaseBytes)}</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SystemReports({ tenants, teams }: { tenants: Tenant[]; teams: Record<string, TenantTeam> }) {
   const growthData = useMemo(() => {
     const buckets: { month: string; count: number }[] = [];
@@ -800,6 +854,8 @@ function SystemReports({ tenants, teams }: { tenants: Tenant[]; teams: Record<st
 
   return (
     <div className="space-y-4 mt-4">
+      <StorageUsageSection />
+
       <div className="grid md:grid-cols-2 gap-4">
         <div className="glass rounded-xl p-5">
           <h2 className="font-heading font-semibold mb-3">Crescimento de restaurantes (6 meses)</h2>
@@ -965,7 +1021,10 @@ function PlansForm({
   onSave: () => void;
   saving: boolean;
 }) {
-  const order: BillingPlan[] = ['monthly', 'quarterly', 'semiannual', 'annual'];
+  const tiers: { label: string; plans: BillingPlan[] }[] = [
+    { label: 'Básico', plans: BASIC_PLANS },
+    { label: 'Profissional', plans: PRO_PLANS },
+  ];
   return (
     <div className="glass rounded-xl p-5 mt-4 space-y-4">
       <div>
@@ -974,8 +1033,11 @@ function PlansForm({
           Valores e serviços incluídos em cada plano — usados na página de preços e na ativação manual de restaurantes.
         </p>
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {order.map(id => {
+      {tiers.map(({ label, plans }) => (
+      <div key={label} className="space-y-3">
+        <p className="text-xs font-medium text-muted-foreground">{label}</p>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {plans.map(id => {
           const p = value[id];
           return (
             <div key={id} className="rounded-xl border border-border p-4 space-y-3">
@@ -1010,7 +1072,9 @@ function PlansForm({
             </div>
           );
         })}
+        </div>
       </div>
+      ))}
       <Button onClick={onSave} disabled={saving}>
         <Save className="w-4 h-4" /> {saving ? 'A guardar…' : 'Guardar planos'}
       </Button>

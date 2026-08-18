@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { cn } from '@/lib/utils';
 import { useRestaurant } from '@/hooks/useRestaurant';
 import { staffStore, shiftStore } from '@/lib/store';
-import { DollarSign, TrendingUp, ShoppingBag, Award, Package, Calendar as CalendarIcon, ArrowUp, ArrowDown, Minus, Download, FileText, FileSpreadsheet, ScrollText, UserCheck, XCircle, PlusCircle, Clock as ClockIcon } from 'lucide-react';
+import { DollarSign, TrendingUp, ShoppingBag, Award, Package, Calendar as CalendarIcon, ArrowUp, ArrowDown, Minus, Download, FileText, FileSpreadsheet, ScrollText, UserCheck, XCircle, PlusCircle, Clock as ClockIcon, BarChart3 } from 'lucide-react';
 import type { DateRange } from 'react-day-picker';
 import type { Order, InventoryItem, Staff, Shift } from '@/types/restaurant';
 import { exportReportsCSV, exportReportsPDF } from '@/lib/exportReports';
@@ -384,6 +384,19 @@ export default function ReportsPage() {
       toast.error('Falha ao exportar relatório');
     }
   };
+
+  if (isBasic) {
+    return (
+      <PageShell title="Relatórios" subtitle="Disponível no plano Profissional">
+        <div className="glass rounded-xl p-10 text-center max-w-md mx-auto mt-10">
+          <BarChart3 className="w-10 h-10 text-muted-foreground mx-auto mb-3" />
+          <p className="text-sm text-muted-foreground">
+            Relatórios de vendas, lucro e exportação CSV/PDF estão disponíveis no plano Profissional.
+          </p>
+        </div>
+      </PageShell>
+    );
+  }
 
   return (
     <PageShell

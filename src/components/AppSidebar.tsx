@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutGrid, UtensilsCrossed, ChefHat, CreditCard, BarChart3, Settings, Coffee, Package, LogOut, Users, Clock, UserCircle, ShieldCheck, MoreHorizontal, ChevronsUpDown, Check, Plus, MessageSquare } from 'lucide-react';
+import { LayoutGrid, UtensilsCrossed, ChefHat, CreditCard, BarChart3, Settings, Coffee, Package, LogOut, Users, Clock, UserCircle, ShieldCheck, MoreHorizontal, ChevronsUpDown, Check, Plus, MessageSquare, Wallet } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useOptionalAuth, ROUTE_PERMISSIONS } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -27,6 +27,7 @@ const navItems = [
   { path: '/staff', icon: Users, label: 'Funcionários' },
   { path: '/customers', icon: UserCircle, label: 'Clientes' },
   { path: '/shifts', icon: Clock, label: 'Turnos' },
+  { path: '/billing', icon: Wallet, label: 'Faturação' },
   { path: '/settings', icon: Settings, label: 'Configurações' },
 ];
 
@@ -85,7 +86,7 @@ export default function AppSidebar() {
   const user = auth?.user ?? null;
   const logout = auth?.logout;
   const { settings } = useSettings();
-  const { tenant, status, daysLeft } = useLicense();
+  const { tenant, status, daysLeft, isBasic } = useLicense();
   const iconUrl = useStorageImage(LOGO_BUCKET, settings.iconUrl);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
@@ -93,6 +94,7 @@ export default function AppSidebar() {
   if (!user) return null;
 
   const visibleItems = navItems.filter(item => {
+    if (isBasic && item.path === '/reports') return false;
     const allowed = ROUTE_PERMISSIONS[item.path];
     return !allowed || allowed.includes(user.role);
   });

@@ -1,12 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Check, Coffee, Plus } from 'lucide-react';
 import { useOptionalAuth } from '@/context/AuthContext';
-import { tenantStore } from '@/lib/tenants';
-import { PLANS, formatMT } from '@/lib/billing';
+import { tenantStore, hasProfessionalSibling } from '@/lib/tenants';
+import { PLANS, formatMT, applyMultiRestaurantDiscount } from '@/lib/billing';
 import { toast } from 'sonner';
 
 interface RestaurantSwitcherDialogProps {
@@ -25,23 +25,34 @@ export default function RestaurantSwitcherDialog({ open, onOpenChange }: Restaur
   const user = auth?.user;
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
+  const [discountEligible, setDiscountEligible] = useState(false);
+
+  const ids = user?.tenantIds || [];
+  const current = tenantStore.current();
+
+  useEffect(() => {
+    if (!open || !current) { setDiscountEligible(false); return; }
+    hasProfessionalSibling(ids, current.id).then(setDiscountEligible).catch(() => setDiscountEligible(false));
+    // ids é um array novo a cada render — comparar só o conteúdo relevante.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, current?.id, ids.join(',')]);
 
   if (!user) return null;
 
-  const ids = user.tenantIds || [];
   const owned = tenantStore.getAll().filter(t => ids.includes(t.id));
-  const current = tenantStore.current();
 
   const create = async () => {
     if (!newName.trim() || !user.email) return;
     setCreating(true);
-    const t = await tenantStore.create({ name: newName.trim(), ownerEmail: user.email, ownerName: user.name });
+    const { tenant: t, error } = await tenantStore.create({ name: newName.trim(), ownerEmail: user.email, ownerName: user.name });
     setCreating(false);
-    if (!t) { toast.error('Não foi possível criar o restaurante'); return; }
+    if (!t) { toast.error(error ?? 'Não foi possível criar o restaurante'); return; }
     tenantStore.setCurrent(t.id);
     toast.success(`Restaurante "${t.name}" criado`);
     setTimeout(() => window.location.reload(), 400);
   };
+
+  const basicPrice = applyMultiRestaurantDiscount(PLANS['basic-monthly'].price, discountEligible);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -67,7 +78,8 @@ export default function RestaurantSwitcherDialog({ open, onOpenChange }: Restaur
           <Label htmlFor="new-restaurant-name">Adicionar restaurante</Label>
           <p className="text-[11px] text-muted-foreground">
             Começa com 7 dias grátis. Depois disso, precisa da sua própria subscrição
-            (a partir de {formatMT(PLANS['basic-monthly'].price)}/mês) para continuar activo — ver /billing.
+            (a partir de {formatMT(basicPrice)}/mês) para continuar activo — ver /billing.
+            {discountEligible && ' Como já tem um restaurante Profissional, este tem 20% de desconto.'}
           </p>
           <div className="flex gap-2">
             <Input

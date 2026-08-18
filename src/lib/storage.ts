@@ -105,3 +105,15 @@ export async function removeStorageObject(bucket: string, path?: string | null):
   delete cache[key(bucket, path)];
   writeCache();
 }
+
+export interface StorageUsage {
+  buckets: Record<string, number>;
+  databaseBytes: number;
+}
+
+/** Superadmin-only: bytes used per Storage bucket, plus Postgres database size. */
+export async function fetchStorageUsage(): Promise<StorageUsage> {
+  const { data, error } = await supabase.rpc('get_storage_usage');
+  if (error) throw new Error(error.message);
+  return data as StorageUsage;
+}

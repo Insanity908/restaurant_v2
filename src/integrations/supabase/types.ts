@@ -1071,6 +1071,7 @@ export type Database = {
         Returns: boolean
       }
       get_order_status: { Args: { p_order_id: string }; Returns: Json }
+      get_storage_usage: { Args: Record<PropertyKey, never>; Returns: Json }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]

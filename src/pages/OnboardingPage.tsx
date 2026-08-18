@@ -69,8 +69,8 @@ export default function OnboardingPage() {
 
   const addExtraTenant = async () => {
     if (!user?.email || !user?.authUserId || !extraName.trim()) return;
-    const t = await tenantStore.create({ name: extraName.trim(), ownerEmail: user.email, ownerName: user.name });
-    if (!t) { toast.error('Não foi possível criar o restaurante'); return; }
+    const { tenant: t, error } = await tenantStore.create({ name: extraName.trim(), ownerEmail: user.email, ownerName: user.name });
+    if (!t) { toast.error(error ?? 'Não foi possível criar o restaurante'); return; }
     tenantStore.setCurrent(t.id);
     sessionStorage.setItem(JUST_ONBOARDED_KEY, '1');
     setExtraName('');

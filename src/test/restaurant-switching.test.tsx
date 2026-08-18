@@ -19,7 +19,7 @@ describe('RestaurantSwitcherDialog', () => {
   beforeEach(() => {
     vi.resetModules();
     switchTenantMock.mockReset();
-    createMock.mockReset().mockResolvedValue({ id: 'tenant-c', name: 'Nova Unidade' });
+    createMock.mockReset().mockResolvedValue({ tenant: { id: 'tenant-c', name: 'Nova Unidade' } });
     vi.doMock('@/context/AuthContext', () => ({
       useOptionalAuth: () => ({
         user: { id: 'admin-1', name: 'Admin', email: 'admin@teste.mz', role: 'admin', tenantIds: ['tenant-a', 'tenant-b'] },
@@ -33,6 +33,7 @@ describe('RestaurantSwitcherDialog', () => {
         setCurrent: vi.fn(),
         create: createMock,
       },
+      hasProfessionalSibling: vi.fn().mockResolvedValue(false),
     }));
   });
 

@@ -3,8 +3,9 @@ import { Link } from 'react-router-dom';
 import PageShell from '@/components/PageShell';
 import { Button } from '@/components/ui/button';
 import { Check, ArrowLeft, MessageCircle } from 'lucide-react';
-import { PLANS, formatMT, fetchPlans, buildPlanWhatsAppLink, BASIC_PLANS, PRO_PLANS } from '@/lib/billing';
+import { PLANS, formatMT, fetchPlans, buildPlanWhatsAppLink, applyMultiRestaurantDiscount, BASIC_PLANS, PRO_PLANS } from '@/lib/billing';
 import { getPaymentAccounts, fetchPaymentAccounts } from '@/lib/paymentAccounts';
+import { hasProfessionalSibling } from '@/lib/tenants';
 import { useLicense } from '@/hooks/useLicense';
 import { useAuth } from '@/context/AuthContext';
 import { toast } from 'sonner';
@@ -14,11 +15,16 @@ export default function PricingPage() {
   const { tenant, daysLeft, status } = useLicense();
   const { user } = useAuth();
   const [, forceRefresh] = useState(0);
+  const [discountEligible, setDiscountEligible] = useState(false);
   useEffect(() => {
     Promise.all([fetchPlans(), fetchPaymentAccounts()])
       .then(() => forceRefresh(v => v + 1))
       .catch(() => { /* keep defaults */ });
   }, []);
+  useEffect(() => {
+    if (!tenant) { setDiscountEligible(false); return; }
+    hasProfessionalSibling(user?.tenantIds ?? [], tenant.id).then(setDiscountEligible).catch(() => setDiscountEligible(false));
+  }, [tenant, user?.tenantIds]);
 
   const subscribe = (plan: BillingPlan) => {
     if (!tenant) {
@@ -30,7 +36,7 @@ export default function PricingPage() {
       toast.error('O contacto de activação ainda não está configurado. Tente novamente mais tarde.');
       return;
     }
-    window.open(buildPlanWhatsAppLink(plan, tenant.name, whatsapp), '_blank');
+    window.open(buildPlanWhatsAppLink(plan, tenant.name, whatsapp, discountEligible), '_blank');
   };
 
   const tiers: { key: 'basic' | 'pro'; label: string; plans: BillingPlan[] }[] = [
@@ -74,13 +80,18 @@ export default function PricingPage() {
               const p = PLANS[planKey];
               const highlight = key === 'pro' && planKey === 'quarterly';
               const isCurrent = tenant?.subscription.plan === planKey && status === 'active';
+              const finalPrice = applyMultiRestaurantDiscount(p.price, discountEligible);
               return (
                 <div key={planKey} className={`glass-strong rounded-2xl p-6 flex flex-col ${highlight ? 'border-2 border-primary' : ''}`}>
                   {highlight && <span className="text-xs text-primary font-medium mb-2">MAIS POPULAR</span>}
                   {isCurrent && <span className="text-xs text-success font-medium mb-2">PLANO ATUAL</span>}
+                  {discountEligible && <span className="text-xs text-success font-medium mb-2">-20% MULTI-RESTAURANTE</span>}
                   <h3 className="font-heading text-xl font-bold">{p.label}</h3>
                   <div className="mt-3">
-                    <span className="font-heading text-3xl font-bold">{formatMT(p.price)}</span>
+                    {discountEligible && (
+                      <span className="text-muted-foreground text-sm line-through mr-2">{formatMT(p.price)}</span>
+                    )}
+                    <span className="font-heading text-3xl font-bold">{formatMT(finalPrice)}</span>
                     <span className="text-muted-foreground text-sm block">{p.months} {p.months === 1 ? 'mês' : 'meses'}</span>
                   </div>
                   {p.savings && <span className="text-xs text-success mt-1">{p.savings}</span>}
