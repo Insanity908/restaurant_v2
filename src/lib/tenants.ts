@@ -53,7 +53,7 @@ type Row = {
     blocked_by_admin: boolean;
     block_reason: string | null;
   } | null;
-  subscription_history?: { plan: BillingPlan; paid_at: string; ref: string | null }[] | null;
+  subscription_history?: { plan: BillingPlan; paid_at: string; ref: string | null; price: number | null }[] | null;
 };
 
 function mapRow(r: Row): Tenant {
@@ -74,7 +74,7 @@ function mapRow(r: Row): Tenant {
       blockedByAdmin: s?.blocked_by_admin ?? false,
       blockReason: s?.block_reason ?? undefined,
       history: (r.subscription_history ?? [])
-        .map(h => ({ plan: h.plan, paidAt: h.paid_at, ref: h.ref ?? undefined }))
+        .map(h => ({ plan: h.plan, paidAt: h.paid_at, ref: h.ref ?? undefined, price: h.price ?? undefined }))
         .sort((a, b) => a.paidAt.localeCompare(b.paidAt)),
     },
   };
@@ -83,7 +83,7 @@ function mapRow(r: Row): Tenant {
 const SELECT =
   'id, name, owner_email, owner_phone, license_key, created_at,' +
   ' subscriptions(plan, status, started_at, expires_at, last_payment_ref, blocked_by_admin, block_reason),' +
-  ' subscription_history(plan, paid_at, ref)';
+  ' subscription_history(plan, paid_at, ref, price)';
 
 /* ------------------------------------------------------------------ */
 /* Async API (real queries)                                            */

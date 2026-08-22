@@ -1,12 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import { supabase } from '@/integrations/supabase/client';
 import { getOrderStatus, type OrderStatusView } from '@/lib/customerOrder';
 import { formatPrice } from '@/lib/helpers';
 import { cn } from '@/lib/utils';
 import { CheckCircle2, ChefHat, Clock, Loader2, HandPlatter } from 'lucide-react';
-
-const POLL_MS = 4000;
-const DONE_STATUSES = new Set(['completed', 'cancelled']);
 
 const ITEM_LABELS: Record<string, string> = {
   pending: 'Pendente', preparing: 'A preparar', ready: 'Pronto', served: 'Servido',
@@ -24,21 +22,28 @@ const ORDER_LABELS: Record<string, { label: string; icon: typeof Clock }> = {
 export default function CustomerTrackingPage() {
   const { orderId } = useParams();
   const [order, setOrder] = useState<OrderStatusView | null | undefined>(undefined);
-  const timer = useRef<ReturnType<typeof setInterval>>();
 
+  // Página pública/anon — não pode ler `orders` directamente (só a RPC
+  // SECURITY DEFINER get_order_status), por isso o Realtime aqui é
+  // Broadcast Authorization (tópico "order:<uuid>", ver migration
+  // 20260822160000) em vez do `postgres_changes` usado em subscribeOperations.
+  // Broadcast não repõe eventos perdidos enquanto desligado — por isso
+  // recarrega o estado sempre que o canal (re)conecta, não só uma vez.
   useEffect(() => {
     if (!orderId) return;
     let active = true;
-    const poll = async () => {
+    const load = async () => {
       const data = await getOrderStatus(orderId);
       if (active) setOrder(data);
-      if (data && DONE_STATUSES.has(data.status) && timer.current) {
-        clearInterval(timer.current);
-      }
     };
-    poll();
-    timer.current = setInterval(poll, POLL_MS);
-    return () => { active = false; if (timer.current) clearInterval(timer.current); };
+
+    const channel = supabase.channel(`order:${orderId}`, { config: { private: true } });
+    (['INSERT', 'UPDATE', 'DELETE'] as const).forEach(event => {
+      channel.on('broadcast', { event }, () => { void load(); });
+    });
+    channel.subscribe(status => { if (status === 'SUBSCRIBED') void load(); });
+
+    return () => { active = false; void supabase.removeChannel(channel); };
   }, [orderId]);
 
   if (order === undefined) {

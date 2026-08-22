@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { Coffee } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { validateIntlPhone } from '@/lib/validators';
 import { toast } from 'sonner';
 
 export default function SignupPage() {
@@ -25,6 +27,8 @@ export default function SignupPage() {
     // ou atrás do valor sem disparar onChange — validar/enviar sempre a versão
     // "trimmed" evita o falso positivo "Email inválido" com um email correto.
     if (!/^\S+@\S+\.\S+$/.test(email)) return toast.error('Email inválido');
+    const phoneError = validateIntlPhone(form.phone);
+    if (phoneError) return toast.error(phoneError);
     if (form.password.length < 8) return toast.error('Password deve ter pelo menos 8 caracteres');
     if (form.password !== form.confirm) return toast.error('Passwords não coincidem');
     setLoading(true);
@@ -79,11 +83,11 @@ export default function SignupPage() {
           </div>
           <div className="space-y-1.5">
             <Label>Password</Label>
-            <Input type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} autoComplete="new-password" />
+            <PasswordInput value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} autoComplete="new-password" />
           </div>
           <div className="space-y-1.5">
             <Label>Confirmar password</Label>
-            <Input type="password" value={form.confirm} onChange={e => setForm(f => ({ ...f, confirm: e.target.value }))} autoComplete="new-password" />
+            <PasswordInput value={form.confirm} onChange={e => setForm(f => ({ ...f, confirm: e.target.value }))} autoComplete="new-password" />
           </div>
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? 'A criar...' : 'Criar conta'}

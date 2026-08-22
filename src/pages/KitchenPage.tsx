@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import PageShell from '@/components/PageShell';
 import KitchenOrderDetail from '@/components/KitchenOrderDetail';
 import { useRestaurant } from '@/hooks/useRestaurant';
@@ -9,10 +10,14 @@ import DismissibleAlert from '@/components/DismissibleAlert';
 import { MENU_BUCKET } from '@/lib/storage';
 import { useSettings } from '@/hooks/useSettings';
 import { cn } from '@/lib/utils';
-import { Clock, AlertTriangle, X, HandPlatter } from 'lucide-react';
+import { Clock, AlertTriangle, X, HandPlatter, Tv, Minimize2 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import type { Order, OrderItem } from '@/types/restaurant';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 const STATUS_CYCLE: Array<'pending' | 'preparing' | 'ready'> = ['pending', 'preparing', 'ready'];
 
@@ -31,6 +36,8 @@ export default function KitchenPage() {
   const { orders, updateOrderItemStatus, updateOrder, cancelOrder, menuItems, inventory } = useRestaurant();
   const { user } = useAuth();
   const { settings } = useSettings();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tvMode = searchParams.get('tv') === '1';
   const kitchenDelayMin = settings.kitchenDelayMinutes;
   const waiterDelayMin = settings.waiterDelayMinutes;
   const [now, setNow] = useState(new Date());
@@ -73,6 +80,28 @@ export default function KitchenPage() {
   const detailOrder = kitchenOrders.find(o => o.id === detailOrderId) ?? null;
   const getElapsedMin = (createdAt: string) => Math.floor((now.getTime() - new Date(createdAt).getTime()) / 60000);
 
+  // Toast sozinho é fácil de não notar num ambiente de cozinha barulhento —
+  // um "ding" curto via Web Audio API, sem precisar de nenhum ficheiro de
+  // som. Falha em silêncio se o navegador bloquear áudio sem gesto prévio.
+  const playAlertSound = () => {
+    try {
+      const ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.35);
+      osc.onended = () => void ctx.close();
+    } catch {
+      // Ambiente sem suporte/permissão de áudio — o toast visual continua a funcionar.
+    }
+  };
+
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 30000);
     return () => clearInterval(timer);
@@ -93,6 +122,7 @@ export default function KitchenPage() {
     });
 
     if (newReadyOrders.length > 0) {
+      playAlertSound();
       setAlertedReadyOrders(prev => [...prev, ...newReadyOrders.map(order => order.id)]);
     }
   }, [alertedReadyOrders, kitchenOrders, shouldReceiveReadyAlerts]);
@@ -113,6 +143,7 @@ export default function KitchenPage() {
     });
 
     if (newStale.length > 0) {
+      playAlertSound();
       setAlertedPendingDelayOrders(prev => [...prev, ...newStale.map(order => order.id)]);
     }
   }, [activeOrders, alertedPendingDelayOrders, isKitchen, kitchenDelayMin, now]);
@@ -142,6 +173,7 @@ export default function KitchenPage() {
     });
 
     if (newStale.length > 0) {
+      playAlertSound();
       setAlertedReadyDelayItems(prev => [...prev, ...newStale.map(({ item }) => item.id)]);
     }
   }, [activeOrders, alertedReadyDelayItems, isWaiterOrCashier, waiterDelayMin, now]);
@@ -149,16 +181,48 @@ export default function KitchenPage() {
   const delayedOrders = kitchenOrders.filter(o => getElapsedMin(o.createdAt) > delayThresholdMin);
 
   const cycleItemStatus = (orderId: string, itemId: string, currentStatus: string) => {
-    const idx = STATUS_CYCLE.indexOf(currentStatus as any);
+    const idx = STATUS_CYCLE.indexOf(currentStatus as 'pending' | 'preparing' | 'ready');
     if (idx < STATUS_CYCLE.length - 1) {
       updateOrderItemStatus(orderId, itemId, STATUS_CYCLE[idx + 1]);
     }
+  };
+
+  // Um clique só num pedido com vários itens avança tudo de uma vez — pede
+  // confirmação nesse caso para evitar um clique acidental a mais.
+  const [pendingBulkAction, setPendingBulkAction] = useState<{ order: Order; kind: 'start' | 'complete' | 'serve' } | null>(null);
+
+  const applyStartAll = (order: Order) => {
+    const updatedItems = order.items.map(item =>
+      item.status === 'pending' ? { ...item, status: 'preparing' as const } : item
+    );
+    updateOrder(order.id, { items: updatedItems, status: 'preparing' });
+  };
+  const applyCompleteAll = (order: Order) => {
+    const updatedItems = order.items.map(item =>
+      item.status === 'served' ? item : { ...item, status: 'ready' as const }
+    );
+    updateOrder(order.id, { items: updatedItems, status: 'ready' });
+  };
+  const applyServeAll = (order: Order) => {
+    const updatedItems = order.items.map(item =>
+      item.status === 'ready' ? { ...item, status: 'served' as const } : item
+    );
+    updateOrder(order.id, { items: updatedItems });
+  };
+  const BULK_ACTION_LABEL: Record<'start' | 'complete' | 'serve', string> = {
+    start: 'iniciar todos os itens deste pedido',
+    complete: 'concluir todos os itens deste pedido',
+    serve: 'marcar todos os itens prontos deste pedido como servidos',
+  };
+  const runBulkAction = (kind: 'start' | 'complete' | 'serve', order: Order) => {
+    (kind === 'start' ? applyStartAll : kind === 'complete' ? applyCompleteAll : applyServeAll)(order);
   };
 
   return (
     <PageShell
       title="Cozinha - Pedidos em Tempo Real"
       subtitle={`${now.toLocaleTimeString('pt', { hour: '2-digit', minute: '2-digit' })}`}
+      fullBleed={tvMode}
       actions={
         <div className="flex items-center gap-4">
           <span className="text-sm text-muted-foreground">
@@ -170,6 +234,12 @@ export default function KitchenPage() {
               Atrasados: {delayedOrders.length}
             </span>
           )}
+          <button
+            onClick={() => setSearchParams(tvMode ? {} : { tv: '1' })}
+            className="flex items-center gap-1.5 bg-secondary text-secondary-foreground px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-secondary/80 transition-colors"
+          >
+            {tvMode ? <><Minimize2 className="w-4 h-4" /> Sair do modo TV</> : <><Tv className="w-4 h-4" /> Modo TV</>}
+          </button>
         </div>
       }
     >
@@ -196,7 +266,10 @@ export default function KitchenPage() {
           <p className="text-sm">Os pedidos aparecerão aqui automaticamente</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+        <div className={cn(
+          'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4',
+          tvMode && '2xl:grid-cols-5',
+        )}>
           {kitchenOrders.map(order => {
             const elapsed = getElapsedMin(order.createdAt);
             const isDelayed = elapsed > delayThresholdMin;
@@ -307,10 +380,8 @@ export default function KitchenPage() {
                   <div className="flex gap-2 p-3 border-t border-border">
                     <button
                       onClick={() => {
-                        const updatedItems = order.items.map(item =>
-                          item.status === 'pending' ? { ...item, status: 'preparing' as const } : item
-                        );
-                        updateOrder(order.id, { items: updatedItems, status: 'preparing' });
+                        if (visibleItems.length > 1) setPendingBulkAction({ order, kind: 'start' });
+                        else applyStartAll(order);
                       }}
                       className="flex-1 py-2 rounded-lg bg-secondary text-secondary-foreground text-xs font-medium hover:bg-secondary/80 transition-colors touch-target"
                     >
@@ -318,10 +389,8 @@ export default function KitchenPage() {
                     </button>
                     <button
                       onClick={() => {
-                        const updatedItems = order.items.map(item =>
-                          item.status === 'served' ? item : { ...item, status: 'ready' as const }
-                        );
-                        updateOrder(order.id, { items: updatedItems, status: 'ready' });
+                        if (visibleItems.length > 1) setPendingBulkAction({ order, kind: 'complete' });
+                        else applyCompleteAll(order);
                       }}
                       className={cn(
                         'flex-1 py-2 rounded-lg text-xs font-bold transition-colors touch-target',
@@ -340,10 +409,8 @@ export default function KitchenPage() {
                   <div className="flex gap-2 p-3 border-t border-border">
                     <button
                       onClick={() => {
-                        const updatedItems = order.items.map(item =>
-                          item.status === 'ready' ? { ...item, status: 'served' as const } : item
-                        );
-                        updateOrder(order.id, { items: updatedItems });
+                        if (visibleItems.length > 1) setPendingBulkAction({ order, kind: 'serve' });
+                        else applyServeAll(order);
                       }}
                       className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-opacity touch-target"
                     >
@@ -398,6 +465,25 @@ export default function KitchenPage() {
           if (isWaiterOrCashier && !stillToServe) setDetailOrderId(null);
         }}
       />
+
+      <AlertDialog open={!!pendingBulkAction} onOpenChange={(open) => { if (!open) setPendingBulkAction(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar ação em massa?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Isto vai {pendingBulkAction && BULK_ACTION_LABEL[pendingBulkAction.kind]} ({pendingBulkAction?.order.items.length} itens).
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => { if (pendingBulkAction) runBulkAction(pendingBulkAction.kind, pendingBulkAction.order); setPendingBulkAction(null); }}
+            >
+              Confirmar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </PageShell>
   );
 }

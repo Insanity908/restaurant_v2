@@ -29,7 +29,7 @@ const BodySchema = z.object({
 const SELECT =
   'id, name, owner_email, owner_phone, license_key, created_at,' +
   ' subscriptions(plan, status, started_at, expires_at, last_payment_ref, blocked_by_admin, block_reason),' +
-  ' subscription_history(plan, paid_at, ref)';
+  ' subscription_history(plan, paid_at, ref, price)';
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -162,8 +162,13 @@ Deno.serve(async (req) => {
       patch.last_payment_ref = ref ?? null;
       patch.blocked_by_admin = false;
       patch.block_reason = null;
+      // Preço lido do servidor (não do body do pedido) para o snapshot —
+      // um preço vindo do cliente seria falsificável; `billing_plans` é a
+      // única fonte de verdade para quanto custava o plano nesta data.
+      const { data: planRow } = await admin.from('billing_plans').select('price').eq('id', plan).maybeSingle();
       await admin.from('subscription_history').insert({
         tenant_id: tenantId, plan, paid_at: now.toISOString(), ref: ref ?? null,
+        price: planRow?.price ?? null,
       });
     }
 

@@ -82,6 +82,19 @@ export interface Order {
   closedAt?: string;
   cancelledAt?: string;
   events?: OrderEvent[];
+  /** Conta dividida em parcelas — cada uma com o seu próprio método. Não
+   *  substitui `total`/`paymentMethod`/`paid` (que continuam a reflectir o
+   *  resumo final quando o pedido fecha); é só o rasto de como foi
+   *  efectivamente cobrado. Ver T4.1. */
+  payments?: OrderPayment[];
+}
+
+export interface OrderPayment {
+  id: string;
+  method: 'cash' | 'card' | 'mobile-money';
+  amount: number;
+  at: string;
+  closedBy?: AuditActor;
 }
 
 export type OrderEventType =
@@ -130,7 +143,9 @@ export interface Staff {
   pin?: string;
 }
 
-export type BillingPlan = 'monthly' | 'quarterly' | 'semiannual' | 'annual';
+export type BillingPlan =
+  | 'monthly' | 'quarterly' | 'semiannual' | 'annual'
+  | 'basic-monthly' | 'basic-quarterly' | 'basic-semiannual' | 'basic-annual';
 export type SubscriptionStatus = 'trial' | 'active' | 'expired' | 'blocked';
 
 export interface Subscription {
@@ -141,7 +156,7 @@ export interface Subscription {
   lastPaymentRef?: string;
   blockedByAdmin?: boolean;
   blockReason?: string;
-  history?: { plan: BillingPlan; paidAt: string; ref?: string }[];
+  history?: { plan: BillingPlan; paidAt: string; ref?: string; price?: number }[];
 }
 
 export interface Tenant {
@@ -190,6 +205,26 @@ export interface Customer {
   /** Morada de entrega guardada — reutilizada como sugestão em pedidos de entrega futuros. */
   address?: string;
   pointsAdjustment: number; // manual additions/redemptions
+  createdAt: string;
+}
+
+export type ExpenseCategory = 'water' | 'energy' | 'other';
+
+/**
+ * Despesa (água, energia, renda, ou uma compra pontual) em MT.
+ * Recorrente: `amount` é o valor mensal actual — o histórico de valores
+ * passados vive em expense_amount_history (ver src/lib/expenses.ts), usado
+ * por Relatórios para não reescrever o lucro de meses já fechados quando o
+ * valor muda. Pontual (recurring: false): `amount` é o valor único gasto em
+ * `expenseDate`, sem histórico — entra só no período que contém essa data.
+ */
+export interface Expense {
+  id: string;
+  name: string;
+  category: ExpenseCategory;
+  amount: number;
+  recurring: boolean;
+  expenseDate?: string;
   createdAt: string;
 }
 

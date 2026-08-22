@@ -4,6 +4,7 @@ import { useAuth, ROUTE_PERMISSIONS } from '@/context/AuthContext';
 import { Coffee } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { UserRole } from '@/types/restaurant';
 
@@ -64,8 +65,11 @@ export default function LoginPage() {
             <Input id="login-identifier" type="text" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="username" />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="login-password">Password</Label>
-            <Input id="login-password" type="password" value={password} onChange={e => setPassword(e.target.value)} required autoComplete="current-password" />
+            <div className="flex items-center justify-between">
+              <Label htmlFor="login-password">Password</Label>
+              <Link to="/forgot-password" className="text-xs text-primary hover:underline">Esqueci a password</Link>
+            </div>
+            <PasswordInput id="login-password" value={password} onChange={e => setPassword(e.target.value)} required autoComplete="current-password" />
           </div>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <Button type="submit" className="w-full" disabled={busy}>

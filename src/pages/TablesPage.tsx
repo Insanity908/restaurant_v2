@@ -5,7 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useLicense } from '@/hooks/useLicense';
 import { BASIC_LIMITS } from '@/lib/billing';
 import { cn } from '@/lib/utils';
-import { Users, Plus, Pencil, Trash2, X, Clock, Eye, Printer, QrCode, Check, Ban, Bell } from 'lucide-react';
+import { Users, Plus, Pencil, Trash2, X, Clock, Eye, Printer, QrCode, Check, Ban, Bell, ArrowRightLeft } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Table as TableType, Order, MenuItem } from '@/types/restaurant';
 import { formatPrice, getMenuItemImage, findMenuItemImagePath } from '@/lib/helpers';
@@ -15,6 +15,10 @@ import { printReceipt, printServedItems } from '@/lib/receipt';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import QRCode from 'qrcode';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 const STATUS_LABELS: Record<string, string> = {
   pending: 'Pendente',
@@ -26,7 +30,7 @@ const STATUS_LABELS: Record<string, string> = {
 export default function TablesPage() {
   const {
     tables, orders, menuItems, addTable, updateTable, deleteTable, logPrint,
-    pendingConfirmationOrders, confirmPendingOrder, rejectPendingOrder,
+    pendingConfirmationOrders, confirmPendingOrder, rejectPendingOrder, moveOrderToTable,
   } = useRestaurant();
   const { user, hasRole } = useAuth();
   const { isBasic } = useLicense();
@@ -57,6 +61,8 @@ export default function TablesPage() {
   const [creating, setCreating] = useState(false);
   const [trackOrderId, setTrackOrderId] = useState<string | null>(null);
   const [qrTable, setQrTable] = useState<TableType | null>(null);
+  const [tableToDelete, setTableToDelete] = useState<TableType | null>(null);
+  const [movingOrder, setMovingOrder] = useState<Order | null>(null);
 
   const getTableOrder = (tableId: string) =>
     orders.find(o => o.tableId === tableId && !o.paid && o.status !== 'cancelled' && o.status !== 'awaiting-confirmation');
@@ -135,7 +141,11 @@ export default function TablesPage() {
                         toast.error('Não é possível remover uma mesa ocupada');
                         return;
                       }
-                      if (confirm(`Remover Mesa ${table.number}?`)) deleteTable(table.id);
+                      if (pendingOrder) {
+                        toast.error('Esta mesa tem um pedido do cliente por confirmar');
+                        return;
+                      }
+                      setTableToDelete(table);
                     }}
                     className="p-1.5 rounded-md bg-destructive/15 text-destructive hover:bg-destructive/25 transition-colors"
                     title="Remover mesa"
@@ -207,6 +217,14 @@ export default function TablesPage() {
                     >
                       <Plus className="w-3.5 h-3.5" /> Adicionar pedido
                     </button>
+                    {tables.some(t => t.status === 'free') && (
+                      <button
+                        onClick={() => setMovingOrder(order)}
+                        className="w-full flex items-center justify-center gap-1 py-2 rounded-lg bg-secondary text-secondary-foreground text-xs font-bold hover:bg-secondary/80 transition-colors touch-target"
+                      >
+                        <ArrowRightLeft className="w-3.5 h-3.5" /> Mover mesa
+                      </button>
+                    )}
                   </>
                 ) : (
                   <button
@@ -242,7 +260,38 @@ export default function TablesPage() {
 
       <OrderTrackerDialog order={trackOrder} menuItems={menuItems} onClose={() => setTrackOrderId(null)} onLogPrint={logPrint} />
 
+      <MoveOrderDialog
+        order={movingOrder}
+        freeTables={tables.filter(t => t.status === 'free')}
+        onClose={() => setMovingOrder(null)}
+        onMove={(tableId) => {
+          if (!movingOrder) return;
+          const res = moveOrderToTable(movingOrder.id, tableId);
+          if (res.ok) toast.success('Pedido movido de mesa');
+          else toast.error(res.error);
+          setMovingOrder(null);
+        }}
+      />
+
       <TableQrDialog table={qrTable} tenantId={user?.tenantId} onClose={() => setQrTable(null)} />
+
+      <AlertDialog open={!!tableToDelete} onOpenChange={(open) => { if (!open) setTableToDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover Mesa {tableToDelete?.number}?</AlertDialogTitle>
+            <AlertDialogDescription>Esta ação não pode ser desfeita.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => { if (tableToDelete) deleteTable(tableToDelete.id); setTableToDelete(null); }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Remover
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </PageShell>
   );
 }
@@ -349,6 +398,55 @@ function TableQrDialog({ table, tenantId, onClose }: { table: TableType | null; 
             <img src={dataUrl} alt={`QR code da Mesa ${table.number}`} className="mx-auto rounded-lg" />
           ) : (
             <div className="w-[260px] h-[260px] mx-auto rounded-lg bg-secondary animate-pulse" />
+          )}
+        </motion.div>
+      </motion.div>
+    </AnimatePresence>
+  );
+}
+
+function MoveOrderDialog({
+  order, freeTables, onClose, onMove,
+}: {
+  order: Order | null;
+  freeTables: TableType[];
+  onClose: () => void;
+  onMove: (tableId: string) => void;
+}) {
+  if (!order) return null;
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="fixed inset-0 z-50 bg-background/70 backdrop-blur-md flex items-center justify-center p-4"
+      >
+        <motion.div
+          initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }}
+          onClick={e => e.stopPropagation()}
+          className="glass rounded-2xl w-full max-w-sm p-6 space-y-4"
+        >
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-bold text-foreground">Mover Mesa {order.tableNumber}</h2>
+            <button onClick={onClose} aria-label="Fechar" className="p-1.5 rounded-md hover:bg-secondary/60">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <p className="text-xs text-muted-foreground">Escolha a mesa de destino — o pedido (itens, histórico) mantém-se, só muda de mesa.</p>
+          {freeTables.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">Sem mesas livres.</p>
+          ) : (
+            <div className="grid grid-cols-3 gap-2">
+              {freeTables.map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => onMove(t.id)}
+                  className="py-3 rounded-lg bg-success/15 text-success font-bold hover:bg-success/25 transition-colors"
+                >
+                  Mesa {t.number}
+                </button>
+              ))}
+            </div>
           )}
         </motion.div>
       </motion.div>

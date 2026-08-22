@@ -5,6 +5,30 @@ import { Coffee, CreditCard, BarChart3, Users, Package, ChefHat, ShieldCheck, Ch
 import { PLANS, formatMT, fetchPlans, BASIC_PLANS, PRO_PLANS } from '@/lib/billing';
 import InstallAppButton from '@/components/InstallAppButton';
 import { HeroShowcase, ProductShowcaseSection } from '@/components/landing/ProductShowcase';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+
+const FAQS = [
+  {
+    q: 'Preciso de internet para usar o sistema?',
+    a: 'Não. O Sabor POS funciona offline-first: os pedidos, o cardápio e o caixa continuam a funcionar sem ligação, e tudo sincroniza automaticamente assim que a internet voltar.',
+  },
+  {
+    q: 'Como funciona o pagamento da subscrição?',
+    a: 'O pagamento é manual, por M-Pesa, e-Mola ou transferência bancária. Depois de pagar, envia o comprovativo e a sua conta é activada em pouco tempo — sem precisar de cartão de crédito.',
+  },
+  {
+    q: 'Posso experimentar antes de pagar?',
+    a: 'Sim — ao criar conta tem 7 dias grátis com acesso total às funcionalidades do plano Profissional, sem precisar de indicar nenhum método de pagamento.',
+  },
+  {
+    q: 'Quantos restaurantes/mesas/funcionários posso ter?',
+    a: 'No plano Profissional não há limites de mesas nem de equipa. O plano Básico tem um limite de 10 mesas e 5 funcionários — pode migrar para o Profissional a qualquer momento.',
+  },
+  {
+    q: 'Os meus dados ficam seguros?',
+    a: 'Sim. Cada restaurante só acede aos seus próprios dados, e o acesso da equipa é controlado por papel (administrador, gerente, caixa, garçom, cozinha). Veja mais na nossa Política de Privacidade.',
+  },
+];
 
 const FEATURES = [
   { icon: CreditCard, title: 'POS rápido', desc: 'Pagamentos, recibos e fecho de caixa otimizados para toque.' },
@@ -109,8 +133,24 @@ export default function LandingPage() {
         ))}
       </section>
 
-      <footer className="border-t border-border/40 py-6 text-center text-xs text-muted-foreground">
-        © {new Date().getFullYear()} Sabor POS — Todos os direitos reservados.
+      <section className="container mx-auto px-6 pb-20 max-w-2xl">
+        <h2 className="font-heading text-3xl font-bold text-center mb-8">Perguntas frequentes</h2>
+        <Accordion type="single" collapsible className="w-full">
+          {FAQS.map((faq, i) => (
+            <AccordionItem key={i} value={`faq-${i}`}>
+              <AccordionTrigger className="text-left font-heading font-semibold">{faq.q}</AccordionTrigger>
+              <AccordionContent className="text-muted-foreground">{faq.a}</AccordionContent>
+            </AccordionItem>
+          ))}
+        </Accordion>
+      </section>
+
+      <footer className="border-t border-border/40 py-6 text-center text-xs text-muted-foreground space-y-2">
+        <div className="flex items-center justify-center gap-4">
+          <Link to="/terms" className="hover:text-foreground hover:underline">Termos de Utilização</Link>
+          <Link to="/privacy" className="hover:text-foreground hover:underline">Política de Privacidade</Link>
+        </div>
+        <p>© {new Date().getFullYear()} Sabor POS — Todos os direitos reservados.</p>
       </footer>
     </div>
   );

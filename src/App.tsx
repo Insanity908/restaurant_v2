@@ -24,12 +24,13 @@ const ReportsPage = lazy(() => import("@/pages/ReportsPage"));
 const InventoryPage = lazy(() => import("@/pages/InventoryPage"));
 const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
 const StaffPage = lazy(() => import("@/pages/StaffPage"));
+const ExpensesPage = lazy(() => import("@/pages/ExpensesPage"));
+const DataArchivePage = lazy(() => import("@/pages/DataArchivePage"));
 const ShiftsPage = lazy(() => import("@/pages/ShiftsPage"));
 const CustomersPage = lazy(() => import("@/pages/CustomersPage"));
 const LoginPage = lazy(() => import("@/pages/LoginPage"));
 const LandingPage = lazy(() => import("@/pages/LandingPage"));
 const SignupPage = lazy(() => import("@/pages/SignupPage"));
-const BillingSuccessPage = lazy(() => import("@/pages/BillingSuccessPage"));
 const BlockedPage = lazy(() => import("@/pages/BlockedPage"));
 const SuperAdminPage = lazy(() => import("@/pages/SuperAdminPage"));
 const OnboardingPage = lazy(() => import("@/pages/OnboardingPage"));
@@ -37,11 +38,15 @@ const CustomerOrderPage = lazy(() => import("@/pages/CustomerOrderPage"));
 const CustomerTrackingPage = lazy(() => import("@/pages/CustomerTrackingPage"));
 const PricingPage = lazy(() => import("@/pages/PricingPage"));
 const BillingPage = lazy(() => import("@/pages/BillingPage"));
+const TermsPage = lazy(() => import("@/pages/TermsPage"));
+const PrivacyPage = lazy(() => import("@/pages/PrivacyPage"));
+const ForgotPasswordPage = lazy(() => import("@/pages/ForgotPasswordPage"));
+const ResetPasswordPage = lazy(() => import("@/pages/ResetPasswordPage"));
 const NotFound = lazy(() => import("./pages/NotFound.tsx"));
 
 const queryClient = new QueryClient();
 
-const NO_SIDEBAR_PATHS = ['/login', '/signup', '/landing', '/blocked', '/billing/success'];
+const NO_SIDEBAR_PATHS = ['/login', '/signup', '/landing', '/blocked', '/terms', '/privacy', '/forgot-password', '/reset-password'];
 // Páginas públicas do cliente (QR/entrega) — sem sessão, nunca mostram a
 // barra lateral da equipa.
 const NO_SIDEBAR_PREFIXES = ['/pedir/', '/pedido/'];
@@ -54,12 +59,22 @@ function PageFallback() {
   );
 }
 
+// Extraída como função pura (em vez de inline em ConditionalSidebar) para
+// dar para testar as regras de quando esconder a sidebar sem montar a app
+// inteira.
+export function shouldHideSidebar(pathname: string, search: string, hasUser: boolean): boolean {
+  if (NO_SIDEBAR_PATHS.includes(pathname)) return true;
+  if (NO_SIDEBAR_PREFIXES.some(p => pathname.startsWith(p))) return true;
+  if (!hasUser && pathname === '/') return true;
+  // Modo TV da Cozinha (?tv=1) — monitor dedicado, sem navegação nenhuma.
+  if (pathname === '/kitchen' && new URLSearchParams(search).get('tv') === '1') return true;
+  return false;
+}
+
 function ConditionalSidebar() {
   const location = useLocation();
   const auth = useOptionalAuth();
-  if (NO_SIDEBAR_PATHS.includes(location.pathname)) return null;
-  if (NO_SIDEBAR_PREFIXES.some(p => location.pathname.startsWith(p))) return null;
-  if (!auth?.user && location.pathname === '/') return null;
+  if (shouldHideSidebar(location.pathname, location.search, !!auth?.user)) return null;
   return <AppSidebar />;
 }
 
@@ -88,7 +103,10 @@ const App = () => (
               <Route path="/signup" element={<SignupPage />} />
               <Route path="/landing" element={<LandingPage />} />
               <Route path="/blocked" element={<BlockedPage />} />
-              <Route path="/billing/success" element={<BillingSuccessPage />} />
+              <Route path="/terms" element={<TermsPage />} />
+              <Route path="/privacy" element={<PrivacyPage />} />
+              <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+              <Route path="/reset-password" element={<ResetPasswordPage />} />
               <Route path="/pedir/:tenantId/mesa/:tableId" element={<CustomerOrderPage />} />
               <Route path="/pedir/:tenantId/entrega" element={<CustomerOrderPage />} />
               <Route path="/pedido/:orderId" element={<CustomerTrackingPage />} />
@@ -100,6 +118,8 @@ const App = () => (
               <Route path="/inventory" element={<RequireAuth><InventoryPage /></RequireAuth>} />
               <Route path="/reports" element={<RequireAuth><ReportsPage /></RequireAuth>} />
               <Route path="/staff" element={<RequireAuth><StaffPage /></RequireAuth>} />
+              <Route path="/expenses" element={<RequireAuth><ExpensesPage /></RequireAuth>} />
+              <Route path="/data-archive" element={<RequireAuth><DataArchivePage /></RequireAuth>} />
               <Route path="/shifts" element={<RequireAuth><ShiftsPage /></RequireAuth>} />
               <Route path="/customers" element={<RequireAuth><CustomersPage /></RequireAuth>} />
               <Route path="/settings" element={<RequireAuth><SettingsPage /></RequireAuth>} />

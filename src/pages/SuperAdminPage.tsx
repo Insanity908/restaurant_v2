@@ -41,6 +41,12 @@ export default function SuperAdminPage() {
   const [confirmAction, setConfirmAction] = useState<{
     title: string; description: string; confirmLabel: string; onConfirm: () => void;
   } | null>(null);
+  const [activeTab, setActiveTab] = useState('tenants');
+  const tabsListRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const active = tabsListRef.current?.querySelector<HTMLElement>('[data-state="active"]');
+    active?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+  }, [activeTab]);
 
   const [teams, setTeams] = useState<Record<string, TenantTeam>>({});
   const [loading, setLoading] = useState(true);
@@ -263,23 +269,28 @@ export default function SuperAdminPage() {
         </div>
       )}
 
-      <Tabs defaultValue="tenants">
-        <TabsList className="overflow-x-auto">
-          <TabsTrigger value="tenants">Restaurantes</TabsTrigger>
-          <TabsTrigger value="pending-payments">
-            <Inbox className="w-3.5 h-3.5 mr-1" />Pagamentos pendentes
-            {pendingSubs.length > 0 && <Badge variant="outline" className="ml-1.5 border-primary/30 text-primary">{pendingSubs.length}</Badge>}
-          </TabsTrigger>
-          <TabsTrigger value="payments">Pagamentos</TabsTrigger>
-          <TabsTrigger value="accounts"><Landmark className="w-3.5 h-3.5 mr-1" />Contas de recebimento</TabsTrigger>
-          <TabsTrigger value="plans"><Wallet className="w-3.5 h-3.5 mr-1" />Planos</TabsTrigger>
-          <TabsTrigger value="feedback">
-            <MessageSquare className="w-3.5 h-3.5 mr-1" />Feedback
-            {unreadFeedbackCount > 0 && <Badge variant="outline" className="ml-1.5 border-primary/30 text-primary">{unreadFeedbackCount}</Badge>}
-          </TabsTrigger>
-          <TabsTrigger value="gallery"><Images className="w-3.5 h-3.5 mr-1" />Galeria</TabsTrigger>
-          <TabsTrigger value="system"><BarChart3 className="w-3.5 h-3.5 mr-1" />Relatórios de sistema</TabsTrigger>
-        </TabsList>
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <div className="relative">
+          <TabsList ref={tabsListRef} className="overflow-x-auto flex-nowrap max-w-full justify-start">
+            <TabsTrigger value="tenants" className="shrink-0">Restaurantes</TabsTrigger>
+            <TabsTrigger value="pending-payments" className="shrink-0">
+              <Inbox className="w-3.5 h-3.5 mr-1" />Pagamentos pendentes
+              {pendingSubs.length > 0 && <Badge variant="outline" className="ml-1.5 border-primary/30 text-primary">{pendingSubs.length}</Badge>}
+            </TabsTrigger>
+            <TabsTrigger value="payments" className="shrink-0">Pagamentos</TabsTrigger>
+            <TabsTrigger value="accounts" className="shrink-0"><Landmark className="w-3.5 h-3.5 mr-1" />Contas de recebimento</TabsTrigger>
+            <TabsTrigger value="plans" className="shrink-0"><Wallet className="w-3.5 h-3.5 mr-1" />Planos</TabsTrigger>
+            <TabsTrigger value="feedback" className="shrink-0">
+              <MessageSquare className="w-3.5 h-3.5 mr-1" />Feedback
+              {unreadFeedbackCount > 0 && <Badge variant="outline" className="ml-1.5 border-primary/30 text-primary">{unreadFeedbackCount}</Badge>}
+            </TabsTrigger>
+            <TabsTrigger value="gallery" className="shrink-0"><Images className="w-3.5 h-3.5 mr-1" />Galeria</TabsTrigger>
+            <TabsTrigger value="system" className="shrink-0"><BarChart3 className="w-3.5 h-3.5 mr-1" />Relatórios de sistema</TabsTrigger>
+          </TabsList>
+          {/* Pista visual de que a lista de abas desliza — sem isto, em ecrãs
+              estreitos parecia que só existiam abas até "Pagamentos". */}
+          <div className="sm:hidden pointer-events-none absolute right-0 top-0 bottom-1 w-8 bg-gradient-to-l from-background to-transparent" />
+        </div>
 
         <TabsContent value="tenants">
           <div className="flex items-center gap-2 my-4">
@@ -528,15 +539,20 @@ export default function SuperAdminPage() {
                   <p className="text-xs font-medium text-muted-foreground mb-2">{cat}</p>
                   <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
                     {presetImages.filter(i => i.category === cat).map(img => (
-                      <div key={img.id} className="relative group aspect-square rounded-lg overflow-hidden border border-border">
+                      <div key={img.id} className="relative aspect-square rounded-lg overflow-hidden border border-border">
                         <StorageImage bucket={PRESET_IMAGES_BUCKET} path={img.storagePath} alt={img.label} className="w-full h-full object-cover" />
                         <button
                           type="button"
-                          onClick={() => handlePresetDelete(img)}
+                          onClick={() => setConfirmAction({
+                            title: 'Remover imagem?',
+                            description: `"${img.label}" deixa de estar disponível para todos os restaurantes escolherem no Menu e no Inventário.`,
+                            confirmLabel: 'Remover',
+                            onConfirm: () => void handlePresetDelete(img),
+                          })}
                           aria-label={`Remover ${img.label}`}
-                          className="absolute inset-0 bg-background/70 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity"
+                          className="absolute top-1 right-1 w-6 h-6 rounded-full bg-background/90 border border-border flex items-center justify-center shadow-sm"
                         >
-                          <Trash2 className="w-4 h-4 text-destructive" />
+                          <Trash2 className="w-3.5 h-3.5 text-destructive" />
                         </button>
                         <span className="absolute inset-x-0 bottom-0 bg-background/80 text-[9px] px-1 py-0.5 truncate">{img.label}</span>
                       </div>

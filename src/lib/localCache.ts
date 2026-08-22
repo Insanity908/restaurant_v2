@@ -14,6 +14,7 @@ const NO_TENANT = '__no_tenant__';
 export const TENANT_CACHE_BASES = [
   'menu_items', 'tables', 'orders', 'inventory', 'customers',
   'staff', 'security_alerts', 'shifts', 'loyalty_settings', 'app_settings_v1',
+  'expenses', 'staff_salaries',
 ];
 
 export function activeTenantId(): string | null {

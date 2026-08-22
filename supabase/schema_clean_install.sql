@@ -387,7 +387,8 @@ create table public.subscription_history (
   tenant_id uuid not null references public.tenants(id) on delete cascade,
   plan public.billing_plan not null,
   paid_at timestamptz not null default now(),
-  ref text
+  ref text,
+  price numeric
 );
 grant select, insert, update, delete on public.subscription_history to authenticated;
 grant all on public.subscription_history to service_role;
@@ -473,7 +474,8 @@ create table public.menu_items (
   modifiers jsonb not null default '[]'::jsonb,
   recipe jsonb,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  client_updated_at timestamptz not null default now()
 );
 create index idx_menu_items_tenant on public.menu_items(tenant_id);
 grant select, insert, update, delete on public.menu_items to authenticated;
@@ -549,7 +551,8 @@ create table public.inventory_items (
   usage_per_serving numeric(14,3) not null default 0,
   icon text,
   image text,
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  client_updated_at timestamptz not null default now()
 );
 create index idx_inventory_tenant on public.inventory_items(tenant_id);
 grant select, insert, update, delete on public.inventory_items to authenticated;
@@ -600,6 +603,27 @@ on public.customers for all to authenticated
 using (public.is_tenant_member(tenant_id))
 with check (public.is_tenant_member(tenant_id));
 
+-- Histórico "append-only" de ajustes manuais de pontos de fidelidade (bónus/
+-- resgate) — quem, quando, quanto. Nunca editado/apagado pela app.
+create table public.loyalty_points_history (
+  id uuid primary key default gen_random_uuid(),
+  customer_id uuid not null references public.customers(id) on delete cascade,
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  delta integer not null,
+  reason text not null,
+  created_by_name text not null,
+  created_at timestamptz not null default now()
+);
+create index idx_loyalty_points_history_lookup on public.loyalty_points_history(customer_id, created_at desc);
+grant select, insert on public.loyalty_points_history to authenticated;
+grant all on public.loyalty_points_history to service_role;
+alter table public.loyalty_points_history enable row level security;
+
+create policy "Members access loyalty points history"
+on public.loyalty_points_history for all to authenticated
+using (public.is_tenant_member(tenant_id))
+with check (public.is_tenant_member(tenant_id));
+
 -- =============================================================================
 -- 13) orders + order_items + order_events
 -- =============================================================================
@@ -630,11 +654,18 @@ create table public.orders (
   updated_at timestamptz not null default now(),
   closed_at timestamptz,
   cancelled_at timestamptz,
-  client_updated_at timestamptz not null default now()
+  client_updated_at timestamptz not null default now(),
+  -- Chave de idempotência gerada pelo cliente (pedido por QR/entrega) para
+  -- que um duplo-toque/retry de rede não crie um segundo pedido e desconte
+  -- o estoque outra vez — ver submit_customer_order().
+  idempotency_key text
 );
 create index idx_orders_tenant on public.orders(tenant_id);
 create index idx_orders_status on public.orders(tenant_id, status);
 create index idx_orders_client_updated_at on public.orders(client_updated_at);
+create unique index orders_tenant_idempotency_key_idx
+  on public.orders (tenant_id, idempotency_key)
+  where idempotency_key is not null;
 grant select, insert, update, delete on public.orders to authenticated;
 grant all on public.orders to service_role;
 alter table public.orders enable row level security;
@@ -695,6 +726,27 @@ on public.order_events for all to authenticated
 using (exists (select 1 from public.orders o where o.id = order_id and public.is_tenant_member(o.tenant_id)))
 with check (exists (select 1 from public.orders o where o.id = order_id and public.is_tenant_member(o.tenant_id)));
 
+-- order_payments (T4.1) — conta dividida em parcelas, cada uma com o seu
+-- próprio método. `orders.total`/`payment_method`/`paid` continuam a
+-- reflectir só o resumo final; isto é só o rasto de como foi cobrado.
+create table public.order_payments (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid not null references public.orders(id) on delete cascade,
+  method text not null,
+  amount numeric(12,2) not null check (amount > 0),
+  closed_by jsonb,
+  created_at timestamptz not null default now()
+);
+create index idx_order_payments_order on public.order_payments(order_id);
+grant select, insert, update, delete on public.order_payments to authenticated;
+grant all on public.order_payments to service_role;
+alter table public.order_payments enable row level security;
+
+create policy "Members access order payments"
+on public.order_payments for all to authenticated
+using (exists (select 1 from public.orders o where o.id = order_id and public.is_tenant_member(o.tenant_id)))
+with check (exists (select 1 from public.orders o where o.id = order_id and public.is_tenant_member(o.tenant_id)));
+
 -- Dedução automática de stock — corre no SERVIDOR, não no cliente.
 --
 -- inventory_items só é escrevível por admin/manager (secção 11). Um
@@ -723,10 +775,26 @@ begin
     return new;
   end if;
 
-  update public.inventory_items
-  set current_stock = greatest(0, current_stock - usage_per_serving * new.quantity)
-  where tenant_id = v_tenant_id
-    and linked_menu_item_ids @> array[new.menu_item_id];
+  -- Regista o histórico (inventory_movements, secção 11b abaixo) com o
+  -- delta REAL — o greatest(0, ...) pode clampar a saída antes de zero, e
+  -- o histórico deve reflectir o que realmente aconteceu, não a fórmula.
+  with before as (
+    select id, current_stock
+    from public.inventory_items
+    where tenant_id = v_tenant_id
+      and linked_menu_item_ids @> array[new.menu_item_id]
+  ),
+  updated as (
+    update public.inventory_items i
+    set current_stock = greatest(0, i.current_stock - i.usage_per_serving * new.quantity)
+    from before b
+    where i.id = b.id
+    returning i.id, i.current_stock as new_stock
+  )
+  insert into public.inventory_movements (inventory_item_id, tenant_id, delta, reason, reference_id)
+  select u.id, v_tenant_id, u.new_stock - b.current_stock, 'Venda', new.order_id
+  from updated u join before b on b.id = u.id
+  where u.new_stock <> b.current_stock;
 
   return new;
 end;
@@ -739,12 +807,59 @@ for each row execute function public.deduct_inventory_on_order_item();
 revoke execute on function public.deduct_inventory_on_order_item() from public, anon, authenticated;
 
 -- =============================================================================
+-- 11b) inventory_movements — histórico de movimentos de stock (T3.4)
+-- =============================================================================
+create table public.inventory_movements (
+  id uuid primary key default gen_random_uuid(),
+  inventory_item_id uuid not null references public.inventory_items(id) on delete cascade,
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  delta numeric not null,
+  reason text not null,
+  reference_id uuid,
+  created_by_name text,
+  created_at timestamptz not null default now()
+);
+create index idx_inventory_movements_lookup on public.inventory_movements(inventory_item_id, created_at desc);
+grant select, insert on public.inventory_movements to authenticated;
+grant all on public.inventory_movements to service_role;
+alter table public.inventory_movements enable row level security;
+
+create policy "Admins and managers access inventory movements"
+on public.inventory_movements for all to authenticated
+using (public.is_tenant_manager_or_above(tenant_id))
+with check (public.is_tenant_manager_or_above(tenant_id));
+
+-- =============================================================================
 -- 13b) Pedido pelo cliente (QR na mesa / entrega), sem sessão — RPCs
 --      SECURITY DEFINER. Mesmo padrão de resolve_login_email/
 --      resolve_login_phone: em vez de abrir `anon` a INSERT/SELECT
 --      directos em orders/order_items/customers, expomos só estas três
 --      operações estreitas, cada uma validando tudo no servidor.
 -- =============================================================================
+
+-- Marca/cores do restaurante para a página pública de pedido, que não tem
+-- app_settings em localStorage (é aberta no telemóvel do próprio cliente).
+-- app_settings guarda tudo (incl. dados de pagamento sensíveis) num único
+-- jsonb `data`, por isso expõe-se só o subconjunto seguro em vez de abrir a
+-- tabela a `anon`.
+create or replace function public.get_public_branding(p_tenant_id uuid)
+returns jsonb
+language sql stable security definer set search_path = public
+as $$
+  select jsonb_build_object(
+    'brandName', s.data->>'brandName',
+    'iconEmoji', s.data->>'iconEmoji',
+    'iconUrl', s.data->>'iconUrl',
+    'primaryHue', (s.data->>'primaryHue')::numeric,
+    'primarySaturation', (s.data->>'primarySaturation')::numeric,
+    'primaryLightness', (s.data->>'primaryLightness')::numeric,
+    'backgroundHue', (s.data->>'backgroundHue')::numeric,
+    'backgroundSaturation', (s.data->>'backgroundSaturation')::numeric,
+    'backgroundLightness', (s.data->>'backgroundLightness')::numeric
+  )
+  from public.app_settings s
+  where s.tenant_id = p_tenant_id;
+$$;
 
 -- Verifica telefone já registado na fidelização antes do cliente montar o
 -- carrinho de entrega, e devolve a morada guardada para pré-preencher.
@@ -768,13 +883,15 @@ create or replace function public.submit_customer_order(
   p_customer_phone text,
   p_customer_name text,
   p_items jsonb,
-  p_delivery_address text default null
+  p_delivery_address text default null,
+  p_idempotency_key text default null
 )
 returns uuid
 language plpgsql security definer set search_path = public
 as $$
 declare
   v_order_id uuid := gen_random_uuid();
+  v_existing_id uuid;
   v_type public.order_type;
   v_table_number int;
   v_customer_id uuid;
@@ -784,9 +901,11 @@ declare
   v_modifier jsonb;
   v_item_id uuid;
   v_item_name text;
+  v_item_category text;
   v_item_price numeric;
   v_item_available boolean;
   v_item_mods jsonb;
+  v_item_status public.order_item_status;
   v_qty int;
   v_line_price numeric;
   v_line_mods jsonb;
@@ -795,6 +914,16 @@ declare
   v_order_total numeric := 0;
   v_plan public.billing_plan;
 begin
+  -- Chamada repetida com a mesma chave (duplo-toque, retry de rede): devolve
+  -- o pedido já criado em vez de criar outro e descontar estoque de novo.
+  if p_idempotency_key is not null then
+    select id into v_existing_id from public.orders
+      where tenant_id = p_tenant_id and idempotency_key = p_idempotency_key;
+    if v_existing_id is not null then
+      return v_existing_id;
+    end if;
+  end if;
+
   -- O plano Básico não inclui pedido pelo cliente (QR/entrega) — a página
   -- pública não tem sessão, esta é a única fronteira que importa a sério.
   select plan into v_plan from public.subscriptions where tenant_id = p_tenant_id;
@@ -837,26 +966,38 @@ begin
     raise exception 'empty order';
   end if;
 
-  insert into public.orders (
-    id, tenant_id, table_id, table_number, type, status,
-    customer_id, customer_name, customer_phone, delivery_address,
-    total, paid, created_by
-  ) values (
-    v_order_id, p_tenant_id, p_table_id, v_table_number, v_type, 'awaiting-confirmation',
-    v_customer_id, coalesce(v_customer_name, nullif(trim(p_customer_name), '')), p_customer_phone, v_delivery_address,
-    0, false, jsonb_build_object('source', 'customer')
-  );
+  begin
+    insert into public.orders (
+      id, tenant_id, table_id, table_number, type, status,
+      customer_id, customer_name, customer_phone, delivery_address,
+      total, paid, created_by, idempotency_key
+    ) values (
+      v_order_id, p_tenant_id, p_table_id, v_table_number, v_type, 'awaiting-confirmation',
+      v_customer_id, coalesce(v_customer_name, nullif(trim(p_customer_name), '')), p_customer_phone, v_delivery_address,
+      0, false, jsonb_build_object('source', 'customer'), p_idempotency_key
+    );
+  exception when unique_violation then
+    -- Corrida rara: duas chamadas verdadeiramente simultâneas com a mesma
+    -- chave. Quem perdeu a corrida devolve o pedido que ganhou.
+    select id into v_existing_id from public.orders
+      where tenant_id = p_tenant_id and idempotency_key = p_idempotency_key;
+    return v_existing_id;
+  end;
 
   for v_item in select * from jsonb_array_elements(p_items)
   loop
-    select id, name, price, available, modifiers
-    into v_item_id, v_item_name, v_item_price, v_item_available, v_item_mods
+    select id, name, category, price, available, modifiers
+    into v_item_id, v_item_name, v_item_category, v_item_price, v_item_available, v_item_mods
     from public.menu_items
     where id = (v_item->>'menu_item_id')::uuid and tenant_id = p_tenant_id;
 
     if v_item_id is null or not v_item_available then
       raise exception 'invalid or unavailable item';
     end if;
+
+    -- Bebidas não passam pela preparação da cozinha — mesma regra do Menu
+    -- do funcionário (ver MenuPage.tsx: initialStatus).
+    v_item_status := case when v_item_category = 'Bebidas' then 'ready' else 'pending' end;
 
     v_qty := greatest(1, coalesce((v_item->>'quantity')::int, 1));
     v_line_price := v_item_price;
@@ -875,7 +1016,7 @@ begin
     end loop;
 
     insert into public.order_items (id, order_id, menu_item_id, name, quantity, price, modifiers, notes, status)
-    values (gen_random_uuid(), v_order_id, v_item_id, v_item_name, v_qty, v_line_price, v_line_mods, nullif(trim(v_item->>'notes'), ''), 'pending');
+    values (gen_random_uuid(), v_order_id, v_item_id, v_item_name, v_qty, v_line_price, v_line_mods, nullif(trim(v_item->>'notes'), ''), v_item_status);
 
     v_order_total := v_order_total + (v_line_price * v_qty);
   end loop;
@@ -914,8 +1055,9 @@ as $$
   where o.id = p_order_id;
 $$;
 
+grant execute on function public.get_public_branding(uuid) to anon, authenticated;
 grant execute on function public.verify_loyalty_customer(uuid, text) to anon, authenticated;
-grant execute on function public.submit_customer_order(uuid, uuid, text, text, jsonb, text) to anon, authenticated;
+grant execute on function public.submit_customer_order(uuid, uuid, text, text, jsonb, text, text) to anon, authenticated;
 grant execute on function public.get_order_status(uuid) to anon, authenticated;
 
 -- Superadmin-only view of Supabase Storage usage per bucket, plus database size.
@@ -1446,7 +1588,81 @@ begin
   if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='restaurant_tables') then
     alter publication supabase_realtime add table public.restaurant_tables;
   end if;
+  -- Badge em tempo real na sidebar do superadmin (comprovativos de
+  -- pagamento pendentes + feedback por ler) — RLS já restringe SELECT
+  -- nestas tabelas a is_superadmin, por isso postgres_changes normal
+  -- chega em segurança (sem papel anon envolvido, ao contrário do
+  -- CustomerTrackingPage abaixo).
+  if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='payment_submissions') then
+    alter publication supabase_realtime add table public.payment_submissions;
+  end if;
+  if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='feedback_submissions') then
+    alter publication supabase_realtime add table public.feedback_submissions;
+  end if;
+  -- useLicense() por Realtime (T3.3) — activar um plano no SuperAdmin
+  -- reflecte-se no dono quase de imediato, em vez de esperar o polling.
+  if not exists (select 1 from pg_publication_tables where pubname='supabase_realtime' and schemaname='public' and tablename='subscriptions') then
+    alter publication supabase_realtime add table public.subscriptions;
+  end if;
 end $$;
+
+-- CustomerTrackingPage (/pedido/:orderId) é pública/anon — não pode usar o
+-- `postgres_changes` acima (exigiria RLS de SELECT em `orders` para `anon`,
+-- expondo a tabela toda). Broadcast Authorization em vez disso: um trigger
+-- emite a mudança para o tópico 'order:<uuid>', e uma política em
+-- realtime.messages deixa subscrever esse tópico — só recebe quem já
+-- souber o UUID do pedido (mesmo modelo de confiança da RPC get_order_status).
+create or replace function public.broadcast_order_change()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  begin
+    perform realtime.broadcast_changes(
+      'order:' || coalesce(new.id, old.id)::text,
+      tg_op, tg_op, tg_table_name, tg_table_schema, new, old
+    );
+  exception when others then
+    raise warning 'broadcast_order_change failed: %', sqlerrm;
+  end;
+  return coalesce(new, old);
+end;
+$$;
+
+create trigger trg_orders_broadcast
+after insert or update on public.orders
+for each row execute function public.broadcast_order_change();
+
+create or replace function public.broadcast_order_item_change()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  begin
+    perform realtime.broadcast_changes(
+      'order:' || coalesce(new.order_id, old.order_id)::text,
+      tg_op, tg_op, tg_table_name, tg_table_schema, new, old
+    );
+  exception when others then
+    raise warning 'broadcast_order_item_change failed: %', sqlerrm;
+  end;
+  return coalesce(new, old);
+end;
+$$;
+
+create trigger trg_order_items_broadcast
+after insert or update or delete on public.order_items
+for each row execute function public.broadcast_order_item_change();
+
+create policy "Anyone can receive order tracking broadcasts"
+on "realtime"."messages"
+for select
+to anon, authenticated
+using (topic like 'order:%');
 
 -- =============================================================================
 -- 23) Privilégios de EXECUTE nas funções SECURITY DEFINER
@@ -1482,6 +1698,104 @@ revoke execute on function public.update_updated_at_column() from public, anon, 
 
 grant execute on function public.resolve_login_email(text) to anon, authenticated;
 grant execute on function public.resolve_login_phone(text) to anon, authenticated;
+
+-- =============================================================================
+-- 24) expenses + staff_salaries — despesas (água, energia, outras) e
+--     salários da equipe, usados no lucro líquido de Relatórios. Exclusivo
+--     do admin: /expenses só é navegável por admin (ROUTE_PERMISSIONS),
+--     reforçado aqui via RLS. staff_salaries vive à parte de `staff` de
+--     propósito — staff é legível por qualquer admin/gerente (RLS é por
+--     linha, não por coluna), e salário não deve ficar visível a um
+--     gerente só por ele poder ler a lista da equipa.
+--
+--     staff_salaries e expense_amount_history são histórico "append-only"
+--     (cada alteração insere uma linha nova, nunca faz update) — sem isto,
+--     mudar um salário ou o valor de uma despesa recorrente hoje reescrevia
+--     silenciosamente o lucro de meses passados em Relatórios, que passa a
+--     reconstruir "qual era o valor no fim de cada período" em vez de usar
+--     sempre o valor de hoje. Despesas recorrentes "removidas" na UI só são
+--     arquivadas (archived_at), nunca apagadas, para não perder esse
+--     histórico; despesas pontuais (recurring = false, com expense_date)
+--     não têm histórico — entram só no período em que aconteceram.
+-- =============================================================================
+create table public.expenses (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  name text not null,
+  category text not null default 'other' check (category in ('water', 'energy', 'other')),
+  amount numeric(12,2) not null default 0,
+  recurring boolean not null default true,
+  -- Só usado quando recurring = false — data em que a despesa pontual aconteceu.
+  expense_date date,
+  -- Soft-delete de despesas recorrentes (ver nota acima); despesas pontuais
+  -- são apagadas de verdade porque não têm histórico a preservar.
+  archived_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index idx_expenses_tenant on public.expenses(tenant_id);
+grant select, insert, update, delete on public.expenses to authenticated;
+grant all on public.expenses to service_role;
+alter table public.expenses enable row level security;
+
+create trigger trg_expenses_updated
+before update on public.expenses
+for each row execute function public.update_updated_at_column();
+
+create policy "Admins manage expenses"
+on public.expenses for all to authenticated
+using (public.is_tenant_admin(tenant_id))
+with check (public.is_tenant_admin(tenant_id));
+
+create table public.expense_amount_history (
+  id uuid primary key default gen_random_uuid(),
+  expense_id uuid not null references public.expenses(id) on delete cascade,
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  amount numeric(12,2) not null default 0,
+  created_at timestamptz not null default now()
+);
+create index idx_expense_amount_history_lookup on public.expense_amount_history(expense_id, created_at desc);
+grant select, insert on public.expense_amount_history to authenticated;
+grant all on public.expense_amount_history to service_role;
+alter table public.expense_amount_history enable row level security;
+
+create policy "Admins manage expense amount history"
+on public.expense_amount_history for all to authenticated
+using (public.is_tenant_admin(tenant_id))
+with check (public.is_tenant_admin(tenant_id));
+
+-- Histórico append-only: cada "Guardar" no Despesas insere uma linha nova
+-- (nunca update) — ver nota no topo desta secção.
+create table public.staff_salaries (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid not null references public.tenants(id) on delete cascade,
+  staff_id uuid not null references public.staff(id) on delete cascade,
+  salary numeric(12,2) not null default 0,
+  created_at timestamptz not null default now()
+);
+create index idx_staff_salaries_lookup on public.staff_salaries(tenant_id, staff_id, created_at desc);
+grant select, insert on public.staff_salaries to authenticated;
+grant all on public.staff_salaries to service_role;
+alter table public.staff_salaries enable row level security;
+
+create policy "Admins manage staff salaries"
+on public.staff_salaries for all to authenticated
+using (public.is_tenant_admin(tenant_id))
+with check (public.is_tenant_admin(tenant_id));
+
+-- Client clocks can't be trusted (devices are sometimes badly out of sync
+-- with real time). The app's last-write-wins guards compare a locally
+-- generated `client_updated_at` against the server's — a skewed local clock
+-- makes those guards silently reject writes that should apply. Exposes the
+-- server's own clock so the client can measure and correct for the offset.
+create or replace function public.now_utc()
+returns timestamptz
+language sql stable
+as $$
+  select now();
+$$;
+
+grant execute on function public.now_utc() to anon, authenticated;
 
 -- =============================================================================
 -- PASSO FINAL (fazer manualmente depois de correr este script)

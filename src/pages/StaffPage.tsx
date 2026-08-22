@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import PageShell from '@/components/PageShell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -14,7 +15,8 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Plus, Pencil, Trash2, Users, KeyRound } from 'lucide-react';
+import { Plus, Pencil, Trash2, Users, KeyRound, Receipt } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { Staff, UserRole } from '@/types/restaurant';
 import { staffStore } from '@/lib/store';
 import { useAuth } from '@/context/AuthContext';
@@ -56,7 +58,7 @@ interface FormState {
 const empty: FormState = { name: '', role: 'waiter', phone: '', password: '' };
 
 export default function StaffPage() {
-  const { user, hasPermission } = useAuth();
+  const { user, hasPermission, catalogVersion } = useAuth();
   const [staff, setStaff] = useState<Staff[]>([]);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Staff | null>(null);
@@ -70,7 +72,12 @@ export default function StaffPage() {
   const refresh = () => {
     setStaff(staffStore.getAll());
   };
-  useEffect(() => { refresh(); }, []);
+  // `catalogVersion` bumps quando o fetch de fundo do catálogo do tenant
+  // (AuthContext) resolve — sem esta dependência, uma visita directa a
+  // /staff (refresh do browser, link) que monte esta página ANTES desse
+  // fetch terminar lê staffStore.getAll() ainda vazio e fica presa nisso
+  // (o efeito só corria uma vez) — mesmo padrão de useRestaurant.ts.
+  useEffect(() => { refresh(); }, [catalogVersion]);
 
   const counts = useMemo(() => {
     const map: Record<UserRole, number> = { superadmin: 0, admin: 0, manager: 0, cashier: 0, waiter: 0, kitchen: 0 };
@@ -189,14 +196,21 @@ export default function StaffPage() {
 
   return (
     <PageShell
-      title="Funcionários"
+      title="Team"
       subtitle="Gerir equipa e acessos"
       actions={
-        canManageStaff ? (
-          <Button onClick={openNew}>
-            <Plus className="w-4 h-4" /> Novo funcionário
-          </Button>
-        ) : undefined
+        <div className="flex items-center gap-2">
+          {user?.role === 'admin' && (
+            <Button variant="outline" asChild>
+              <Link to="/expenses"><Receipt className="w-4 h-4" /> Despesas</Link>
+            </Button>
+          )}
+          {canManageStaff && (
+            <Button onClick={openNew}>
+              <Plus className="w-4 h-4" /> Novo funcionário
+            </Button>
+          )}
+        </div>
       }
     >
 
@@ -309,7 +323,7 @@ export default function StaffPage() {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="staff-password">Password</Label>
-                  <Input id="staff-password" type="password" value={form.password}
+                  <PasswordInput id="staff-password" value={form.password}
                     onChange={e => setForm(f => ({ ...f, password: e.target.value }))} autoComplete="new-password" />
                   <p className="text-xs text-muted-foreground">Mínimo 8 caracteres. Entra com este telefone.</p>
                 </div>

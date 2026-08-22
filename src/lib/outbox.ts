@@ -37,6 +37,18 @@ type Listener = (state: OutboxState) => void;
 export type OutboxState = { pending: number; failed: number; ops: WriteOp[] };
 const listeners = new Set<Listener>();
 
+/** Um dispositivo offline durante muito tempo (rede instável é o cenário
+ *  normal desta app) não pode acumular operações sem limite — rebentaria o
+ *  `localStorage` e tornaria o replay cada vez mais lento. Duas defesas:
+ *  purga por idade (o caso comum — offline prolongado) e um tecto rígido
+ *  (o caso extremo — volume enorme de escritas antes de completar 7 dias).
+ *  Nenhuma delas é silenciosa: o que é descartado fica registado na
+ *  consola e num toast, porque perder uma alteração real do utilizador
+ *  merece ser visível, não uma limpeza invisível de manutenção. */
+export const OUTBOX_MAX_OPS = 500;
+export const OUTBOX_WARN_AT = 400;
+export const OUTBOX_MAX_AGE_DAYS = 7;
+
 function read(): WriteOp[] {
   try {
     const raw = localStorage.getItem(KEY);
@@ -104,6 +116,68 @@ export function pendingResourceIds(table: string | string[]): Set<string> {
   return ids;
 }
 
+function isStale(op: WriteOp, now: number): boolean {
+  return now - new Date(op.at).getTime() > OUTBOX_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+}
+
+/** Nunca silencioso — quem usa a app não vê a consola, por isso um toast
+ *  também. Importa `sonner` dinamicamente para `outbox.ts` não arrastar UI
+ *  para todos os módulos que só querem `cloud()`/`queueWrite`. `async` (em
+ *  vez de fire-and-forget) para quem chama poder esperar pelo toast — sem
+ *  isto, o `import()` dinâmico resolve numa microtask que o chamador nunca
+ *  aguarda, e o aviso podia nunca chegar a aparecer antes do resto do fluxo
+ *  continuar (e tornava isto impossível de testar de forma determinística). */
+async function notifyDiscarded(dropped: WriteOp[], reason: string): Promise<void> {
+  console.warn(`[cloud-sync] outbox: ${dropped.length} operação(ões) descartada(s) — ${reason}`,
+    dropped.map(o => `${o.table}.${o.action}${o.failed ? ' (falhada)' : ''}`));
+  if (typeof window === 'undefined') return;
+  try {
+    const { toast } = await import('sonner');
+    toast.error(`Sincronização: ${dropped.length} alteração${dropped.length === 1 ? '' : 'ões'} descartada${dropped.length === 1 ? '' : 's'} — ${reason}.`);
+  } catch { /* toast é cosmético — a consola já registou o essencial */ }
+}
+
+/** Remove operações mais antigas que OUTBOX_MAX_AGE_DAYS. Chamado a cada
+ *  ciclo de flush (não a cada leitura) para não pagar este custo em cada
+ *  `getAll()`/`pendingResourceIds()` do resto da app. */
+async function purgeStaleOps(): Promise<WriteOp[]> {
+  const now = Date.now();
+  const ops = read();
+  const stale = ops.filter(o => isStale(o, now));
+  if (stale.length === 0) return ops;
+  const kept = ops.filter(o => !isStale(o, now));
+  write(kept);
+  await notifyDiscarded(stale, `mais de ${OUTBOX_MAX_AGE_DAYS} dias sem sincronizar`);
+  return kept;
+}
+
+/** Tecto rígido — só entra em acção depois da purga por idade já ter
+ *  corrido e mesmo assim a fila continuar grande de mais. Descarta primeiro
+ *  as operações já FALHADAS mais antigas (rejeitadas permanentemente pelo
+ *  servidor — não bloqueiam o replay de mais nada). Só se isso não chegar
+ *  (500 escritas genuinamente por enviar, sem nenhuma falhada) é que
+ *  descarta as mais antigas AINDA pendentes — pode quebrar a ordem de
+ *  replay desse recurso específico, mas deixar a fila crescer sem limite é
+ *  pior do que perder a operação mais antiga de 500. */
+async function enforceCap(ops: WriteOp[]): Promise<WriteOp[]> {
+  const over = ops.length - OUTBOX_MAX_OPS;
+  if (over <= 0) return ops;
+
+  const failedPositions = ops.reduce<number[]>((acc, o, i) => { if (o.failed) acc.push(i); return acc; }, []);
+  const dropFromFailed = new Set(failedPositions.slice(0, over));
+  let dropped = ops.filter((_, i) => dropFromFailed.has(i));
+  let result = ops.filter((_, i) => !dropFromFailed.has(i));
+
+  const stillOver = result.length - OUTBOX_MAX_OPS;
+  if (stillOver > 0) {
+    dropped = dropped.concat(result.slice(0, stillOver));
+    result = result.slice(stillOver);
+  }
+
+  if (dropped.length > 0) await notifyDiscarded(dropped, `limite de ${OUTBOX_MAX_OPS} operações na fila`);
+  return result;
+}
+
 /** Discard every queued operation (destructive — local changes are lost). */
 export function clearOutbox() { write([]); }
 
@@ -157,9 +231,10 @@ function applyFilters(builder: any, op: WriteOp) {
   return b;
 }
 
-function enqueue(op: WriteOp) {
-  const ops = read();
+async function enqueue(op: WriteOp): Promise<void> {
+  let ops = read();
   ops.push(op);
+  if (ops.length > OUTBOX_MAX_OPS) ops = await enforceCap(ops);
   write(ops);
 }
 
@@ -174,7 +249,7 @@ export async function queueWrite(
 
   if (isOffline() || read().some(o => !o.failed)) {
     // Preserve ordering: once something is queued, everything queues behind it.
-    enqueue(op);
+    await enqueue(op);
     void flushOutbox();
     return { error: null, queued: true };
   }
@@ -182,7 +257,7 @@ export async function queueWrite(
   markInFlight(op.resource);
   const { error } = await execute(op).finally(() => unmarkInFlight(op.resource));
   if (error && isTransient(error)) {
-    enqueue(op);
+    await enqueue(op);
     return { error: null, queued: true };
   }
   if (error) console.warn(`[cloud-sync] ${op.label ?? op.table}.${op.action} failed: ${error.message}`);
@@ -193,6 +268,10 @@ let flushing = false;
 
 /** Replay every queued operation in order. Stops at the first transient failure. */
 export async function flushOutbox(): Promise<void> {
+  // Corre mesmo offline — é precisamente o dispositivo offline há muito
+  // tempo que precisa desta purga, e só corre quando a app está aberta de
+  // qualquer forma (chamado pelo intervalo/eventos de startOutbox).
+  await purgeStaleOps();
   if (flushing || isOffline()) return;
   flushing = true;
   try {

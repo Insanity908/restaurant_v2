@@ -2,6 +2,7 @@ import { Order, OrderItem } from '@/types/restaurant';
 import { formatPrice } from './helpers';
 import { loadSettings } from './settings';
 import { getCachedUrl, isStoragePath, LOGO_BUCKET } from './storage';
+import { toast } from 'sonner';
 
 interface ReceiptOptions {
   items?: OrderItem[];
@@ -115,7 +116,7 @@ export function buildReceiptHTML(order: Order, opts: ReceiptOptions = {}): strin
 export function printReceipt(order: Order, opts: ReceiptOptions = {}): void {
   const html = buildReceiptHTML(order, opts);
   const w = window.open('', '_blank', 'width=380,height=640');
-  if (!w) return;
+  if (!w) { toast.error('Não foi possível abrir a janela de impressão — verifique se o navegador bloqueou o pop-up'); return; }
   w.document.open();
   w.document.write(html);
   w.document.close();

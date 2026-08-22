@@ -1,5 +1,7 @@
 import PageShell from '@/components/PageShell';
 import { useRestaurant } from '@/hooks/useRestaurant';
+import { useAuth } from '@/context/AuthContext';
+import { useLicense } from '@/hooks/useLicense';
 import { formatPrice, truncateList } from '@/lib/helpers';
 import { TrendingUp, ShoppingBag, DollarSign, Clock, AlertTriangle } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -7,6 +9,9 @@ import DismissibleAlert from '@/components/DismissibleAlert';
 
 export default function DashboardPage() {
   const { orders, activeOrders, menuItems, tables, lowStockItems } = useRestaurant();
+  const { user } = useAuth();
+  const { status: licenseStatus, daysLeft } = useLicense();
+  const showExpiryWarning = user?.role === 'admin' && (licenseStatus === 'trial' || licenseStatus === 'active') && daysLeft <= 7;
 
   const completedOrders = orders.filter(o => o.paid);
   const totalRevenue = completedOrders.reduce((sum, o) => sum + o.total + (o.tip || 0), 0);
@@ -34,6 +39,21 @@ export default function DashboardPage() {
 
   return (
     <PageShell title="Dashboard" subtitle="Visão geral do restaurante">
+      {/* Aviso de expiração de plano */}
+      {showExpiryWarning && (
+        <DismissibleAlert dismissKey={`expiry-${licenseStatus}-${daysLeft}`} tone={daysLeft <= 2 ? 'destructive' : 'warning'} className="mb-6">
+          <Link to="/billing" className="flex items-center gap-3 hover:opacity-90 transition-opacity">
+            <Clock className={`w-5 h-5 shrink-0 ${daysLeft <= 2 ? 'text-destructive' : 'text-warning'}`} />
+            <div className="flex-1">
+              <p className={`text-sm font-medium ${daysLeft <= 2 ? 'text-destructive' : 'text-warning'}`}>
+                {licenseStatus === 'trial' ? 'O seu período de teste' : 'O seu plano'} termina {daysLeft <= 0 ? 'hoje' : `em ${daysLeft} ${daysLeft === 1 ? 'dia' : 'dias'}`}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">Renove agora para não perder o acesso ao sistema.</p>
+            </div>
+          </Link>
+        </DismissibleAlert>
+      )}
+
       {/* Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {stats.map(({ label, value, icon: Icon, color }) => (

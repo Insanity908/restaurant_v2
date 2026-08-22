@@ -7,16 +7,13 @@ import { Button } from '@/components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Slider } from '@/components/ui/slider';
 import { useSettings } from '@/hooks/useSettings';
-import { useAuth } from '@/context/AuthContext';
-import { Upload, RotateCcw, Save, Palette, Building2, Smartphone, Image as ImageIcon, AlertCircle, CreditCard, Check, SlidersHorizontal, ChevronDown } from 'lucide-react';
+import { Upload, RotateCcw, Save, Palette, Building2, Smartphone, Image as ImageIcon, AlertCircle, Check, SlidersHorizontal, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   maskMzPhone, maskIntlPhone, maskBankAccount, maskIban, maskNuit,
   validateMpesa, validateEmola, validateBankAccount, validateIban, validateNuit, validateIntlPhone,
 } from '@/lib/validators';
-import { getStripeLinks, setStripeLinks, getStripePublishableKey, setStripePublishableKey } from '@/lib/billing';
 import { deriveThemeTokens, type AppSettings } from '@/lib/settings';
-import type { BillingPlan } from '@/types/restaurant';
 import { uploadTenantImage, LOGO_BUCKET } from '@/lib/storage';
 import { useStorageImage } from '@/hooks/useStorageImage';
 import { cn } from '@/lib/utils';
@@ -37,17 +34,12 @@ const THEME_PRESETS: { label: string; values: ThemeColors }[] = [
 
 export default function SettingsPage() {
   const { settings, update, reset } = useSettings();
-  const { user } = useAuth();
-  const isSuperAdmin = user?.role === 'superadmin';
   const [local, setLocal] = useState(settings);
   const fileRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState<'icon' | 'receipt' | null>(null);
+  const [uploading, setUploading] = useState<'icon' | 'receipt' | 'background' | null>(null);
   const iconPreview = useStorageImage(LOGO_BUCKET, local.iconUrl);
   const receiptLogoPreview = useStorageImage(LOGO_BUCKET, local.receiptLogo);
-
-  // Stripe billing config (super-admin only)
-  const [stripePub, setStripePub] = useState(getStripePublishableKey());
-  const [stripeLinksLocal, setStripeLinksLocal] = useState(getStripeLinks());
+  const backgroundPreview = useStorageImage(LOGO_BUCKET, local.backgroundImageUrl);
   const [advancedThemeOpen, setAdvancedThemeOpen] = useState(false);
 
   const set = <K extends keyof typeof local>(k: K, v: typeof local[K]) =>
@@ -103,6 +95,21 @@ export default function SettingsPage() {
     }
   };
 
+  const handleBackgroundUpload = async (file: File) => {
+    if (file.size > 1.5 * 1024 * 1024) {
+      toast.error('Imagem muito grande (máx 1.5MB)');
+      return;
+    }
+    setUploading('background');
+    try {
+      set('backgroundImageUrl', await uploadTenantImage(LOGO_BUCKET, file));
+    } catch (err) {
+      toast.error(`Falha ao carregar: ${(err as Error).message}`);
+    } finally {
+      setUploading(null);
+    }
+  };
+
 
   const primaryPreview = `hsl(${local.primaryHue} ${local.primarySaturation}% ${local.primaryLightness}%)`;
   const bgPreview = `hsl(${local.backgroundHue} ${local.backgroundSaturation}% ${local.backgroundLightness}%)`;
@@ -125,12 +132,11 @@ export default function SettingsPage() {
       }
     >
       <Tabs defaultValue="brand" className="space-y-6">
-        <TabsList className={`grid grid-cols-2 ${isSuperAdmin ? 'lg:grid-cols-5' : 'lg:grid-cols-4'} w-full lg:w-auto`}>
+        <TabsList className="grid grid-cols-2 lg:grid-cols-4 w-full lg:w-auto">
           <TabsTrigger value="brand"><ImageIcon className="w-4 h-4 mr-2" />Marca</TabsTrigger>
           <TabsTrigger value="theme"><Palette className="w-4 h-4 mr-2" />Aparência</TabsTrigger>
           <TabsTrigger value="payments"><Smartphone className="w-4 h-4 mr-2" />Pagamentos</TabsTrigger>
           <TabsTrigger value="business"><Building2 className="w-4 h-4 mr-2" />Negócio</TabsTrigger>
-          {isSuperAdmin && <TabsTrigger value="billing"><CreditCard className="w-4 h-4 mr-2" />Faturação SaaS</TabsTrigger>}
         </TabsList>
 
         {/* BRAND */}
@@ -263,6 +269,32 @@ export default function SettingsPage() {
               </div>
             </div>
 
+            <div className="border-t border-border pt-4 space-y-2">
+              <Label>Imagem de fundo (opcional)</Label>
+              <div className="flex items-center gap-3 flex-wrap">
+                {backgroundPreview && (
+                  <img src={backgroundPreview} alt="fundo" className="w-20 h-14 rounded-lg object-cover border border-border" />
+                )}
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  id="background-image-input"
+                  aria-label="Carregar imagem de fundo"
+                  onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void handleBackgroundUpload(f); }}
+                />
+                <Button type="button" variant="outline" disabled={uploading === 'background'} onClick={() => document.getElementById('background-image-input')?.click()}>
+                  <Upload className="w-4 h-4" /> {uploading === 'background' ? 'A carregar…' : 'Carregar'}
+                </Button>
+                {local.backgroundImageUrl && (
+                  <Button type="button" variant="ghost" onClick={() => set('backgroundImageUrl', undefined)}>Remover</Button>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Substitui a cor de fundo por uma foto atrás dos cartões (que continuam translúcidos). PNG/JPG, até 1.5MB.
+              </p>
+            </div>
+
             <div className="border-t border-border pt-4">
               <button
                 type="button"
@@ -392,44 +424,6 @@ export default function SettingsPage() {
             </div>
           </Card>
         </TabsContent>
-
-        {/* BILLING SAAS — super-admin only */}
-        {isSuperAdmin && (
-          <TabsContent value="billing" className="space-y-4">
-            <Card className="p-6 space-y-4">
-              <div>
-                <h2 className="font-heading text-lg font-semibold">Configuração Stripe</h2>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Cole os Payment Links criados no painel Stripe. Devem redirecionar para <code>/billing/success?plan=&lt;plano&gt;</code> após o pagamento.
-                </p>
-              </div>
-              <div className="space-y-2">
-                <Label>Chave publicável (pk_live_… ou pk_test_…)</Label>
-                <Input value={stripePub} onChange={e => setStripePub(e.target.value)} placeholder="pk_live_..." />
-                <p className="text-[11px] text-muted-foreground">
-                  Para activação 100% garantida via webhook é necessário backend. Sem isso, a activação acontece quando o cliente retorna ao site.
-                </p>
-              </div>
-              {(['monthly', 'quarterly', 'semiannual', 'annual'] as BillingPlan[]).map(p => (
-                <div key={p} className="space-y-2">
-                  <Label>Payment Link — {p}</Label>
-                  <Input
-                    value={stripeLinksLocal[p]}
-                    onChange={e => setStripeLinksLocal(prev => ({ ...prev, [p]: e.target.value }))}
-                    placeholder="https://buy.stripe.com/..."
-                  />
-                </div>
-              ))}
-              <Button onClick={() => {
-                setStripePublishableKey(stripePub.trim());
-                setStripeLinks(stripeLinksLocal);
-                toast.success('Configuração Stripe guardada');
-              }}>
-                <Save className="w-4 h-4" />Guardar Stripe
-              </Button>
-            </Card>
-          </TabsContent>
-        )}
       </Tabs>
     </PageShell>
   );

@@ -1,8 +1,9 @@
-import { MenuItem, Table, Order, OrderItem, OrderEvent, Staff, InventoryItem, Shift, SecurityAlert, Customer } from '@/types/restaurant';
+import { MenuItem, Table, Order, OrderItem, OrderEvent, OrderPayment, Staff, InventoryItem, Shift, SecurityAlert, Customer } from '@/types/restaurant';
 import { supabase } from '@/integrations/supabase/client';
 import { cloud, pendingResourceIds } from './outbox';
 import { warmStorageUrls, MENU_BUCKET } from './storage';
 import { tenantScopedKey } from './localCache';
+import { nowIso } from './serverClock';
 
 // Tenant-scoped keys: automatically prefixed with the active tenant id so that
 // each restaurant has its own isolated data in localStorage.
@@ -32,7 +33,7 @@ function setStore<T>(key: string, data: T[]): void {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function isUuid(id: string): boolean { return UUID_RE.test(id); }
 
-function generateId(): string {
+export function generateId(): string {
   // Prefer real UUIDs so records can be mirrored to Supabase.
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -93,7 +94,10 @@ export const menuStore = {
       if (updates.modifiers !== undefined) row.modifiers = updates.modifiers ?? [];
       if (updates.recipe !== undefined) row.recipe = updates.recipe ?? null;
       if (Object.keys(row).length) {
+        const ts = nowIso();
+        row.client_updated_at = ts;
         void cloud('menu_items').update(row as never).eq('id', id).eq('tenant_id', t)
+          .guard('client_updated_at', ts).resource(id)
           .then(({ error }) => warn('menu.update', error));
       }
     }
@@ -118,9 +122,10 @@ export async function fetchMenu(t: string): Promise<MenuItem[]> {
     available: r.available, modifiers: (r.modifiers ?? []) as unknown as MenuItem['modifiers'],
     recipe: (r.recipe ?? undefined) as unknown as MenuItem['recipe'],
   }));
-  menuStore.save(rows);
-  void warmStorageUrls(MENU_BUCKET, rows.map(r => r.image));
-  return rows;
+  const merged = mergePending(rows, menuStore.getAll(), 'menu_items');
+  menuStore.save(merged);
+  void warmStorageUrls(MENU_BUCKET, merged.map(r => r.image));
+  return merged;
 
 }
 
@@ -154,7 +159,7 @@ export const tableStore = {
       if (updates.status !== undefined) row.status = updates.status;
       if (updates.currentOrderId !== undefined) row.current_order_id = updates.currentOrderId ?? null;
       if (Object.keys(row).length) {
-        const ts = new Date().toISOString();
+        const ts = nowIso();
         row.client_updated_at = ts;
         void cloud('restaurant_tables').update(row as never).eq('id', id).eq('tenant_id', t)
           .guard('client_updated_at', ts).resource(id)
@@ -251,12 +256,27 @@ async function syncOrderEvents(orderId: string, events: OrderEvent[]) {
   warn('orderEvents.upsert', error);
 }
 
+/** Grava uma parcela (T4.1) — append-only, nunca actualizada/apagada pela
+ *  app; ao contrário de `syncOrderEvents` (upsert em lote), cada chamada
+ *  regista só a parcela nova, uma de cada vez. */
+async function syncOrderPayment(orderId: string, payment: OrderPayment) {
+  const row = {
+    id: isUuid(payment.id) ? payment.id : generateId(),
+    order_id: orderId,
+    method: payment.method,
+    amount: payment.amount,
+    closed_by: (payment.closedBy ?? null) as never,
+  };
+  const { error } = await cloud('order_payments').insert(row as never).resource(orderId);
+  warn('orderPayments.insert', error);
+}
+
 export const orderStore = {
   getAll: (): Order[] => getStore<Order>('orders'),
   save: (orders: Order[]) => setStore('orders', orders),
   add: (order: Omit<Order, 'id' | 'createdAt' | 'updatedAt'>): Order => {
     const orders = orderStore.getAll();
-    const newOrder: Order = { ...order, id: generateId(), createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const newOrder: Order = { ...order, id: generateId(), createdAt: nowIso(), updatedAt: nowIso() };
     orders.push(newOrder);
     orderStore.save(orders);
     const t = tenantId();
@@ -279,7 +299,7 @@ export const orderStore = {
     const orders = orderStore.getAll();
     const idx = orders.findIndex(o => o.id === id);
     if (idx !== -1) {
-      orders[idx] = { ...orders[idx], ...updates, updatedAt: new Date().toISOString() };
+      orders[idx] = { ...orders[idx], ...updates, updatedAt: nowIso() };
       orderStore.save(orders);
     }
     const t = tenantId();
@@ -302,6 +322,37 @@ export const orderStore = {
     return orders[idx];
   },
   getActive: (): Order[] => orderStore.getAll().filter(o => !o.paid && o.status !== 'cancelled'),
+  /** Regista uma parcela de pagamento (T4.1) — não mexe em `paid`/`total`/
+   *  `status`; isso continua a acontecer só quando `completeOrder` fecha o
+   *  pedido (a última chamada, depois de todas as parcelas somarem o total). */
+  addPayment: (id: string, payment: OrderPayment): Order | undefined => {
+    const orders = orderStore.getAll();
+    const idx = orders.findIndex(o => o.id === id);
+    if (idx !== -1) {
+      orders[idx] = { ...orders[idx], payments: [...(orders[idx].payments ?? []), payment], updatedAt: nowIso() };
+      orderStore.save(orders);
+    }
+    const t = tenantId();
+    if (t && isUuid(id)) void syncOrderPayment(id, payment);
+    return orders[idx];
+  },
+  /** Desfaz a parcela mais recente (correcção de engano antes de fechar a
+   *  conta) — nunca uma parcela do meio, para não haver ambiguidade. */
+  removeLastPayment: (id: string): Order | undefined => {
+    const orders = orderStore.getAll();
+    const idx = orders.findIndex(o => o.id === id);
+    if (idx === -1) return undefined;
+    const payments = orders[idx].payments ?? [];
+    const last = payments[payments.length - 1];
+    if (!last) return orders[idx];
+    orders[idx] = { ...orders[idx], payments: payments.slice(0, -1), updatedAt: nowIso() };
+    orderStore.save(orders);
+    if (isUuid(last.id)) {
+      void cloud('order_payments').delete().eq('id', last.id).resource(id)
+        .then(({ error }) => warn('orderPayments.delete', error));
+    }
+    return orders[idx];
+  },
   /**
    * Dedicated write path for payment completion. Unlike `update()`, this
    * awaits the cloud write and rolls back the optimistic local patch when it
@@ -314,7 +365,7 @@ export const orderStore = {
     const idx = orders.findIndex(o => o.id === id);
     if (idx === -1) return { ok: false, error: 'not-found' };
     const previous = orders[idx];
-    const patched = { ...previous, ...updates, updatedAt: new Date().toISOString() };
+    const patched = { ...previous, ...updates, updatedAt: nowIso() };
     orders[idx] = patched;
     orderStore.save(orders);
 
@@ -341,15 +392,12 @@ export const orderStore = {
 };
 
 
-export async function fetchOrders(t: string): Promise<Order[]> {
-  const { data, error } = await supabase
-    .from('orders')
-    .select('*, order_items(*), order_events(*)')
-    .eq('tenant_id', t)
-    .order('created_at', { ascending: false })
-    .limit(500);
-  if (error) { warn('orders.fetch', error); return orderStore.getAll(); }
-  const rows: Order[] = (data ?? []).map((r: Record<string, unknown>) => ({
+/** Mapeia uma linha de `orders` (com `order_items`/`order_events` embutidos
+ *  pelo select) para o tipo `Order` do app. Partilhado por fetchOrders()
+ *  (cache local, capado a 500) e fetchOrdersInRange() (relatório anual, sem
+ *  cap) — ver src/lib/dataArchive.ts. */
+export function mapOrderRow(r: Record<string, unknown>): Order {
+  return {
     id: r.id as string,
     tableId: (r.table_id as string) ?? undefined,
     tableNumber: (r.table_number as number) ?? undefined,
@@ -393,8 +441,28 @@ export async function fetchOrders(t: string): Promise<Order[]> {
         at: e.at as string,
       }))
       .sort((a, b) => a.at.localeCompare(b.at)),
-  }));
-  const merged = mergePending(rows, orderStore.getAll(), ['orders', 'order_items', 'order_events']);
+    payments: ((r.order_payments ?? []) as Record<string, unknown>[])
+      .map(p => ({
+        id: p.id as string,
+        method: p.method as OrderPayment['method'],
+        amount: Number(p.amount ?? 0),
+        closedBy: (p.closed_by as OrderPayment['closedBy']) ?? undefined,
+        at: p.created_at as string,
+      }))
+      .sort((a, b) => a.at.localeCompare(b.at)),
+  };
+}
+
+export async function fetchOrders(t: string): Promise<Order[]> {
+  const { data, error } = await supabase
+    .from('orders')
+    .select('*, order_items(*), order_events(*), order_payments(*)')
+    .eq('tenant_id', t)
+    .order('created_at', { ascending: false })
+    .limit(500);
+  if (error) { warn('orders.fetch', error); return orderStore.getAll(); }
+  const rows: Order[] = (data ?? []).map(mapOrderRow);
+  const merged = mergePending(rows, orderStore.getAll(), ['orders', 'order_items', 'order_events', 'order_payments']);
   orderStore.save(merged);
   return merged;
 }
@@ -438,7 +506,10 @@ export const inventoryStore = {
       if (updates.icon !== undefined) row.icon = updates.icon ?? null;
       if (updates.image !== undefined) row.image = updates.image ?? null;
       if (Object.keys(row).length) {
+        const ts = nowIso();
+        row.client_updated_at = ts;
         void cloud('inventory_items').update(row as never).eq('id', id).eq('tenant_id', t)
+          .guard('client_updated_at', ts).resource(id)
           .then(({ error }) => warn('inventory.update', error));
       }
     }
@@ -482,8 +553,9 @@ export async function fetchInventory(t: string): Promise<InventoryItem[]> {
     usagePerServing: Number(r.usage_per_serving),
     icon: r.icon ?? undefined, image: r.image ?? undefined,
   }));
-  inventoryStore.save(rows);
-  return rows;
+  const merged = mergePending(rows, inventoryStore.getAll(), 'inventory_items');
+  inventoryStore.save(merged);
+  return merged;
 }
 
 // -- Customers ---------------------------------------------------------------
@@ -492,7 +564,7 @@ export const customerStore = {
   save: (items: Customer[]) => setStore('customers', items),
   add: (c: Omit<Customer, 'id' | 'createdAt' | 'pointsAdjustment'> & { pointsAdjustment?: number }): Customer => {
     const all = customerStore.getAll();
-    const created: Customer = { ...c, pointsAdjustment: c.pointsAdjustment ?? 0, id: generateId(), createdAt: new Date().toISOString() };
+    const created: Customer = { ...c, pointsAdjustment: c.pointsAdjustment ?? 0, id: generateId(), createdAt: nowIso() };
     all.push(created);
     customerStore.save(all);
     const t = tenantId();
@@ -641,7 +713,7 @@ export const securityAlertStore = {
   save: (alerts: SecurityAlert[]) => setStore('security_alerts', alerts),
   add: (alert: Omit<SecurityAlert, 'id' | 'createdAt' | 'read'>): SecurityAlert => {
     const all = securityAlertStore.getAll();
-    const newAlert: SecurityAlert = { ...alert, id: generateId(), createdAt: new Date().toISOString(), read: false };
+    const newAlert: SecurityAlert = { ...alert, id: generateId(), createdAt: nowIso(), read: false };
     all.unshift(newAlert);
     securityAlertStore.save(all.slice(0, 50));
     const t = tenantId();
@@ -745,13 +817,13 @@ export const shiftStore = {
     if (existing) return existing;
     return shiftStore.add({
       staffId: staff.id, staffName: staff.name, staffRole: staff.role,
-      clockIn: new Date().toISOString(),
+      clockIn: nowIso(),
     });
   },
   clockOut: (staffId: string): Shift | undefined => {
     const active = shiftStore.getActiveForUser(staffId);
     if (!active) return undefined;
-    return shiftStore.update(active.id, { clockOut: new Date().toISOString() });
+    return shiftStore.update(active.id, { clockOut: nowIso() });
   },
 };
 
@@ -779,26 +851,89 @@ export async function fetchShifts(t: string): Promise<Shift[]> {
 // -- Realtime (KDS / Tables) --------------------------------------------------
 // Subscribes to operational changes for the tenant and re-hydrates the local
 // caches, then notifies the caller so the UI can re-render.
-export function subscribeOperations(t: string, onChange: () => void): () => void {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  const schedule = () => {
-    if (timer) clearTimeout(timer);
-    timer = setTimeout(async () => {
-      await Promise.all([fetchOrders(t).catch(() => {}), fetchTables(t).catch(() => {})]);
-      onChange();
-    }, 300);
-  };
+//
+// Multiple components can be mounted at once for the same tenant (e.g. the
+// sidebar's order-badge alongside whatever page is on screen), so this is
+// reference-counted: the first caller opens the real `ops-${t}` Supabase
+// channel, later callers for the same tenant just add their onChange to the
+// shared listener set. A second raw `.channel(name).on(...).subscribe()` for
+// a topic that's already subscribed throws ("cannot add postgres_changes
+// callbacks ... after subscribe()"), so callers must never open it directly.
+const opsSubscriptions = new Map<string, {
+  channel: ReturnType<typeof supabase.channel>;
+  listeners: Set<() => void>;
+  timer: ReturnType<typeof setTimeout> | null;
+}>();
 
-  const channel = supabase
-    .channel(`ops-${t}`)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `tenant_id=eq.${t}` }, schedule)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'restaurant_tables', filter: `tenant_id=eq.${t}` }, schedule)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, schedule)
-    .subscribe();
+export function subscribeOperations(t: string, onChange: () => void): () => void {
+  let entry = opsSubscriptions.get(t);
+  if (!entry) {
+    const schedule = () => {
+      const e = opsSubscriptions.get(t);
+      if (!e) return;
+      if (e.timer) clearTimeout(e.timer);
+      e.timer = setTimeout(async () => {
+        await Promise.all([fetchOrders(t).catch(() => {}), fetchTables(t).catch(() => {})]);
+        e.listeners.forEach(fn => fn());
+      }, 300);
+    };
+
+    const channel = supabase
+      .channel(`ops-${t}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orders', filter: `tenant_id=eq.${t}` }, schedule)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'restaurant_tables', filter: `tenant_id=eq.${t}` }, schedule)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'order_items' }, schedule)
+      .subscribe();
+
+    entry = { channel, listeners: new Set(), timer: null };
+    opsSubscriptions.set(t, entry);
+  }
+  entry.listeners.add(onChange);
 
   return () => {
-    if (timer) clearTimeout(timer);
-    void supabase.removeChannel(channel);
+    const e = opsSubscriptions.get(t);
+    if (!e) return;
+    e.listeners.delete(onChange);
+    if (e.listeners.size === 0) {
+      if (e.timer) clearTimeout(e.timer);
+      void supabase.removeChannel(e.channel);
+      opsSubscriptions.delete(t);
+    }
+  };
+}
+
+// Mesmo problema, mesma solução que opsSubscriptions acima: useLicense() é
+// chamado de vários sítios ao mesmo tempo na mesma página (AppSidebar +
+// RequireLicense + a própria página) — um segundo `.channel('license-X').on(...).subscribe()`
+// para o mesmo tenant rebentava com "cannot add postgres_changes callbacks
+// ... after subscribe()", porque o supabase-js devolve o canal já existente
+// em vez de criar um novo quando o nome do tópico repete.
+const licenseSubscriptions = new Map<string, {
+  channel: ReturnType<typeof supabase.channel>;
+  listeners: Set<() => void>;
+}>();
+
+export function subscribeLicense(t: string, onChange: () => void): () => void {
+  let entry = licenseSubscriptions.get(t);
+  if (!entry) {
+    const notify = () => { licenseSubscriptions.get(t)?.listeners.forEach(fn => fn()); };
+    const channel = supabase
+      .channel(`license-${t}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'subscriptions', filter: `tenant_id=eq.${t}` }, notify)
+      .subscribe();
+    entry = { channel, listeners: new Set() };
+    licenseSubscriptions.set(t, entry);
+  }
+  entry.listeners.add(onChange);
+
+  return () => {
+    const e = licenseSubscriptions.get(t);
+    if (!e) return;
+    e.listeners.delete(onChange);
+    if (e.listeners.size === 0) {
+      void supabase.removeChannel(e.channel);
+      licenseSubscriptions.delete(t);
+    }
   };
 }
 

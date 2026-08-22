@@ -1,6 +1,11 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
+// jspdf-autotable não publica tipos para a propriedade `lastAutoTable` que
+// adiciona à instância em runtime (a própria lib tipa o doc como `any`) —
+// este tipo local evita `as any` espalhado pelo ficheiro.
+type JsPDFWithAutoTable = jsPDF & { lastAutoTable: { finalY: number } };
+
 export interface ExportStats {
   totalRevenue: number;
   totalOrders: number;
@@ -165,7 +170,7 @@ export function exportReportsPDF(p: ExportPayload) {
 
   // Best sellers
   autoTable(doc, {
-    startY: (doc as any).lastAutoTable.finalY + 6,
+    startY: (doc as JsPDFWithAutoTable).lastAutoTable.finalY + 6,
     head: [['Mais Vendidos', 'Quantidade', 'Receita']],
     body: p.bestSellers.map(b => [b.name, String(b.quantity), fmtMT(b.revenue)]),
     theme: 'striped',
@@ -175,7 +180,7 @@ export function exportReportsPDF(p: ExportPayload) {
 
   // Categories
   autoTable(doc, {
-    startY: (doc as any).lastAutoTable.finalY + 6,
+    startY: (doc as JsPDFWithAutoTable).lastAutoTable.finalY + 6,
     head: [['Categoria', 'Receita']],
     body: p.categoryData.map(c => [c.name, fmtMT(c.value)]),
     theme: 'striped',
@@ -185,7 +190,7 @@ export function exportReportsPDF(p: ExportPayload) {
 
   // Payment methods
   autoTable(doc, {
-    startY: (doc as any).lastAutoTable.finalY + 6,
+    startY: (doc as JsPDFWithAutoTable).lastAutoTable.finalY + 6,
     head: [['Método de Pagamento', 'Total']],
     body: p.paymentData.map(m => [m.name, fmtMT(m.value)]),
     theme: 'striped',
@@ -195,7 +200,7 @@ export function exportReportsPDF(p: ExportPayload) {
 
   // Revenue over time
   autoTable(doc, {
-    startY: (doc as any).lastAutoTable.finalY + 6,
+    startY: (doc as JsPDFWithAutoTable).lastAutoTable.finalY + 6,
     head: [['Período', 'Receita', 'Lucro', 'Pedidos']],
     body: p.revenueData.map(r => [r.label, fmtMT(r.revenue), fmtMT(r.profit), String(r.orders)]),
     theme: 'striped',
@@ -205,4 +210,178 @@ export function exportReportsPDF(p: ExportPayload) {
 
   const date = new Date().toISOString().slice(0, 10);
   doc.save(`relatorio-${date}.pdf`);
+}
+
+// -- Relatório Anual (Arquivo de Dados) ---------------------------------------
+
+export interface YearReportPayload {
+  year: number;
+  monthLabel?: string;
+  stats: ExportStats;
+  expenses: { recurringMonthly: number; oneTime: number; total: number };
+  bestSellers: { name: string; quantity: number; revenue: number }[];
+  categoryData: { name: string; value: number }[];
+  paymentData: { name: string; value: number }[];
+  revenueData: { label: string; revenue: number; profit: number; orders: number }[];
+}
+
+function yearReportFilenameBase(p: YearReportPayload): string {
+  return `relatorio-anual-${p.year}${p.monthLabel ? `-${p.monthLabel}` : ''}`;
+}
+
+export function exportYearReportCSV(p: YearReportPayload) {
+  const lines: string[] = [];
+  lines.push('Relatório Anual');
+  lines.push(`Período,${csvEscape(p.monthLabel ? `${p.monthLabel} ${p.year}` : String(p.year))}`);
+  lines.push('');
+
+  lines.push('Indicadores');
+  lines.push('Métrica,Valor');
+  lines.push(`Receita Total,${fmtMT(p.stats.totalRevenue)}`);
+  lines.push(`Pedidos Pagos,${p.stats.totalOrders}`);
+  lines.push(`Ticket Médio,${fmtMT(p.stats.avgTicket)}`);
+  lines.push(`Custo de Ingredientes,${fmtMT(p.stats.totalCost)}`);
+  lines.push(`Lucro Líquido,${fmtMT(p.stats.profit)}`);
+  lines.push(`Margem (%),${p.stats.margin.toFixed(1)}`);
+  lines.push('');
+
+  lines.push('Despesas e Salários');
+  lines.push('Tipo,Valor');
+  lines.push(`Despesas Recorrentes,${fmtMT(p.expenses.recurringMonthly)}`);
+  lines.push(`Despesas Pontuais,${fmtMT(p.expenses.oneTime)}`);
+  lines.push(`Total,${fmtMT(p.expenses.total)}`);
+  lines.push('');
+
+  lines.push('Mais Vendidos');
+  lines.push('Item,Quantidade,Receita');
+  p.bestSellers.forEach(b => lines.push(`${csvEscape(b.name)},${b.quantity},${fmtMT(b.revenue)}`));
+  lines.push('');
+
+  lines.push('Vendas por Categoria');
+  lines.push('Categoria,Receita');
+  p.categoryData.forEach(c => lines.push(`${csvEscape(c.name)},${fmtMT(c.value)}`));
+  lines.push('');
+
+  lines.push('Métodos de Pagamento');
+  lines.push('Método,Total');
+  p.paymentData.forEach(m => lines.push(`${csvEscape(m.name)},${fmtMT(m.value)}`));
+  lines.push('');
+
+  lines.push('Receita Mensal');
+  lines.push('Mês,Receita,Lucro,Pedidos');
+  p.revenueData.forEach(r => lines.push(`${csvEscape(r.label)},${fmtMT(r.revenue)},${fmtMT(r.profit)},${r.orders}`));
+
+  const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+  downloadBlob(blob, `${yearReportFilenameBase(p)}.csv`);
+}
+
+export function exportYearReportPDF(p: YearReportPayload) {
+  const doc = new jsPDF();
+  const pageWidth = doc.internal.pageSize.getWidth();
+  let y = 15;
+
+  doc.setFontSize(18);
+  doc.setFont('helvetica', 'bold');
+  doc.text('Relatório Anual', pageWidth / 2, y, { align: 'center' });
+  y += 8;
+
+  doc.setFontSize(10);
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(100);
+  doc.text(`Período: ${p.monthLabel ? `${p.monthLabel} ${p.year}` : p.year}`, pageWidth / 2, y, { align: 'center' });
+  y += 5;
+  doc.text(`Gerado em ${new Date().toLocaleString('pt-PT')}`, pageWidth / 2, y, { align: 'center' });
+  y += 8;
+
+  doc.setTextColor(0);
+
+  autoTable(doc, {
+    startY: y,
+    head: [['Métrica', 'Valor']],
+    body: [
+      ['Receita Total', fmtMT(p.stats.totalRevenue)],
+      ['Pedidos Pagos', String(p.stats.totalOrders)],
+      ['Ticket Médio', fmtMT(p.stats.avgTicket)],
+      ['Custo de Ingredientes', fmtMT(p.stats.totalCost)],
+      ['Lucro Líquido', fmtMT(p.stats.profit)],
+      ['Margem', `${p.stats.margin.toFixed(1)}%`],
+    ],
+    theme: 'striped',
+    headStyles: { fillColor: [245, 158, 11], textColor: 255 },
+    styles: { fontSize: 9 },
+  });
+
+  autoTable(doc, {
+    startY: (doc as JsPDFWithAutoTable).lastAutoTable.finalY + 6,
+    head: [['Despesas e Salários', 'Valor']],
+    body: [
+      ['Despesas Recorrentes', fmtMT(p.expenses.recurringMonthly)],
+      ['Despesas Pontuais', fmtMT(p.expenses.oneTime)],
+      ['Total', fmtMT(p.expenses.total)],
+    ],
+    theme: 'striped',
+    headStyles: { fillColor: [245, 158, 11], textColor: 255 },
+    styles: { fontSize: 9 },
+  });
+
+  autoTable(doc, {
+    startY: (doc as JsPDFWithAutoTable).lastAutoTable.finalY + 6,
+    head: [['Mais Vendidos', 'Quantidade', 'Receita']],
+    body: p.bestSellers.map(b => [b.name, String(b.quantity), fmtMT(b.revenue)]),
+    theme: 'striped',
+    headStyles: { fillColor: [245, 158, 11], textColor: 255 },
+    styles: { fontSize: 9 },
+  });
+
+  autoTable(doc, {
+    startY: (doc as JsPDFWithAutoTable).lastAutoTable.finalY + 6,
+    head: [['Categoria', 'Receita']],
+    body: p.categoryData.map(c => [c.name, fmtMT(c.value)]),
+    theme: 'striped',
+    headStyles: { fillColor: [245, 158, 11], textColor: 255 },
+    styles: { fontSize: 9 },
+  });
+
+  autoTable(doc, {
+    startY: (doc as JsPDFWithAutoTable).lastAutoTable.finalY + 6,
+    head: [['Método de Pagamento', 'Total']],
+    body: p.paymentData.map(m => [m.name, fmtMT(m.value)]),
+    theme: 'striped',
+    headStyles: { fillColor: [245, 158, 11], textColor: 255 },
+    styles: { fontSize: 9 },
+  });
+
+  autoTable(doc, {
+    startY: (doc as JsPDFWithAutoTable).lastAutoTable.finalY + 6,
+    head: [['Mês', 'Receita', 'Lucro', 'Pedidos']],
+    body: p.revenueData.map(r => [r.label, fmtMT(r.revenue), fmtMT(r.profit), String(r.orders)]),
+    theme: 'striped',
+    headStyles: { fillColor: [245, 158, 11], textColor: 255 },
+    styles: { fontSize: 9 },
+  });
+
+  doc.save(`${yearReportFilenameBase(p)}.pdf`);
+}
+
+// -- Turnos --------------------------------------------------------------
+
+export interface ShiftExportRow {
+  date: string;
+  staffName: string;
+  staffRole: string;
+  clockIn: string;
+  clockOut?: string;
+  durationLabel: string;
+}
+
+export function exportShiftsCSV(rows: ShiftExportRow[]) {
+  const lines: string[] = [];
+  lines.push('Histórico de Turnos');
+  lines.push('Data,Funcionário,Cargo,Entrada,Saída,Duração');
+  rows.forEach(r => lines.push(
+    `${csvEscape(r.date)},${csvEscape(r.staffName)},${csvEscape(r.staffRole)},${csvEscape(r.clockIn)},${csvEscape(r.clockOut ?? 'Em curso')},${csvEscape(r.durationLabel)}`,
+  ));
+  const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+  const date = new Date().toISOString().slice(0, 10);
+  downloadBlob(blob, `turnos-${date}.csv`);
 }

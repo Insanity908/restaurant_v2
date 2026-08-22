@@ -6,6 +6,15 @@ import { ALL_ROLES, TENANT_ROLES, ROUTE_PERMISSIONS, type Role } from '../suppor
 const ALL_ROUTES = Object.keys(ROUTE_PERMISSIONS).filter(r => r !== '/admin');
 
 describe('Matriz de permissões de rota (todos os papéis × todas as páginas)', () => {
+  // expenses/expense_amount_history/staff_salaries não estão em
+  // CATALOG_TABLES (support/commands.ts) — sem isto, visitar /expenses como
+  // admin dispararia pedidos reais não interceptados (ver 18-expenses.cy.ts).
+  beforeEach(() => {
+    cy.intercept('GET', '**/rest/v1/expenses?*', { statusCode: 200, body: [] });
+    cy.intercept('GET', '**/rest/v1/expense_amount_history?*', { statusCode: 200, body: [] });
+    cy.intercept('GET', '**/rest/v1/staff_salaries?*', { statusCode: 200, body: [] });
+  });
+
   ALL_ROLES.forEach((role: Role) => {
     describe(`Papel: ${role}`, () => {
       beforeEach(() => cy.loginAs(role));

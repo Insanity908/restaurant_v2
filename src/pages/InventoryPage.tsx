@@ -3,7 +3,7 @@ import PageShell from '@/components/PageShell';
 import { useRestaurant } from '@/hooks/useRestaurant';
 import { formatPrice, truncateList } from '@/lib/helpers';
 import { InventoryItem } from '@/types/restaurant';
-import { Package, AlertTriangle, Plus, Pencil, Trash2, X, Search, ImagePlus } from 'lucide-react';
+import { Package, AlertTriangle, Plus, Pencil, Trash2, X, Search, ImagePlus, History } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -14,17 +14,22 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useAuth } from '@/context/AuthContext';
 import { toast } from 'sonner';
 import { uploadTenantImage, MENU_BUCKET } from '@/lib/storage';
+import { recordInventoryAdjustment, fetchInventoryMovements, InventoryMovement } from '@/lib/inventoryMovements';
 import { useStorageImage } from '@/hooks/useStorageImage';
 import StorageImage from '@/components/StorageImage';
 import DismissibleAlert from '@/components/DismissibleAlert';
 import ImagePickerDialog from '@/components/ImagePickerDialog';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 export default function InventoryPage() {
   const {
     inventory, lowStockItems, menuItems,
     addInventoryItem, updateInventoryItem, deleteInventoryItem,
   } = useRestaurant();
-  const { hasPermission } = useAuth();
+  const { user, hasPermission } = useAuth();
   const canEdit = hasPermission('inventory.edit');
 
   const [search, setSearch] = useState('');
@@ -33,6 +38,10 @@ export default function InventoryPage() {
   const [editing, setEditing] = useState<InventoryItem | null>(null);
   const [uploading, setUploading] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<InventoryItem | null>(null);
+  const [historyItem, setHistoryItem] = useState<InventoryItem | null>(null);
+  const [history, setHistory] = useState<InventoryMovement[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Form state
@@ -77,18 +86,30 @@ export default function InventoryPage() {
     }
   };
 
+  const hasInvalidNumbers = form.currentStock < 0 || form.minStock < 0 || form.costPerUnit < 0;
+
   const handleSave = () => {
-    if (!form.name) return;
+    if (!form.name || hasInvalidNumbers) return;
     const { icon, image, ...rest } = form;
     const payload = { ...rest, icon: icon.trim() || undefined, image };
     if (editing) {
       updateInventoryItem(editing.id, payload);
+      if (payload.currentStock !== editing.currentStock) {
+        recordInventoryAdjustment(editing.id, payload.currentStock - editing.currentStock, user?.name ?? 'Equipa');
+      }
     } else {
       addInventoryItem(payload);
     }
     setDialogOpen(false);
     resetForm();
     setEditing(null);
+  };
+
+  const openHistory = (item: InventoryItem) => {
+    setHistoryItem(item);
+    setHistory([]);
+    setHistoryLoading(true);
+    fetchInventoryMovements(item.id).then(rows => { setHistory(rows); setHistoryLoading(false); });
   };
 
   const displayed = inventory
@@ -226,14 +247,23 @@ export default function InventoryPage() {
                         <td className="p-3 text-right">
                           <div className="flex items-center justify-end gap-1">
                             <button
+                              onClick={() => openHistory(item)}
+                              className="w-7 h-7 rounded-full bg-secondary hover:bg-secondary/80 flex items-center justify-center"
+                              aria-label="Histórico"
+                            >
+                              <History className="w-3.5 h-3.5 text-foreground" />
+                            </button>
+                            <button
                               onClick={() => openEdit(item)}
                               className="w-7 h-7 rounded-full bg-secondary hover:bg-secondary/80 flex items-center justify-center"
+                              aria-label="Editar"
                             >
                               <Pencil className="w-3.5 h-3.5 text-foreground" />
                             </button>
                             <button
-                              onClick={() => deleteInventoryItem(item.id)}
+                              onClick={() => setItemToDelete(item)}
                               className="w-7 h-7 rounded-full bg-destructive/20 hover:bg-destructive/30 flex items-center justify-center"
+                              aria-label="Remover"
                             >
                               <Trash2 className="w-3.5 h-3.5 text-destructive" />
                             </button>
@@ -313,24 +343,94 @@ export default function InventoryPage() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-muted-foreground text-xs">Stock Actual</Label>
-                <Input type="number" value={form.currentStock === 0 ? '' : form.currentStock} onChange={e => setForm(f => ({ ...f, currentStock: e.target.value === '' ? 0 : +e.target.value }))} className="bg-secondary border-border mt-1" />
+                <Input type="number" min={0} value={form.currentStock === 0 ? '' : form.currentStock} onChange={e => setForm(f => ({ ...f, currentStock: e.target.value === '' ? 0 : +e.target.value }))} className="bg-secondary border-border mt-1" />
               </div>
               <div>
                 <Label className="text-muted-foreground text-xs">Stock Mínimo</Label>
-                <Input type="number" value={form.minStock === 0 ? '' : form.minStock} onChange={e => setForm(f => ({ ...f, minStock: e.target.value === '' ? 0 : +e.target.value }))} className="bg-secondary border-border mt-1" />
+                <Input type="number" min={0} value={form.minStock === 0 ? '' : form.minStock} onChange={e => setForm(f => ({ ...f, minStock: e.target.value === '' ? 0 : +e.target.value }))} className="bg-secondary border-border mt-1" />
               </div>
             </div>
             <div>
               <Label className="text-muted-foreground text-xs">Custo por Unidade (MT)</Label>
-              <Input type="number" value={form.costPerUnit === 0 ? '' : form.costPerUnit} onChange={e => setForm(f => ({ ...f, costPerUnit: e.target.value === '' ? 0 : +e.target.value }))} className="bg-secondary border-border mt-1" />
+              <Input type="number" min={0} value={form.costPerUnit === 0 ? '' : form.costPerUnit} onChange={e => setForm(f => ({ ...f, costPerUnit: e.target.value === '' ? 0 : +e.target.value }))} className="bg-secondary border-border mt-1" />
             </div>
+            {hasInvalidNumbers && (
+              <p className="text-xs text-destructive -mt-2">Stock e custo não podem ser negativos.</p>
+            )}
             <p className="text-[11px] text-muted-foreground">
               A ligação a pratos e o uso por porção são definidos na receita de cada prato em <strong>Menu</strong>.
             </p>
-            <Button onClick={handleSave} className="w-full">{editing ? 'Guardar' : 'Adicionar'}</Button>
+            <Button onClick={handleSave} className="w-full" disabled={!form.name.trim() || hasInvalidNumbers}>{editing ? 'Guardar' : 'Adicionar'}</Button>
           </div>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={!!historyItem} onOpenChange={(open) => { if (!open) setHistoryItem(null); }}>
+        <DialogContent className="glass-strong border-border max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-foreground font-heading">
+              Histórico · {historyItem?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="max-h-80 overflow-y-auto space-y-1.5">
+            {historyLoading ? (
+              <p className="text-sm text-muted-foreground text-center py-6">A carregar…</p>
+            ) : history.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">Sem movimentos registados.</p>
+            ) : (
+              history.map(m => (
+                <div key={m.id} className="flex items-center justify-between text-xs px-2 py-1.5 rounded-md bg-secondary/40">
+                  <div className="min-w-0">
+                    <span className={cn('font-semibold', m.delta >= 0 ? 'text-success' : 'text-destructive')}>
+                      {m.delta >= 0 ? '+' : ''}{m.delta} {historyItem?.unit}
+                    </span>{' '}
+                    <span className="text-muted-foreground">
+                      {m.reason}{m.createdByName ? ` · ${m.createdByName}` : ''}
+                    </span>
+                  </div>
+                  <span className="text-muted-foreground shrink-0 ml-2">
+                    {new Date(m.createdAt).toLocaleString('pt-PT')}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!itemToDelete} onOpenChange={(open) => { if (!open) setItemToDelete(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover {itemToDelete?.name}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {itemToDelete && itemToDelete.linkedMenuItemIds.length > 0 ? (
+                <>
+                  Este ingrediente está ligado a{' '}
+                  <strong>
+                    {truncateList(
+                      itemToDelete.linkedMenuItemIds
+                        .map(id => menuItems.find(m => m.id === id)?.name)
+                        .filter((n): n is string => !!n),
+                    )}
+                  </strong>
+                  . Esses pratos ficam com a receita sem este ingrediente. Esta ação não pode ser desfeita.
+                </>
+              ) : (
+                'Esta ação não pode ser desfeita.'
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => { if (itemToDelete) deleteInventoryItem(itemToDelete.id); setItemToDelete(null); }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Remover
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </PageShell>
   );
 }

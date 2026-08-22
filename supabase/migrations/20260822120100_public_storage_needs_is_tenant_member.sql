@@ -1,0 +1,16 @@
+-- A policy de SELECT em storage.objects (menu-images/receipt-logos, ver
+-- 20260810120000_create_storage_buckets.sql) chama is_tenant_member() sem
+-- distinguir anon de authenticated no USING — quem decide se `anon` sequer
+-- consegue invocar a função é o GRANT, não a policy. A página pública de
+-- pedido do cliente (/pedir/:tenantId/mesa|entrega, sem sessão nenhuma)
+-- mostra imagens do cardápio a partir deste bucket, por isso `anon` tem de
+-- conseguir chamar a função para essas leituras funcionarem.
+--
+-- Confirmado empiricamente contra o projecto de produção (bbpfoygfxqwjqsolisqw):
+-- um pedido GET a um objecto do bucket com a anon key só devolve "Object not
+-- found" (a policy correu, só não achou o ficheiro) — nunca "permission
+-- denied" — ou seja, este grant já existe lá, aplicado à mão fora de
+-- qualquer migration (mesma situação da migration anterior). Sem isto, um
+-- projecto novo criado só a partir desta pasta (`supabase db push`) nunca
+-- consegue mostrar imagens de cardápio na página pública do cliente.
+grant execute on function public.is_tenant_member(uuid) to anon;

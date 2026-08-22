@@ -42,7 +42,9 @@ describe('POS', () => {
     cy.contains(/mesa 5/i).click();
     // O botão vem desativado proactivamente (mais seguro do que deixar
     // clicar e só mostrar o erro depois) — a app já avisa antes do clique.
-    cy.contains(/itens (ainda )?não servidos|por servir/i).should('be.visible');
+    // scrollIntoView: o resumo do pedido mudou de posição nesta sessão
+    // (ver §3.3 da spec) e este aviso agora fica abaixo da dobra.
+    cy.contains(/itens (ainda )?não servidos|por servir/i).scrollIntoView().should('be.visible');
     cy.contains('button', /confirmar pagamento/i).should('be.disabled');
     cy.get('@patchSpy').should('not.have.been.called');
   });
@@ -72,6 +74,73 @@ describe('POS', () => {
     cy.contains(/falha ao confirmar pagamento/i).should('be.visible');
     cy.contains(/mesa 5/i).should('be.visible');
     cy.contains('button', /confirmar pagamento/i).should('not.be.disabled');
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Layout mobile do painel de pagamento: em ecrãs estreitos, o painel abre como
+// overlay de ecrã inteiro ao seleccionar um pedido (em vez de ficar lado a
+// lado com a lista, como acontecia antes e continua a acontecer em desktop).
+// Mudança de puro CSS/estrutura — sem cobertura antes desta sessão.
+// -----------------------------------------------------------------------------
+describe('POS — layout mobile do painel de pagamento', () => {
+  beforeEach(() => {
+    cy.intercept('GET', '**/rest/v1/orders?*', { statusCode: 200, body: [order('served')] });
+  });
+
+  it('mobile, sem pedido seleccionado: lista visível, painel de pagamento nem chega a existir no DOM', () => {
+    cy.viewport(375, 812);
+    cy.loginAs('cashier');
+    cy.visit('/pos');
+    cy.contains('Pedidos Activos').should('be.visible');
+    // Sem selecção, o ramo do JSX com o botão nem é renderizado (não é só
+    // escondido por CSS) — ver `selectedOrder ? (...) : (...)` em POSPage.
+    cy.contains('button', /confirmar pagamento/i).should('not.exist');
+  });
+
+  it('mobile, ao seleccionar um pedido: painel abre em ecrã inteiro e a lista esconde-se', () => {
+    cy.viewport(375, 812);
+    cy.loginAs('cashier');
+    cy.visit('/pos');
+    cy.contains(/mesa 5/i).click();
+
+    cy.contains('button', /voltar aos pedidos/i).should('be.visible');
+    cy.contains('Pedidos Activos').should('not.be.visible');
+    // O resumo do pedido (Subtotal/Total) mudou de posição no JSX nesta
+    // sessão — confirma que os valores continuam lá, não só a posição.
+    // Âmbito à própria linha: "700 MT" também aparece (escondido) no card
+    // do pedido na lista de activos, e cy.contains() apanharia esse primeiro.
+    cy.contains('Subtotal').should('be.visible').parent().should('contain.text', '700');
+    // scrollIntoView: o botão fica abaixo da dobra no ecrã de telemóvel
+    // (painel scrollável) — cy.click() faz isto sozinho, mas uma asserção
+    // de visibilidade sozinha não desloca a página.
+    cy.contains('button', /confirmar pagamento/i).scrollIntoView().should('be.visible');
+  });
+
+  it('mobile: "Voltar aos pedidos" fecha o painel e mostra a lista outra vez', () => {
+    cy.viewport(375, 812);
+    cy.loginAs('cashier');
+    cy.visit('/pos');
+    cy.contains(/mesa 5/i).click();
+    cy.contains('button', /voltar aos pedidos/i).click();
+
+    cy.contains('Pedidos Activos').should('be.visible');
+    cy.contains('button', /confirmar pagamento/i).should('not.exist');
+  });
+
+  it('desktop: lista e painel de pagamento ficam visíveis lado a lado, com ou sem selecção', () => {
+    cy.viewport(1280, 800);
+    cy.loginAs('cashier');
+    cy.visit('/pos');
+
+    cy.contains('Pedidos Activos').should('be.visible');
+    cy.contains('Selecione um pedido para processar').should('be.visible');
+
+    cy.contains(/mesa 5/i).click();
+    cy.contains('Pedidos Activos').should('be.visible');
+    cy.contains('button', /confirmar pagamento/i).scrollIntoView().should('be.visible');
+    // Botão de voltar é exclusivo mobile (lg:hidden) — continua no DOM mas escondido.
+    cy.contains('button', /voltar aos pedidos/i).should('not.be.visible');
   });
 });
 

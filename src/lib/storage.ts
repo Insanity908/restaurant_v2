@@ -8,7 +8,7 @@ const SIGNED_TTL = 60 * 60 * 24 * 7; // 7 days
 const CACHE_KEY = 'storage_signed_urls_v1';
 
 type CacheEntry = { url: string; exp: number };
-let cache: Record<string, CacheEntry> = readCache();
+const cache: Record<string, CacheEntry> = readCache();
 
 function readCache(): Record<string, CacheEntry> {
   try {

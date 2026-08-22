@@ -22,7 +22,7 @@ export function findMenuItemImagePath(menuItemId: string, menuItems: MenuItem[])
 }
 
 export function formatPrice(value: number): string {
-  return `${value.toLocaleString()} MT`;
+  return `${value.toLocaleString('pt-PT')} MT`;
 }
 
 /** Junta nomes com vírgula, cortando com "…" antes de ultrapassar maxChars — nunca corta um nome a meio. */

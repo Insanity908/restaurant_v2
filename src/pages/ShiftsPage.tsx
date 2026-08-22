@@ -2,14 +2,18 @@ import { useEffect, useMemo, useState } from 'react';
 import { format, startOfDay, endOfDay, isWithinInterval, differenceInSeconds } from 'date-fns';
 import { pt } from 'date-fns/locale';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Clock, LogIn, LogOut, Calendar as CalendarIcon, Users, Hourglass } from 'lucide-react';
+import { Clock, LogIn, LogOut, Calendar as CalendarIcon, Users, Hourglass, Pencil, Download } from 'lucide-react';
 import PageShell from '@/components/PageShell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 import { useAuth } from '@/context/AuthContext';
 import { shiftStore, staffStore, fetchShifts } from '@/lib/store';
+import { exportShiftsCSV } from '@/lib/exportReports';
 import type { Shift, Staff } from '@/types/restaurant';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -30,12 +34,25 @@ function shiftSeconds(s: Shift, now: Date): number {
   return Math.max(0, Math.floor((end - start) / 1000));
 }
 
+// Formato exigido por <input type="datetime-local">: "YYYY-MM-DDTHH:mm" em
+// hora local, sem timezone — `toISOString()` dá UTC, por isso não serve aqui.
+function toLocalInputValue(iso: string): string {
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export default function ShiftsPage() {
   const { user, hasPermission } = useAuth();
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
   const [now, setNow] = useState(new Date());
   const [scope, setScope] = useState<'me' | 'all'>('me');
+  const [editingShift, setEditingShift] = useState<Shift | null>(null);
+  const [editClockIn, setEditClockIn] = useState('');
+  const [editClockOut, setEditClockOut] = useState('');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   const isManager = hasPermission('shifts.manage');
 
@@ -68,6 +85,31 @@ export default function ShiftsPage() {
       : shifts;
     return [...filtered].sort((a, b) => new Date(b.clockIn).getTime() - new Date(a.clockIn).getTime());
   }, [shifts, scope, user]);
+
+  // Filtro de datas aplica-se só ao histórico (tabela + exportação) — os
+  // cartões de "hoje" no topo mantêm-se sempre relativos a `now`.
+  const historyShifts = useMemo(() => {
+    if (!dateFrom && !dateTo) return visibleShifts;
+    const from = dateFrom ? startOfDay(new Date(dateFrom)) : null;
+    const to = dateTo ? endOfDay(new Date(dateTo)) : null;
+    return visibleShifts.filter(s => {
+      const t = new Date(s.clockIn).getTime();
+      if (from && t < from.getTime()) return false;
+      if (to && t > to.getTime()) return false;
+      return true;
+    });
+  }, [visibleShifts, dateFrom, dateTo]);
+
+  const handleExport = () => {
+    exportShiftsCSV(historyShifts.map(s => ({
+      date: format(new Date(s.clockIn), 'dd/MM/yyyy'),
+      staffName: s.staffName,
+      staffRole: s.staffRole,
+      clockIn: format(new Date(s.clockIn), 'HH:mm'),
+      clockOut: s.clockOut ? format(new Date(s.clockOut), 'HH:mm') : undefined,
+      durationLabel: formatDuration(shiftSeconds(s, now)),
+    })));
+  };
 
   const todayShifts = useMemo(
     () => visibleShifts.filter(s => isWithinInterval(new Date(s.clockIn), todayRange)),
@@ -116,6 +158,26 @@ export default function ShiftsPage() {
     }
     shiftStore.clockOut(user.id);
     toast.success('Saída registada');
+    refresh();
+  };
+
+  const openEdit = (s: Shift) => {
+    setEditingShift(s);
+    setEditClockIn(toLocalInputValue(s.clockIn));
+    setEditClockOut(s.clockOut ? toLocalInputValue(s.clockOut) : '');
+  };
+
+  const saveEdit = () => {
+    if (!editingShift || !editClockIn) return;
+    const clockIn = new Date(editClockIn).toISOString();
+    const clockOut = editClockOut ? new Date(editClockOut).toISOString() : undefined;
+    if (clockOut && new Date(clockOut) <= new Date(clockIn)) {
+      toast.error('A saída deve ser depois da entrada');
+      return;
+    }
+    shiftStore.update(editingShift.id, { clockIn, clockOut });
+    toast.success('Turno atualizado');
+    setEditingShift(null);
     refresh();
   };
 
@@ -252,16 +314,26 @@ export default function ShiftsPage() {
         {/* History */}
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Clock className="w-4 h-4 text-primary" />
-              Histórico de Turnos
-              <Badge variant="secondary" className="ml-1 text-[10px]">{visibleShifts.length}</Badge>
-            </CardTitle>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Clock className="w-4 h-4 text-primary" />
+                Histórico de Turnos
+                <Badge variant="secondary" className="ml-1 text-[10px]">{historyShifts.length}</Badge>
+              </CardTitle>
+              <div className="flex flex-wrap items-center gap-2">
+                <Input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="h-8 w-[140px] text-xs" aria-label="Data inicial" />
+                <span className="text-xs text-muted-foreground">até</span>
+                <Input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="h-8 w-[140px] text-xs" aria-label="Data final" />
+                <Button variant="outline" size="sm" className="h-8 gap-1.5" onClick={handleExport} disabled={historyShifts.length === 0}>
+                  <Download className="w-3.5 h-3.5" /> Exportar CSV
+                </Button>
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
-            {visibleShifts.length === 0 ? (
+            {historyShifts.length === 0 ? (
               <div className="text-center text-sm text-muted-foreground py-8">
-                Sem turnos registados.
+                Sem turnos registados{(dateFrom || dateTo) ? ' neste período.' : '.'}
               </div>
             ) : (
               <div className="max-h-[420px] overflow-y-auto rounded-md border border-border">
@@ -273,10 +345,11 @@ export default function ShiftsPage() {
                       <th className="px-3 py-2 font-medium">Entrada</th>
                       <th className="px-3 py-2 font-medium">Saída</th>
                       <th className="px-3 py-2 font-medium text-right">Duração</th>
+                      {isManager && <th className="px-3 py-2 font-medium text-right">Ações</th>}
                     </tr>
                   </thead>
                   <tbody>
-                    {visibleShifts.slice(0, 200).map(s => (
+                    {historyShifts.slice(0, 200).map(s => (
                       <tr key={s.id} className="border-t border-border hover:bg-muted/30">
                         <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">
                           {format(new Date(s.clockIn), 'dd MMM yyyy', { locale: pt })}
@@ -298,6 +371,13 @@ export default function ShiftsPage() {
                         <td className="px-3 py-2 text-right font-medium text-foreground">
                           {formatDuration(shiftSeconds(s, now))}
                         </td>
+                        {isManager && (
+                          <td className="px-3 py-2 text-right">
+                            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEdit(s)}>
+                              <Pencil className="w-3.5 h-3.5" />
+                            </Button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -307,6 +387,29 @@ export default function ShiftsPage() {
           </CardContent>
         </Card>
       </div>
+
+      <Dialog open={!!editingShift} onOpenChange={(open) => { if (!open) setEditingShift(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar turno {editingShift ? `· ${editingShift.staffName}` : ''}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="shift-clock-in">Entrada</Label>
+              <Input id="shift-clock-in" type="datetime-local" value={editClockIn} onChange={e => setEditClockIn(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="shift-clock-out">Saída</Label>
+              <Input id="shift-clock-out" type="datetime-local" value={editClockOut} onChange={e => setEditClockOut(e.target.value)} />
+              <p className="text-xs text-muted-foreground">Deixe em branco para manter o turno "Em curso".</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingShift(null)}>Cancelar</Button>
+            <Button onClick={saveEdit}>Guardar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </PageShell>
   );
 }

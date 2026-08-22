@@ -4,7 +4,7 @@ import { useLicense } from '@/hooks/useLicense';
 import { useAuth } from '@/context/AuthContext';
 import { toast } from 'sonner';
 
-const ALWAYS_ALLOWED = ['/billing', '/billing/success', '/pricing', '/blocked', '/admin'];
+const ALWAYS_ALLOWED = ['/billing', '/pricing', '/blocked', '/admin'];
 const WARNING_THRESHOLDS = [3, 1];
 
 export default function RequireLicense({ children }: { children: ReactNode }) {

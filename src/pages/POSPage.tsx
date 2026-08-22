@@ -3,7 +3,7 @@ import PageShell from '@/components/PageShell';
 import { useRestaurant } from '@/hooks/useRestaurant';
 import { formatPrice } from '@/lib/helpers';
 import { cn } from '@/lib/utils';
-import { CreditCard, Banknote, Smartphone, Check, Printer, AlertTriangle, History, UserPlus, Award, X, Search, Receipt as ReceiptIcon } from 'lucide-react';
+import { CreditCard, Banknote, Smartphone, Check, Printer, AlertTriangle, History, UserPlus, Award, X, Search, Receipt as ReceiptIcon, ArrowLeft, SplitSquareHorizontal, Undo2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { printReceipt, printServedItems } from '@/lib/receipt';
 import { toast } from 'sonner';
@@ -17,7 +17,7 @@ import { useAuth } from '@/context/AuthContext';
 type POSTab = 'payments' | 'receipts';
 
 export default function POSPage() {
-  const { activeOrders, orders, completeOrder, cancelOrder, logPrint } = useRestaurant();
+  const { activeOrders, orders, completeOrder, cancelOrder, logPrint, addPartialPayment, removeLastPayment } = useRestaurant();
   const { hasPermission } = useAuth();
   const canDiscount = hasPermission('pos.discount');
   const [tab, setTab] = useState<POSTab>('payments');
@@ -26,6 +26,8 @@ export default function POSPage() {
   const [packagingFee, setPackagingFee] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'mobile-money'>('cash');
   const [cashReceived, setCashReceived] = useState('');
+  const [splitMode, setSplitMode] = useState(false);
+  const [installmentAmount, setInstallmentAmount] = useState('');
   const [showSuccess, setShowSuccess] = useState(false);
   const [historyOrderId, setHistoryOrderId] = useState<string | null>(null);
 
@@ -52,6 +54,8 @@ export default function POSPage() {
   // Auto-link if order already has a customer
   useEffect(() => {
     setCashReceived('');
+    setSplitMode(false);
+    setInstallmentAmount('');
     if (!selectedOrder) { setLinkedCustomer(null); setRedeemInput(''); setPhoneLookup(''); return; }
     if (selectedOrder.customerId) {
       const c = customerStore.getAll().find(x => x.id === selectedOrder.customerId);
@@ -91,8 +95,17 @@ export default function POSPage() {
   const grandTotal = Math.max(0, subtotal - discount) + (isTakeawayOrDelivery ? packagingFee : 0) + tip;
   const willEarn = linkedCustomer && loyalty.enabled ? Math.floor(Math.max(0, subtotal - discount) * POINTS_PER_MT) : 0;
 
+  // T4.1: dividir conta. `payments` já registados contra este pedido +
+  // quanto falta cobrar do `grandTotal` (que já inclui desconto/taxa/gorjeta
+  // — decididos uma vez só, não por parcela).
+  const paymentsSoFar = selectedOrder?.payments ?? [];
+  const collected = paymentsSoFar.reduce((s, p) => s + p.amount, 0);
+  const remaining = Math.max(0, grandTotal - collected);
+  const installmentAmountNum = installmentAmount.trim() === '' ? remaining : Number(installmentAmount);
+  const amountDue = splitMode ? installmentAmountNum : grandTotal;
+
   const cashReceivedNum = cashReceived.trim() === '' ? null : Number(cashReceived);
-  const change = cashReceivedNum !== null ? cashReceivedNum - grandTotal : null;
+  const change = cashReceivedNum !== null ? cashReceivedNum - amountDue : null;
   const cashInsufficient = paymentMethod === 'cash' && change !== null && change < 0;
 
   const handleLookup = () => {
@@ -102,6 +115,28 @@ export default function POSPage() {
   };
 
   const [confirmingPayment, setConfirmingPayment] = useState(false);
+
+  const finishSuccess = () => {
+    if (linkedCustomer) {
+      const msgs: string[] = [];
+      if (willEarn > 0) msgs.push(`+${willEarn} pontos`);
+      if (redeemPts > 0) msgs.push(`-${redeemPts} resgatados`);
+      if (msgs.length) toast.success(`Fidelidade: ${msgs.join(' · ')}`);
+    }
+    setShowSuccess(true);
+    setTimeout(() => {
+      setShowSuccess(false);
+      setSelectedOrderId(null);
+      setTip(0);
+      setPackagingFee(0);
+      setCashReceived('');
+      setRedeemInput('');
+      setLinkedCustomer(null);
+      setPhoneLookup('');
+      setSplitMode(false);
+      setInstallmentAmount('');
+    }, 2000);
+  };
 
   const handlePayment = async () => {
     if (!selectedOrderId || cashInsufficient) return;
@@ -125,23 +160,41 @@ export default function POSPage() {
       }
       return;
     }
-    if (linkedCustomer) {
-      const msgs: string[] = [];
-      if (willEarn > 0) msgs.push(`+${willEarn} pontos`);
-      if (redeemPts > 0) msgs.push(`-${redeemPts} resgatados`);
-      if (msgs.length) toast.success(`Fidelidade: ${msgs.join(' · ')}`);
+    finishSuccess();
+  };
+
+  // T4.1: regista uma parcela; quando as parcelas somam o `grandTotal`,
+  // fecha o pedido normalmente (completeOrder), com o método desta última
+  // parcela — reaproveita por completo a lógica de fidelidade/desconto já
+  // existente, sem duplicar nada.
+  const handleAddInstallment = async () => {
+    if (!selectedOrderId || cashInsufficient) return;
+    if (!(installmentAmountNum > 0)) { toast.error('Indique um valor válido para a parcela'); return; }
+    const result = addPartialPayment(selectedOrderId, paymentMethod, installmentAmountNum, grandTotal);
+    if (!result.ok) { toast.error(result.error); return; }
+    setCashReceived('');
+    if (result.remaining <= 0.01) {
+      setConfirmingPayment(true);
+      const completion = await completeOrder(selectedOrderId, paymentMethod, tip, {
+        customerId: linkedCustomer?.id,
+        discount,
+        redeemedPoints: redeemPts,
+        packagingFee: isTakeawayOrDelivery ? packagingFee : 0,
+      });
+      setConfirmingPayment(false);
+      if (!completion.ok) {
+        if (completion.reason === 'sync-failed') {
+          toast.error('Falha ao confirmar pagamento', {
+            description: 'O servidor rejeitou a operação. A última parcela continua registada — tente novamente.',
+          });
+        }
+        return;
+      }
+      finishSuccess();
+    } else {
+      setInstallmentAmount('');
+      toast.success(`Parcela registada — falta ${formatPrice(result.remaining)}`);
     }
-    setShowSuccess(true);
-    setTimeout(() => {
-      setShowSuccess(false);
-      setSelectedOrderId(null);
-      setTip(0);
-      setPackagingFee(0);
-      setCashReceived('');
-      setRedeemInput('');
-      setLinkedCustomer(null);
-      setPhoneLookup('');
-    }, 2000);
   };
 
   return (
@@ -174,7 +227,7 @@ export default function POSPage() {
       ) : (
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Active Orders */}
-        <div className="space-y-3">
+        <div className={cn('space-y-3', selectedOrder && 'hidden lg:block')}>
           <h2 className="font-heading font-bold text-foreground">Pedidos Activos</h2>
           {activeOrders.length === 0 ? (
             <div className="glass rounded-xl p-8 text-center text-muted-foreground">
@@ -213,38 +266,24 @@ export default function POSPage() {
           )}
         </div>
 
-        {/* Payment Panel */}
-        <div className="glass rounded-2xl p-6 space-y-6 h-fit sticky top-6">
+        {/* Payment Panel — on mobile, opens as a full-screen overlay so
+            completing an order never requires scrolling past the whole
+            active-orders list first. */}
+        <div className={cn(
+          'glass p-6 space-y-6 lg:rounded-2xl lg:h-fit lg:sticky lg:top-6 lg:inset-auto lg:z-auto lg:overflow-visible',
+          selectedOrder
+            ? 'fixed inset-0 z-40 overflow-y-auto pb-28 rounded-none'
+            : 'hidden lg:block rounded-2xl'
+        )}>
           {selectedOrder ? (
             <>
+              <button
+                onClick={() => setSelectedOrderId(null)}
+                className="lg:hidden flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground -mt-1 mb-1"
+              >
+                <ArrowLeft className="w-4 h-4" /> Voltar aos pedidos
+              </button>
               <h2 className="font-heading font-bold text-foreground">Pagamento</h2>
-
-              <div className="bg-secondary/50 rounded-xl p-4">
-                <div className="flex justify-between mb-2">
-                  <span className="text-muted-foreground">Subtotal</span>
-                  <span className="text-foreground">{formatPrice(selectedOrder.total)}</span>
-                </div>
-                {discount > 0 && (
-                  <div className="flex justify-between mb-2 text-success">
-                    <span>Desconto fidelidade ({redeemPts} pts)</span>
-                    <span>-{formatPrice(discount)}</span>
-                  </div>
-                )}
-                {isTakeawayOrDelivery && packagingFee > 0 && (
-                  <div className="flex justify-between mb-2">
-                    <span className="text-muted-foreground">Taxa de embalagem</span>
-                    <span className="text-foreground">{formatPrice(packagingFee)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between mb-2">
-                  <span className="text-muted-foreground">Gorjeta</span>
-                  <span className="text-foreground">{formatPrice(tip)}</span>
-                </div>
-                <div className="flex justify-between pt-2 border-t border-border font-bold text-lg">
-                  <span className="text-foreground">Total</span>
-                  <span className="text-primary">{formatPrice(grandTotal)}</span>
-                </div>
-              </div>
 
               {/* Customer / Loyalty */}
               <div className="rounded-xl border border-border p-3 space-y-2">
@@ -293,7 +332,9 @@ export default function POSPage() {
                             className="text-xs px-2 py-2 rounded-md bg-secondary text-secondary-foreground hover:bg-secondary/80"
                           >Máx</button>
                         </div>
-                        <p className="text-[11px] text-muted-foreground">1 ponto = {MT_PER_POINT} MT de desconto · ganha 1 ponto por cada 10 MT.</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          1 ponto = {MT_PER_POINT} MT de desconto · ganha 1 ponto por cada {POINTS_PER_MT > 0 ? Math.round(1 / POINTS_PER_MT) : '—'} MT.
+                        </p>
                       </>
                     )}
                   </>
@@ -381,6 +422,88 @@ export default function POSPage() {
                 </div>
               </div>
 
+              <div className="bg-secondary/50 rounded-xl p-4">
+                <div className="flex justify-between mb-2">
+                  <span className="text-muted-foreground">Subtotal</span>
+                  <span className="text-foreground">{formatPrice(selectedOrder.total)}</span>
+                </div>
+                {discount > 0 && (
+                  <div className="flex justify-between mb-2 text-success">
+                    <span>Desconto fidelidade ({redeemPts} pts)</span>
+                    <span>-{formatPrice(discount)}</span>
+                  </div>
+                )}
+                {isTakeawayOrDelivery && packagingFee > 0 && (
+                  <div className="flex justify-between mb-2">
+                    <span className="text-muted-foreground">Taxa de embalagem</span>
+                    <span className="text-foreground">{formatPrice(packagingFee)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between mb-2">
+                  <span className="text-muted-foreground">Gorjeta</span>
+                  <span className="text-foreground">{formatPrice(tip)}</span>
+                </div>
+                <div className="flex justify-between pt-2 border-t border-border font-bold text-lg">
+                  <span className="text-foreground">Total</span>
+                  <span className="text-primary">{formatPrice(grandTotal)}</span>
+                </div>
+              </div>
+
+              {/* Dividir conta — T4.1 */}
+              <div className="rounded-xl border border-border p-3 space-y-3">
+                <button
+                  onClick={() => setSplitMode(s => !s)}
+                  className="w-full flex items-center justify-between text-sm font-semibold"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <SplitSquareHorizontal className="w-4 h-4 text-primary" /> Dividir conta
+                  </span>
+                  <span className={cn('text-xs px-2 py-0.5 rounded-full', splitMode ? 'bg-primary/15 text-primary' : 'bg-secondary text-secondary-foreground')}>
+                    {splitMode ? 'Activo' : 'Pagamento único'}
+                  </span>
+                </button>
+
+                {splitMode && (
+                  <>
+                    {paymentsSoFar.length > 0 && (
+                      <div className="space-y-1.5">
+                        {paymentsSoFar.map((p, i) => (
+                          <div key={p.id} className="flex items-center justify-between text-xs px-2 py-1.5 rounded-md bg-secondary/40">
+                            <span className="text-foreground">
+                              {p.method === 'cash' ? 'Dinheiro' : p.method === 'card' ? 'Cartão' : 'Carteira-Móvel'} · {formatPrice(p.amount)}
+                            </span>
+                            {i === paymentsSoFar.length - 1 && (
+                              <button
+                                onClick={() => removeLastPayment(selectedOrderId!)}
+                                className="flex items-center gap-1 text-muted-foreground hover:text-destructive"
+                              >
+                                <Undo2 className="w-3 h-3" /> Desfazer
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between text-sm font-medium">
+                      <span className="text-muted-foreground">Falta cobrar</span>
+                      <span className="text-primary font-bold">{formatPrice(remaining)}</span>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs text-muted-foreground" htmlFor="installment-amount">Valor desta parcela (MT)</label>
+                      <input
+                        id="installment-amount"
+                        type="number"
+                        min={0}
+                        value={installmentAmount}
+                        onChange={e => setInstallmentAmount(e.target.value)}
+                        placeholder={formatPrice(remaining).replace(' MT', '')}
+                        className="w-full bg-secondary text-secondary-foreground rounded-xl px-3 py-2 text-sm border border-border"
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+
               {paymentMethod === 'cash' && (
                 <div className="space-y-2">
                   <label className="text-sm text-muted-foreground" htmlFor="cash-received">Valor Recebido (MT)</label>
@@ -390,7 +513,7 @@ export default function POSPage() {
                     min={0}
                     value={cashReceived}
                     onChange={e => setCashReceived(e.target.value)}
-                    placeholder={formatPrice(grandTotal).replace(' MT', '')}
+                    placeholder={formatPrice(amountDue).replace(' MT', '')}
                     className="w-full bg-secondary text-secondary-foreground rounded-xl px-3 py-2.5 text-sm border border-border"
                   />
                   {change !== null && (
@@ -464,12 +587,16 @@ export default function POSPage() {
                   Cancelar Pedido
                 </button>
                 <button
-                  onClick={handlePayment}
-                  disabled={!allServed || confirmingPayment || cashInsufficient}
+                  onClick={splitMode ? handleAddInstallment : handlePayment}
+                  disabled={!allServed || confirmingPayment || cashInsufficient || (splitMode && !(installmentAmountNum > 0))}
                   title={!allServed ? 'Todos os pratos devem ser servidos antes' : cashInsufficient ? 'Valor recebido insuficiente' : undefined}
                   className="flex-1 bg-success text-success-foreground py-3.5 rounded-xl font-bold text-sm hover:bg-success/90 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
-                  {confirmingPayment ? 'A confirmar…' : 'Confirmar Pagamento'}
+                  {confirmingPayment
+                    ? 'A confirmar…'
+                    : splitMode
+                      ? (installmentAmountNum >= remaining ? 'Registar parcela e finalizar' : 'Registar parcela')
+                      : 'Confirmar Pagamento'}
                 </button>
               </div>
             </>

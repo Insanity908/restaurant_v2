@@ -20,7 +20,7 @@ const TENANT_ROW = {
     expires_at: '2026-09-13T00:00:00.000Z', last_payment_ref: null,
     blocked_by_admin: true, block_reason: 'Teste de verificação',
   },
-  subscription_history: [{ plan: 'monthly', paid_at: '2026-08-01T00:00:00.000Z', ref: null }],
+  subscription_history: [{ plan: 'monthly', paid_at: '2026-08-01T00:00:00.000Z', ref: null, price: 3600 }],
 };
 
 vi.mock('@/integrations/supabase/client', () => ({

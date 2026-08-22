@@ -74,6 +74,12 @@ export const ROUTE_PERMISSIONS: Record<string, Role[]> = {
   '/staff': ['admin', 'manager'],
   '/customers': ['admin', 'manager', 'cashier', 'waiter'],
   '/shifts': ['admin', 'manager', 'cashier', 'waiter', 'kitchen'],
+  // Salários e outras despesas são sensíveis — exclusivo do admin (ver
+  // staff_salaries/expenses no schema, RLS admin-only).
+  '/expenses': ['admin'],
+  // Relatório anual + limpeza de dados antigos — mesmo âmbito sensível
+  // que '/expenses' (apaga dados definitivamente).
+  '/data-archive': ['admin'],
   // '/billing' e '/pricing' saíram daqui de propósito — ver AuthContext.tsx.
   '/onboarding': ['admin'],
   '/admin': ['superadmin'],

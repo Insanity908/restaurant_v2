@@ -47,7 +47,7 @@ describe('StaffPage — criar novo funcionário', () => {
   it('preenche o formulário (nome/função/telefone/password), cria a conta real via edge function e adiciona ao roster local', async () => {
     const { default: StaffPage } = await import('@/pages/StaffPage');
     const user = userEvent.setup();
-    render(<StaffPage />);
+    render(<MemoryRouter><StaffPage /></MemoryRouter>);
 
     await user.click(screen.getByRole('button', { name: /novo funcionário/i }));
 
@@ -77,7 +77,7 @@ describe('StaffPage — criar novo funcionário', () => {
   it('não pede username nem email — os campos não existem no formulário', async () => {
     const { default: StaffPage } = await import('@/pages/StaffPage');
     const user = userEvent.setup();
-    render(<StaffPage />);
+    render(<MemoryRouter><StaffPage /></MemoryRouter>);
 
     await user.click(screen.getByRole('button', { name: /novo funcionário/i }));
     const dialog = await screen.findByRole('dialog');
@@ -89,7 +89,7 @@ describe('StaffPage — criar novo funcionário', () => {
   it('não chama a edge function se a password tiver menos de 8 caracteres', async () => {
     const { default: StaffPage } = await import('@/pages/StaffPage');
     const user = userEvent.setup();
-    render(<StaffPage />);
+    render(<MemoryRouter><StaffPage /></MemoryRouter>);
 
     await user.click(screen.getByRole('button', { name: /novo funcionário/i }));
     const dialog = await screen.findByRole('dialog');
@@ -105,7 +105,7 @@ describe('StaffPage — criar novo funcionário', () => {
   it('não chama a edge function se o telefone não for indicado', async () => {
     const { default: StaffPage } = await import('@/pages/StaffPage');
     const user = userEvent.setup();
-    render(<StaffPage />);
+    render(<MemoryRouter><StaffPage /></MemoryRouter>);
 
     await user.click(screen.getByRole('button', { name: /novo funcionário/i }));
     const dialog = await screen.findByRole('dialog');
@@ -130,7 +130,7 @@ describe('StaffPage — criar novo funcionário', () => {
 
     const { default: StaffPage } = await import('@/pages/StaffPage');
     const user = userEvent.setup();
-    render(<StaffPage />);
+    render(<MemoryRouter><StaffPage /></MemoryRouter>);
 
     await user.click(screen.getByRole('button', { name: /remover/i }));
     const confirmDialog = await screen.findByRole('alertdialog');
@@ -207,5 +207,61 @@ describe('TablesPage — criar e editar mesa', () => {
     await user.click(screen.getByRole('button', { name: /guardar/i }));
 
     expect(updateTableMock).toHaveBeenCalledWith('t-1', { number: 2, seats: 8, status: 'free' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TablesPage — "Mover mesa" (T3.5)
+// ---------------------------------------------------------------------------
+describe('TablesPage — mover pedido de mesa', () => {
+  const moveOrderToTableMock = vi.fn();
+
+  beforeEach(() => {
+    vi.resetModules();
+    moveOrderToTableMock.mockReset().mockReturnValue({ ok: true });
+
+    vi.doMock('@/context/AuthContext', () => ({
+      useAuth: () => ({ hasRole: (roles: string[]) => roles.includes('admin'), user: { tenantId: 't1' } }),
+    }));
+    vi.doMock('@/hooks/useLicense', () => ({ useLicense: () => ({ isBasic: false, tier: 'pro' }) }));
+    vi.doMock('@/hooks/useRestaurant', () => ({
+      useRestaurant: () => ({
+        tables: [
+          { id: 'table-a', number: 1, seats: 4, status: 'occupied', currentOrderId: 'order-1' },
+          { id: 'table-b', number: 2, seats: 4, status: 'free' },
+        ],
+        orders: [{ id: 'order-1', tableId: 'table-a', tableNumber: 1, items: [], status: 'active', paid: false, total: 500, createdAt: new Date().toISOString() }],
+        addTable: vi.fn(), updateTable: vi.fn(), deleteTable: vi.fn(), logPrint: vi.fn(),
+        pendingConfirmationOrders: [], confirmPendingOrder: vi.fn(), rejectPendingOrder: vi.fn(),
+        moveOrderToTable: moveOrderToTableMock,
+      }),
+    }));
+  });
+
+  it('"Mover mesa" só aparece quando há mesa livre, e escolher uma chama moveOrderToTable', async () => {
+    const { default: TablesPage } = await import('@/pages/TablesPage');
+    const user = userEvent.setup();
+    render(<MemoryRouter><TablesPage /></MemoryRouter>);
+
+    await user.click(screen.getByRole('button', { name: 'Mover mesa' }));
+    await user.click(await screen.findByRole('button', { name: 'Mesa 2' }));
+
+    expect(moveOrderToTableMock).toHaveBeenCalledWith('order-1', 'table-b');
+  });
+
+  it('sem mesas livres, o botão "Mover mesa" não aparece', async () => {
+    vi.doMock('@/hooks/useRestaurant', () => ({
+      useRestaurant: () => ({
+        tables: [{ id: 'table-a', number: 1, seats: 4, status: 'occupied', currentOrderId: 'order-1' }],
+        orders: [{ id: 'order-1', tableId: 'table-a', tableNumber: 1, items: [], status: 'active', paid: false, total: 500, createdAt: new Date().toISOString() }],
+        addTable: vi.fn(), updateTable: vi.fn(), deleteTable: vi.fn(), logPrint: vi.fn(),
+        pendingConfirmationOrders: [], confirmPendingOrder: vi.fn(), rejectPendingOrder: vi.fn(),
+        moveOrderToTable: moveOrderToTableMock,
+      }),
+    }));
+    const { default: TablesPage } = await import('@/pages/TablesPage');
+    render(<MemoryRouter><TablesPage /></MemoryRouter>);
+
+    expect(screen.queryByRole('button', { name: 'Mover mesa' })).not.toBeInTheDocument();
   });
 });

@@ -47,7 +47,7 @@ describe('Acessibilidade — StaffPage (dialog "Novo funcionário")', () => {
   it('o formulário de novo funcionário não tem violações de acessibilidade', async () => {
     const { default: StaffPage } = await import('@/pages/StaffPage');
     const user = userEvent.setup();
-    const { container } = render(<StaffPage />);
+    const { container } = render(<MemoryRouter><StaffPage /></MemoryRouter>);
 
     await user.click(screen.getByRole('button', { name: /novo funcionário/i }));
     await screen.findByRole('dialog');
@@ -107,7 +107,7 @@ describe('Acessibilidade — KitchenPage', () => {
 
   it('a lista de pedidos não tem violações de acessibilidade', async () => {
     const { default: KitchenPage } = await import('@/pages/KitchenPage');
-    const { container } = render(<KitchenPage />);
+    const { container } = render(<MemoryRouter><KitchenPage /></MemoryRouter>);
     expectNoViolations(await axe(container));
   });
 });

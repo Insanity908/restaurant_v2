@@ -7,7 +7,27 @@
 import { supabase } from '@/integrations/supabase/client';
 import type { MenuItem } from '@/types/restaurant';
 
-export interface PublicMenuItem extends MenuItem {}
+export type PublicMenuItem = MenuItem;
+
+export interface PublicBranding {
+  brandName?: string;
+  iconEmoji?: string;
+  iconUrl?: string;
+  primaryHue?: number;
+  primarySaturation?: number;
+  primaryLightness?: number;
+  backgroundHue?: number;
+  backgroundSaturation?: number;
+  backgroundLightness?: number;
+}
+
+/** Marca/cores do restaurante para a página pública — ver get_public_branding(). */
+export async function fetchPublicBranding(tenantId: string): Promise<PublicBranding | null> {
+  const { data, error } = await supabase.rpc('get_public_branding', { p_tenant_id: tenantId });
+  if (error) { console.warn('fetchPublicBranding failed', error.message); return null; }
+  if (!data || typeof data !== 'object') return null;
+  return data as PublicBranding;
+}
 
 /** Cardápio público de um tenant — só itens disponíveis (RLS já filtra isso para `anon`). */
 export async function fetchPublicMenu(tenantId: string): Promise<PublicMenuItem[]> {
@@ -60,6 +80,11 @@ export interface SubmitCustomerOrderParams {
   customerName?: string;
   deliveryAddress?: string;
   items: CustomerCartItem[];
+  /** Gerada uma vez por visita à página (ver CustomerOrderPage) — reenviada
+   *  em qualquer nova tentativa do mesmo carrinho, para que um duplo-toque
+   *  ou um retry de rede devolva o pedido já criado em vez de criar outro
+   *  (e descontar o estoque outra vez). */
+  idempotencyKey?: string;
 }
 
 /** Submete o carrinho. Devolve o id do pedido (para a página de acompanhamento) ou null se falhou. */
@@ -76,6 +101,7 @@ export async function submitCustomerOrder(params: SubmitCustomerOrderParams): Pr
       modifiers: (i.modifierIds ?? []).map(id => ({ id })),
       notes: i.notes,
     })) as never,
+    p_idempotency_key: params.idempotencyKey ?? null,
   });
   if (error) { console.warn('submitCustomerOrder failed', error.message); return null; }
   return (data as string) ?? null;

@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { subscribeLicense } from '@/lib/store';
 import { tenantStore, fetchTenant, refreshSubscription } from '@/lib/tenants';
 import { planTier } from '@/lib/billing';
 import { Tenant } from '@/types/restaurant';
@@ -23,15 +24,33 @@ export function useLicense() {
   useEffect(() => {
     refresh();
     void syncFromServer();
-    const id = setInterval(() => { void syncFromServer(); }, 5 * 60 * 1000);
+    // Realtime é a fonte primária agora — activar um plano no SuperAdmin
+    // reflecte-se quase de imediato. O polling fica só como rede de
+    // segurança (ligação perdida ao canal, mudanças que aconteçam antes da
+    // subscrição estabelecer), por isso passou de 5 para 30 minutos.
+    const id = setInterval(() => { void syncFromServer(); }, 30 * 60 * 1000);
     const onStorage = () => refresh();
     const onVisible = () => { if (document.visibilityState === 'visible') void syncFromServer(); };
     window.addEventListener('storage', onStorage);
     document.addEventListener('visibilitychange', onVisible);
+
+    // switchTenant() sempre recarrega a página (ver AuthContext.tsx), por
+    // isso o tenant_id corrente é estável durante a vida deste efeito.
+    // useLicense() é chamado de vários sítios ao mesmo tempo na mesma
+    // página (AppSidebar + RequireLicense + a própria página) — por isso
+    // usa subscribeLicense (partilhado/com contagem de referências, ver
+    // store.ts), nunca um `supabase.channel(...)` directo: um segundo canal
+    // com o mesmo nome de tópico rebenta ("cannot add postgres_changes
+    // callbacks ... after subscribe()"), porque o supabase-js devolve o
+    // canal já existente em vez de criar um novo.
+    const tenantId = tenantStore.current()?.id ?? localStorage.getItem('current_tenant_id');
+    const unsubscribe = tenantId ? subscribeLicense(tenantId, () => void syncFromServer()) : undefined;
+
     return () => {
       clearInterval(id);
       window.removeEventListener('storage', onStorage);
       document.removeEventListener('visibilitychange', onVisible);
+      unsubscribe?.();
     };
   }, [refresh, syncFromServer]);
 

@@ -473,6 +473,7 @@ export default function MenuPage() {
         onSave={handleSave}
         item={editingItem}
         inventory={inventory}
+        menuItems={menuItems}
       />
 
       {/* Proforma Dialog */}
@@ -525,6 +526,9 @@ export default function MenuPage() {
                 taxId: settings.taxId,
                 phone: settings.phone,
                 logoUrl: settings.receiptShowLogo ? settings.receiptLogo : undefined,
+                primaryHue: settings.primaryHue,
+                primarySaturation: settings.primarySaturation,
+                primaryLightness: settings.primaryLightness,
               });
               setProformaOpen(false);
             }}>

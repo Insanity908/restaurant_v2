@@ -45,6 +45,26 @@ export function registerServiceWorker() {
 
   // Importa dinamicamente o módulo de registro do PWA e o ativa
   void import('virtual:pwa-register').then(({ registerSW }) => {
-    registerSW({ immediate: true });
+    const updateSW = registerSW({
+      immediate: true,
+      // Mesmo em registerType "autoUpdate" (a versão nova activa-se
+      // sozinha), o utilizador nunca sabia que isto tinha acontecido — num
+      // contexto de rede fraca, um dispositivo podia ficar meses preso numa
+      // versão antiga sem ninguém reparar. Aviso simples, sem bloquear nada.
+      onNeedRefresh: () => {
+        void import('sonner').then(({ toast }) => {
+          toast.info('Nova versão disponível', {
+            description: 'Actualize para ter as últimas melhorias.',
+            action: { label: 'Actualizar', onClick: () => void updateSW(true) },
+            duration: 15000,
+          });
+        });
+      },
+      onOfflineReady: () => {
+        void import('sonner').then(({ toast }) => {
+          toast.success('App pronta para funcionar offline');
+        });
+      },
+    });
   });
 }

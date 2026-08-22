@@ -7,6 +7,8 @@ export interface AppSettings {
   brandName: string;
   iconEmoji: string;
   iconUrl?: string;
+  /** Imagem de fundo da aplicação (opcional) — caminho no bucket LOGO_BUCKET, aplicado via body em AppSidebar. */
+  backgroundImageUrl?: string;
   receiptLogo?: string;
   receiptShowLogo: boolean;
   primaryHue: number;
@@ -29,6 +31,8 @@ export interface AppSettings {
   kitchenDelayMinutes: number;
   /** Minutos prontos sem servir até o garçom/caixa ver o alerta de atraso. */
   waiterDelayMinutes: number;
+  /** Taxa de IVA (%) aplicada sobre a receita para o lucro líquido em Relatórios — ver /expenses. */
+  ivaRate: number;
 }
 
 const CACHE_BASE = 'app_settings_v1';
@@ -38,6 +42,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   brandName: 'SABOR DE NAMPULA',
   iconEmoji: '☕',
   iconUrl: undefined,
+  backgroundImageUrl: undefined,
   receiptLogo: undefined,
   receiptShowLogo: false,
   primaryHue: 30,
@@ -58,6 +63,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   phone: '',
   kitchenDelayMinutes: 15,
   waiterDelayMinutes: 15,
+  ivaRate: 0,
 };
 
 // In-memory cache mirrors localStorage for O(1) sync reads.
@@ -116,7 +122,7 @@ export async function fetchSettings(tenantId: string): Promise<AppSettings> {
   const remote = (data?.data ?? null) as Partial<AppSettings> | null;
   const merged: AppSettings = { ...DEFAULT_SETTINGS, ...(remote ?? {}) };
   writeLocalCache(merged);
-  void warmStorageUrls(LOGO_BUCKET, [merged.iconUrl, merged.receiptLogo]);
+  void warmStorageUrls(LOGO_BUCKET, [merged.iconUrl, merged.receiptLogo, merged.backgroundImageUrl]);
   applyTheme(merged);
   window.dispatchEvent(new CustomEvent('app-settings-changed', { detail: merged }));
   return merged;

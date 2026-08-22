@@ -148,6 +148,92 @@ export type Database = {
           },
         ]
       }
+      expense_amount_history: {
+        Row: {
+          amount: number
+          created_at: string
+          expense_id: string
+          id: string
+          tenant_id: string
+        }
+        Insert: {
+          amount?: number
+          created_at?: string
+          expense_id: string
+          id?: string
+          tenant_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          expense_id?: string
+          id?: string
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expense_amount_history_expense_id_fkey"
+            columns: ["expense_id"]
+            isOneToOne: false
+            referencedRelation: "expenses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "expense_amount_history_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      expenses: {
+        Row: {
+          amount: number
+          archived_at: string | null
+          category: string
+          created_at: string
+          expense_date: string | null
+          id: string
+          name: string
+          recurring: boolean
+          tenant_id: string
+          updated_at: string
+        }
+        Insert: {
+          amount?: number
+          archived_at?: string | null
+          category?: string
+          created_at?: string
+          expense_date?: string | null
+          id?: string
+          name: string
+          recurring?: boolean
+          tenant_id: string
+          updated_at?: string
+        }
+        Update: {
+          amount?: number
+          archived_at?: string | null
+          category?: string
+          created_at?: string
+          expense_date?: string | null
+          id?: string
+          name?: string
+          recurring?: boolean
+          tenant_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expenses_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       feedback_submissions: {
         Row: {
           created_at: string
@@ -189,8 +275,57 @@ export type Database = {
           },
         ]
       }
+      inventory_movements: {
+        Row: {
+          created_at: string
+          created_by_name: string | null
+          delta: number
+          id: string
+          inventory_item_id: string
+          reason: string
+          reference_id: string | null
+          tenant_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by_name?: string | null
+          delta: number
+          id?: string
+          inventory_item_id: string
+          reason: string
+          reference_id?: string | null
+          tenant_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by_name?: string | null
+          delta?: number
+          id?: string
+          inventory_item_id?: string
+          reason?: string
+          reference_id?: string | null
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inventory_movements_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "inventory_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inventory_movements_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       inventory_items: {
         Row: {
+          client_updated_at: string
           cost_per_unit: number
           current_stock: number
           icon: string | null
@@ -205,6 +340,7 @@ export type Database = {
           usage_per_serving: number
         }
         Insert: {
+          client_updated_at?: string
           cost_per_unit?: number
           current_stock?: number
           icon?: string | null
@@ -219,6 +355,7 @@ export type Database = {
           usage_per_serving?: number
         }
         Update: {
+          client_updated_at?: string
           cost_per_unit?: number
           current_stock?: number
           icon?: string | null
@@ -235,6 +372,51 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "inventory_items_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      loyalty_points_history: {
+        Row: {
+          created_at: string
+          created_by_name: string
+          customer_id: string
+          delta: number
+          id: string
+          reason: string
+          tenant_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by_name: string
+          customer_id: string
+          delta: number
+          id?: string
+          reason: string
+          tenant_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by_name?: string
+          customer_id?: string
+          delta?: number
+          id?: string
+          reason?: string
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "loyalty_points_history_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "loyalty_points_history_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
@@ -287,6 +469,7 @@ export type Database = {
         Row: {
           available: boolean
           category: string
+          client_updated_at: string
           created_at: string
           description: string | null
           id: string
@@ -301,6 +484,7 @@ export type Database = {
         Insert: {
           available?: boolean
           category?: string
+          client_updated_at?: string
           created_at?: string
           description?: string | null
           id?: string
@@ -315,6 +499,7 @@ export type Database = {
         Update: {
           available?: boolean
           category?: string
+          client_updated_at?: string
           created_at?: string
           description?: string | null
           id?: string
@@ -431,6 +616,41 @@ export type Database = {
           },
         ]
       }
+      order_payments: {
+        Row: {
+          amount: number
+          closed_by: Json | null
+          created_at: string
+          id: string
+          method: string
+          order_id: string
+        }
+        Insert: {
+          amount: number
+          closed_by?: Json | null
+          created_at?: string
+          id?: string
+          method: string
+          order_id: string
+        }
+        Update: {
+          amount?: number
+          closed_by?: Json | null
+          created_at?: string
+          id?: string
+          method?: string
+          order_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_payments_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       orders: {
         Row: {
           cancelled_at: string | null
@@ -446,6 +666,7 @@ export type Database = {
           delivery_address: string | null
           discount: number
           id: string
+          idempotency_key: string | null
           packaging_fee: number
           paid: boolean
           payment_method: Database["public"]["Enums"]["payment_method"] | null
@@ -472,6 +693,7 @@ export type Database = {
           delivery_address?: string | null
           discount?: number
           id?: string
+          idempotency_key?: string | null
           packaging_fee?: number
           paid?: boolean
           payment_method?: Database["public"]["Enums"]["payment_method"] | null
@@ -498,6 +720,7 @@ export type Database = {
           delivery_address?: string | null
           discount?: number
           id?: string
+          idempotency_key?: string | null
           packaging_fee?: number
           paid?: boolean
           payment_method?: Database["public"]["Enums"]["payment_method"] | null
@@ -843,11 +1066,51 @@ export type Database = {
           },
         ]
       }
+      staff_salaries: {
+        Row: {
+          created_at: string
+          id: string
+          salary: number
+          staff_id: string
+          tenant_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          salary?: number
+          staff_id: string
+          tenant_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          salary?: number
+          staff_id?: string
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "staff_salaries_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "staff_salaries_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       subscription_history: {
         Row: {
           id: string
           paid_at: string
           plan: Database["public"]["Enums"]["billing_plan"]
+          price: number | null
           ref: string | null
           tenant_id: string
         }
@@ -855,6 +1118,7 @@ export type Database = {
           id?: string
           paid_at?: string
           plan: Database["public"]["Enums"]["billing_plan"]
+          price?: number | null
           ref?: string | null
           tenant_id: string
         }
@@ -862,6 +1126,7 @@ export type Database = {
           id?: string
           paid_at?: string
           plan?: Database["public"]["Enums"]["billing_plan"]
+          price?: number | null
           ref?: string | null
           tenant_id?: string
         }
@@ -1071,7 +1336,8 @@ export type Database = {
         Returns: boolean
       }
       get_order_status: { Args: { p_order_id: string }; Returns: Json }
-      get_storage_usage: { Args: Record<PropertyKey, never>; Returns: Json }
+      get_public_branding: { Args: { p_tenant_id: string }; Returns: Json }
+      get_storage_usage: { Args: never; Returns: Json }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -1087,6 +1353,7 @@ export type Database = {
         Returns: boolean
       }
       is_tenant_member: { Args: { _tenant_id: string }; Returns: boolean }
+      now_utc: { Args: never; Returns: string }
       resolve_login_email: { Args: { identifier: string }; Returns: string }
       resolve_login_phone: { Args: { identifier: string }; Returns: string }
       submit_customer_order: {
@@ -1094,6 +1361,7 @@ export type Database = {
           p_customer_name: string
           p_customer_phone: string
           p_delivery_address?: string
+          p_idempotency_key?: string
           p_items: Json
           p_table_id: string
           p_tenant_id: string

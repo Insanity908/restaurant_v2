@@ -23,9 +23,10 @@ interface Props {
   onSave: (data: Omit<MenuItem, 'id'> & { id?: string }) => void;
   item?: MenuItem | null;
   inventory?: InventoryItem[];
+  menuItems?: MenuItem[];
 }
 
-export default function MenuItemDialog({ open, onClose, onSave, item, inventory = [] }: Props) {
+export default function MenuItemDialog({ open, onClose, onSave, item, inventory = [], menuItems = [] }: Props) {
   const [name, setName] = useState('');
   const [price, setPrice] = useState('');
   const [category, setCategory] = useState(CATEGORIES[0]);
@@ -110,6 +111,24 @@ export default function MenuItemDialog({ open, onClose, onSave, item, inventory 
   };
 
 
+  // Bebidas não passam pela cozinha (ver initialStatus em MenuPage) — em vez
+  // da receita completa (ingredientes múltiplos + passos + tempo), só faz
+  // sentido ligar directamente a UM item do inventário (a própria bebida),
+  // para o stock descer sozinho a cada pedido servido.
+  const isBebida = category === 'Bebidas';
+  const bebidaInvId = ingredients[0]?.inventoryItemId || '';
+  const setBebidaLink = (invId: string) => {
+    if (!invId) { setIngredients([]); return; }
+    const inv = inventory.find(i => i.id === invId);
+    if (!inv) return;
+    setIngredients([{ name: inv.name, qty: `${inv.usagePerServing} ${inv.unit}`, inventoryItemId: inv.id }]);
+    // Sem isto, uma bebida ligada ao inventário ficava sem imagem no
+    // cardápio até alguém carregar uma manualmente — só copia se o item do
+    // menu ainda não tiver a sua própria imagem, para nunca substituir uma
+    // já escolhida.
+    if (!image && inv.image) setImage(inv.image);
+  };
+
   // Per-ingredient unit validation (only for linked ingredients)
   const ingredientErrors: (string | null)[] = ingredients.map(ing => {
     if (!ing.inventoryItemId) return null;
@@ -124,6 +143,14 @@ export default function MenuItemDialog({ open, onClose, onSave, item, inventory 
     if (!name.trim() || !price) return;
     if (hasIngredientErrors) {
       toast.error('Corrija as quantidades dos ingredientes ligados ao inventário');
+      return;
+    }
+    const trimmedName = name.trim();
+    const duplicate = menuItems.find(
+      m => m.id !== item?.id && m.name.trim().toLowerCase() === trimmedName.toLowerCase(),
+    );
+    if (duplicate) {
+      toast.error(`Já existe um item chamado "${duplicate.name}" no cardápio`);
       return;
     }
     const validModifiers = modifiers.filter(m => m.name.trim());
@@ -205,7 +232,22 @@ export default function MenuItemDialog({ open, onClose, onSave, item, inventory 
             <Label className="text-muted-foreground text-xs">Categoria</Label>
             <select
               value={category}
-              onChange={e => setCategory(e.target.value)}
+              onChange={e => {
+                const next = e.target.value;
+                setCategory(next);
+                // Bebidas não usam passos/tempo nem vários ingredientes —
+                // limpa ao mudar para a categoria (só quando o utilizador
+                // troca activamente; abrir um item antigo não apaga nada).
+                if (next === 'Bebidas') {
+                  setSteps([]);
+                  setTemp('');
+                  // Só mantém o 1º ingrediente se estiver ligado ao
+                  // inventário — a UI simplificada de Bebidas não mostra
+                  // ingredientes de texto livre, por isso guardá-los
+                  // escondidos deixaria o item com dados invisíveis ao salvar.
+                  setIngredients(prev => (prev[0]?.inventoryItemId ? prev.slice(0, 1) : []));
+                }
+              }}
               className="w-full bg-secondary text-secondary-foreground rounded-lg px-3 py-2 text-sm border border-border"
             >
               {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
@@ -257,7 +299,51 @@ export default function MenuItemDialog({ open, onClose, onSave, item, inventory 
             ))}
           </div>
 
-          {/* Recipe (Ingredients + Steps) — used by KDS */}
+          {/* Bebidas não passam pela cozinha — sem receita, só uma ligação
+              directa ao item do inventário para o stock descer sozinho. */}
+          {isBebida ? (
+            <div className="space-y-2 rounded-xl bg-secondary/30 border border-border/50 p-3">
+              <div className="flex items-center gap-2">
+                <Package className="w-4 h-4 text-primary" />
+                <Label className="text-foreground text-sm font-medium">Vincular ao Inventário</Label>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Bebidas não passam pela preparação da cozinha — ligue à bebida no inventário para o stock descer automaticamente a cada pedido servido.
+              </p>
+              <Select value={bebidaInvId || '__none__'} onValueChange={v => setBebidaLink(v === '__none__' ? '' : v)}>
+                <SelectTrigger className="bg-secondary border-border h-9 text-sm">
+                  <SelectValue placeholder="Escolher bebida do inventário" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">Sem ligação</SelectItem>
+                  {inventory.map(inv => (
+                    <SelectItem key={inv.id} value={inv.id}>
+                      <span className="flex items-center gap-2">
+                        <span className="w-6 h-6 shrink-0 rounded bg-secondary border border-border overflow-hidden flex items-center justify-center">
+                          {inv.image ? (
+                            <StorageImage bucket={MENU_BUCKET} path={inv.image} alt={inv.name} className="w-full h-full object-cover" />
+                          ) : inv.icon ? (
+                            <span className="text-xs">{inv.icon}</span>
+                          ) : (
+                            <Package className="w-3 h-3 text-muted-foreground" />
+                          )}
+                        </span>
+                        {inv.name} ({inv.currentStock} {inv.unit})
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {bebidaInvId && (() => {
+                const inv = inventory.find(i => i.id === bebidaInvId);
+                return inv ? (
+                  <p className="text-xs text-muted-foreground">
+                    Cada pedido servido desconta {inv.usagePerServing} {inv.unit} deste item no inventário.
+                  </p>
+                ) : null;
+              })()}
+            </div>
+          ) : (
           <div className="space-y-3 rounded-xl bg-secondary/30 border border-border/50 p-3">
             <div className="flex items-center gap-2">
               <ChefHat className="w-4 h-4 text-primary" />
@@ -430,6 +516,7 @@ export default function MenuItemDialog({ open, onClose, onSave, item, inventory 
               />
             </div>
           </div>
+          )}
         </div>
 
         <DialogFooter className="gap-2 pt-2">

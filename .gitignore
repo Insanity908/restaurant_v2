@@ -11,6 +11,7 @@ lerna-debug.log*
 supabase/.temp
 cypress/screenshots
 cypress/videos
+cypress/downloads
 node_modules
 dist
 dist-ssr

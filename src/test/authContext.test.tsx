@@ -64,7 +64,7 @@ vi.mock('@/lib/permissions', async (importOriginal) => {
   return { ...actual, fetchStaffPermissions: vi.fn().mockResolvedValue({}) };
 });
 vi.mock('@/lib/paymentAccounts', () => ({ fetchPaymentAccounts: vi.fn().mockResolvedValue({}) }));
-vi.mock('@/lib/billing', () => ({ fetchStripeConfig: vi.fn().mockResolvedValue({}) }));
+vi.mock('@/lib/billing', () => ({ fetchPlans: vi.fn().mockResolvedValue({}) }));
 vi.mock('@/lib/store', () => ({ fetchTenantCatalog: vi.fn().mockResolvedValue({}) }));
 
 function Probe() {

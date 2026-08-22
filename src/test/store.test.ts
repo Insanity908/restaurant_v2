@@ -19,17 +19,48 @@ type CloudCall = {
 
 const cloudCalls: CloudCall[] = [];
 
+// `mockFromData`/`pendingIdsRef` precisam de existir ANTES dos vi.mock (que o
+// Vitest içа para o topo do módulo) — `vi.hoisted` garante isso e continua
+// acessível no corpo do teste para configurar cada caso.
+const { mockFromData, pendingIdsRef, channelSpy, removeChannelSpy } = vi.hoisted(() => ({
+  mockFromData: {} as Record<string, { data: unknown[] | null; error: { message: string } | null }>,
+  pendingIdsRef: { current: new Set<string>() },
+  channelSpy: { calls: [] as string[] },
+  removeChannelSpy: { count: 0 },
+}));
+
 vi.mock('@/integrations/supabase/client', () => ({
   supabase: {
-    from: vi.fn(() => ({
-      select: vi.fn().mockReturnThis(),
-      eq: vi.fn().mockReturnThis(),
-      order: vi.fn().mockReturnThis(),
-      limit: vi.fn().mockResolvedValue({ data: [], error: null }),
-    })),
+    from: vi.fn((table: string) => {
+      // `.eq()`/`.order()` são o fim da cadeia em fetchMenu/fetchInventory
+      // (sem `.limit()`) — por isso o próprio builder tem de ser "thenable"
+      // para `await` funcionar não importa onde a cadeia pare.
+      const result = () => mockFromData[table] ?? { data: [], error: null };
+      const builder: {
+        select: () => typeof builder;
+        eq: () => typeof builder;
+        order: () => typeof builder;
+        limit: () => Promise<{ data: unknown[] | null; error: { message: string } | null }>;
+        then: (
+          resolve: (v: { data: unknown[] | null; error: { message: string } | null }) => unknown,
+          reject?: (e: unknown) => unknown,
+        ) => Promise<unknown>;
+      } = {
+        select: () => builder,
+        eq: () => builder,
+        order: () => builder,
+        limit: () => Promise.resolve(result()),
+        then: (resolve, reject) => Promise.resolve(result()).then(resolve, reject),
+      };
+      return builder;
+    }),
     auth: { getUser: vi.fn().mockResolvedValue({ data: { user: null }, error: null }) },
-    channel: vi.fn(() => ({ on: vi.fn().mockReturnThis(), subscribe: vi.fn().mockReturnThis() })),
-    removeChannel: vi.fn(),
+    rpc: vi.fn().mockResolvedValue({ data: null, error: null }),
+    channel: vi.fn((name: string) => {
+      channelSpy.calls.push(name);
+      return { on: vi.fn().mockReturnThis(), subscribe: vi.fn().mockReturnThis() };
+    }),
+    removeChannel: vi.fn(() => { removeChannelSpy.count += 1; }),
   },
 }));
 
@@ -52,7 +83,7 @@ vi.mock('@/lib/outbox', () => {
       update: (values: unknown) => makeBuilder(table, 'update', values),
       delete: () => makeBuilder(table, 'delete'),
     }),
-    pendingResourceIds: () => new Set<string>(),
+    pendingResourceIds: () => pendingIdsRef.current,
   };
 });
 
@@ -65,6 +96,7 @@ vi.mock('@/lib/storage', () => ({
 // por isso a ordem no ficheiro não importa, mas mantém-se aqui por clareza).
 import {
   menuStore, tableStore, inventoryStore, customerStore, staffStore, orderStore,
+  fetchMenu, fetchInventory, subscribeOperations, subscribeLicense,
 } from '@/lib/store';
 
 const TENANT_A = 'aaaaaaaa-0000-0000-0000-000000000001';
@@ -78,6 +110,10 @@ function setTenant(id: string | null) {
 beforeEach(() => {
   localStorage.clear();
   cloudCalls.length = 0;
+  for (const k of Object.keys(mockFromData)) delete mockFromData[k];
+  pendingIdsRef.current = new Set();
+  channelSpy.calls.length = 0;
+  removeChannelSpy.count = 0;
   setTenant(TENANT_A);
 });
 
@@ -107,7 +143,10 @@ describe('menuStore', () => {
 
     expect(menuStore.getAll()[0].price).toBe(250);
     const call = cloudCalls.find(c => c.table === 'menu_items' && c.action === 'update');
-    expect(call?.values).toEqual({ price: 250 });
+    // client_updated_at também vai (guard de last-write-wins, ver tableStore) —
+    // só as colunas de negócio inalteradas é que ficam de fora.
+    expect(call?.values).toMatchObject({ price: 250 });
+    expect((call?.values as Record<string, unknown>)?.client_updated_at).toEqual(expect.any(String));
     expect(call?.eq).toContainEqual(['id', created.id]);
     expect(call?.eq).toContainEqual(['tenant_id', TENANT_A]);
   });
@@ -246,5 +285,178 @@ describe('isolamento entre restaurantes (tenant scoping)', () => {
 
     setTenant(TENANT_A);
     expect(menuStore.getAll()).toHaveLength(1);
+  });
+});
+
+describe('inventoryStore — guard de last-write-wins (client_updated_at)', () => {
+  it('actualizar um item de stock envia client_updated_at + guard, tal como menu/mesas', () => {
+    const created = inventoryStore.add({
+      name: 'Arroz', unit: 'kg', currentStock: 20, minStock: 5, costPerUnit: 60,
+      linkedMenuItemIds: [], usagePerServing: 0.2,
+    });
+    cloudCalls.length = 0;
+
+    inventoryStore.update(created.id, { currentStock: 18 });
+
+    expect(inventoryStore.getAll()[0].currentStock).toBe(18);
+    const call = cloudCalls.find(c => c.table === 'inventory_items' && c.action === 'update');
+    expect(call?.values).toMatchObject({ current_stock: 18 });
+    expect((call?.values as Record<string, unknown>)?.client_updated_at).toEqual(expect.any(String));
+    expect(call?.eq).toContainEqual(['id', created.id]);
+    expect(call?.eq).toContainEqual(['tenant_id', TENANT_A]);
+  });
+});
+
+describe('mergePending — protege edições pendentes contra um refetch desactualizado', () => {
+  it('fetchMenu: mantém a versão local de um item ainda na fila da outbox em vez do valor (mais antigo) do servidor', async () => {
+    const created = menuStore.add({ name: 'Bife', price: 300, category: 'Pratos', available: true });
+    // Simula uma edição offline ainda não confirmada pelo servidor.
+    menuStore.update(created.id, { price: 350 });
+    pendingIdsRef.current = new Set([created.id]);
+
+    // O servidor devolve o valor ANTIGO (a escrita ainda não chegou lá).
+    mockFromData.menu_items = {
+      data: [{
+        id: created.id, name: 'Bife', price: 300, category: 'Pratos',
+        description: null, image_path: null, available: true, modifiers: [], recipe: null,
+      }],
+      error: null,
+    };
+
+    const result = await fetchMenu(TENANT_A);
+    expect(result.find(r => r.id === created.id)?.price).toBe(350);
+  });
+
+  it('fetchInventory: um item pendente que o servidor ainda não devolve nenhuma linha continua na lista', async () => {
+    const created = inventoryStore.add({
+      name: 'Óleo', unit: 'L', currentStock: 5, minStock: 1, costPerUnit: 120,
+      linkedMenuItemIds: [], usagePerServing: 0.1,
+    });
+    pendingIdsRef.current = new Set([created.id]);
+    // Servidor não tem nenhuma linha (insert offline ainda não sincronizado).
+    mockFromData.inventory_items = { data: [], error: null };
+
+    const result = await fetchInventory(TENANT_A);
+    expect(result.some(r => r.id === created.id)).toBe(true);
+  });
+
+  it('fetchInventory: sem nenhuma edição pendente, o valor do servidor prevalece normalmente', async () => {
+    const created = inventoryStore.add({
+      name: 'Sal', unit: 'kg', currentStock: 10, minStock: 1, costPerUnit: 20,
+      linkedMenuItemIds: [], usagePerServing: 0.05,
+    });
+    // pendingIdsRef vazio (default do beforeEach) — nada em trânsito.
+    mockFromData.inventory_items = {
+      data: [{
+        id: created.id, name: 'Sal', current_stock: 7, min_stock: 1, cost_per_unit: 20,
+        linked_menu_item_ids: [], usage_per_serving: 0.05, icon: null, image: null,
+      }],
+      error: null,
+    };
+
+    const result = await fetchInventory(TENANT_A);
+    expect(result.find(r => r.id === created.id)?.currentStock).toBe(7);
+  });
+});
+
+describe('subscribeOperations — canal partilhado e referência-contada por tenant', () => {
+  it('duas subscrições para o mesmo tenant abrem só UM canal Supabase', () => {
+    const tenant = 'ops-tenant-shared-1';
+    const unsub1 = subscribeOperations(tenant, () => {});
+    const unsub2 = subscribeOperations(tenant, () => {});
+
+    expect(channelSpy.calls.filter(n => n === `ops-${tenant}`)).toHaveLength(1);
+
+    unsub1();
+    unsub2();
+  });
+
+  it('cancelar UMA das duas subscrições não fecha o canal enquanto a outra estiver activa', () => {
+    const tenant = 'ops-tenant-shared-2';
+    const unsub1 = subscribeOperations(tenant, () => {});
+    const unsub2 = subscribeOperations(tenant, () => {});
+
+    unsub1();
+    expect(removeChannelSpy.count).toBe(0);
+
+    unsub2();
+    expect(removeChannelSpy.count).toBe(1);
+  });
+
+  it('cancelar a mesma subscrição duas vezes não fecha o canal duas vezes', () => {
+    const tenant = 'ops-tenant-shared-3';
+    const unsub1 = subscribeOperations(tenant, () => {});
+    const unsub2 = subscribeOperations(tenant, () => {});
+
+    unsub1();
+    unsub1(); // idempotente: já não está no Set de listeners
+    unsub2();
+
+    expect(removeChannelSpy.count).toBe(1);
+  });
+
+  it('tenants diferentes abrem canais distintos', () => {
+    const tenantA = 'ops-tenant-distinct-a';
+    const tenantB = 'ops-tenant-distinct-b';
+    const unsubA = subscribeOperations(tenantA, () => {});
+    const unsubB = subscribeOperations(tenantB, () => {});
+
+    expect(channelSpy.calls).toContain(`ops-${tenantA}`);
+    expect(channelSpy.calls).toContain(`ops-${tenantB}`);
+
+    unsubA();
+    unsubB();
+  });
+});
+
+/**
+ * Regressão: a primeira versão de `useLicense` (T3.3) abria um
+ * `supabase.channel('license-<tenant>').on(...).subscribe()` directo dentro
+ * do próprio hook. Como `useLicense()` é chamado de vários sítios ao mesmo
+ * tempo na mesma página (AppSidebar + RequireLicense + a própria página), a
+ * SEGUNDA chamada tentava abrir um canal com o MESMO nome de tópico — e o
+ * supabase-js devolve o canal já existente em vez de criar um novo,
+ * fazendo o `.on()` da segunda chamada rebentar com "cannot add
+ * postgres_changes callbacks ... after subscribe()". Isto partiu 15 dos 20
+ * specs Cypress (praticamente todas as páginas com sidebar) antes de ser
+ * apanhado. `subscribeLicense` é o mesmo padrão partilhado/com contagem de
+ * referências que `subscribeOperations` já usava — este teste é
+ * exactamente o que teria apanhado o bug se existisse antes do T3.3.
+ */
+describe('subscribeLicense — canal partilhado e referência-contada por tenant', () => {
+  it('duas subscrições para o mesmo tenant abrem só UM canal Supabase', () => {
+    const tenant = 'license-tenant-shared-1';
+    const unsub1 = subscribeLicense(tenant, () => {});
+    const unsub2 = subscribeLicense(tenant, () => {});
+
+    expect(channelSpy.calls.filter(n => n === `license-${tenant}`)).toHaveLength(1);
+
+    unsub1();
+    unsub2();
+  });
+
+  it('cancelar UMA das duas subscrições não fecha o canal enquanto a outra estiver activa', () => {
+    const tenant = 'license-tenant-shared-2';
+    const unsub1 = subscribeLicense(tenant, () => {});
+    const unsub2 = subscribeLicense(tenant, () => {});
+
+    unsub1();
+    expect(removeChannelSpy.count).toBe(0);
+
+    unsub2();
+    expect(removeChannelSpy.count).toBe(1);
+  });
+
+  it('tenants diferentes abrem canais distintos', () => {
+    const tenantA = 'license-tenant-distinct-a';
+    const tenantB = 'license-tenant-distinct-b';
+    const unsubA = subscribeLicense(tenantA, () => {});
+    const unsubB = subscribeLicense(tenantB, () => {});
+
+    expect(channelSpy.calls).toContain(`license-${tenantA}`);
+    expect(channelSpy.calls).toContain(`license-${tenantB}`);
+
+    unsubA();
+    unsubB();
   });
 });

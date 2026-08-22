@@ -16,10 +16,13 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { useRestaurant } from '@/hooks/useRestaurant';
+import { Link } from 'react-router-dom';
 import { staffStore, shiftStore } from '@/lib/store';
-import { DollarSign, TrendingUp, ShoppingBag, Award, Package, Calendar as CalendarIcon, ArrowUp, ArrowDown, Minus, Download, FileText, FileSpreadsheet, ScrollText, UserCheck, XCircle, PlusCircle, Clock as ClockIcon, BarChart3 } from 'lucide-react';
+import { fetchFixedCosts, type PeriodFixedCosts } from '@/lib/expenses';
+import { periodDays, computeStats, pctChange, ZERO_FIXED } from '@/lib/reportStats';
+import { DollarSign, TrendingUp, ShoppingBag, Award, Package, Calendar as CalendarIcon, ArrowUp, ArrowDown, Minus, Download, FileText, FileSpreadsheet, ScrollText, UserCheck, XCircle, PlusCircle, Clock as ClockIcon, BarChart3, Settings2, Archive } from 'lucide-react';
 import type { DateRange } from 'react-day-picker';
-import type { Order, InventoryItem, Staff, Shift } from '@/types/restaurant';
+import type { Order, Staff, Shift } from '@/types/restaurant';
 import { exportReportsCSV, exportReportsPDF } from '@/lib/exportReports';
 import { printBatchReceipts, downloadBatchReceiptsHTML } from '@/lib/receiptBatch';
 import { loadSettings } from '@/lib/settings';
@@ -36,30 +39,6 @@ function getPresetRange(preset: RangePreset): { from: Date; to: Date } | null {
     case 'month': return { from: startOfMonth(now), to: endOfMonth(now) };
     default: return null;
   }
-}
-
-function computeStats(paidOrders: Order[], inventory: InventoryItem[]) {
-  const totalRevenue = paidOrders.reduce((s, o) => s + o.total + (o.tip || 0), 0);
-  const totalOrders = paidOrders.length;
-  const avgTicket = totalOrders > 0 ? totalRevenue / totalOrders : 0;
-  let totalCost = 0;
-  paidOrders.forEach(o => {
-    o.items.forEach(item => {
-      inventory.forEach(inv => {
-        if (inv.linkedMenuItemIds.includes(item.menuItemId)) {
-          totalCost += inv.costPerUnit * inv.usagePerServing * item.quantity;
-        }
-      });
-    });
-  });
-  const profit = totalRevenue - totalCost;
-  const margin = totalRevenue > 0 ? (profit / totalRevenue) * 100 : 0;
-  return { totalRevenue, totalOrders, avgTicket, totalCost, profit, margin };
-}
-
-function pctChange(current: number, previous: number): number | null {
-  if (previous === 0) return current === 0 ? 0 : null;
-  return ((current - previous) / Math.abs(previous)) * 100;
 }
 
 import {
@@ -99,7 +78,6 @@ export default function ReportsPage() {
   const { user, hasPermission } = useAuth();
   const canFinancial = hasPermission('reports.financial');
   const { isBasic } = useLicense();
-  if (user?.role === 'superadmin') return <Navigate to="/admin" replace />;
   const { orders, inventory, menuItems } = useRestaurant();
   const [period, setPeriod] = useState<'daily' | 'monthly'>('daily');
   const [preset, setPreset] = useState<RangePreset>('all');
@@ -109,6 +87,9 @@ export default function ReportsPage() {
   const [staffFilter, setStaffFilter] = useState<string>('all');
   const [staff, setStaff] = useState<Staff[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
+  const [currentFixedCosts, setCurrentFixedCosts] = useState<PeriodFixedCosts>(ZERO_FIXED);
+  const [previousFixedCosts, setPreviousFixedCosts] = useState<PeriodFixedCosts>(ZERO_FIXED);
+  const ivaRate = loadSettings().ivaRate;
 
   useEffect(() => {
     setStaff(staffStore.getAll());
@@ -137,6 +118,23 @@ export default function ReportsPage() {
 
   const compareActive = compareEnabled && !!activeRange && !!previousRange;
 
+  // Salários e despesas fixas (água, energia, etc.) só existem para o admin
+  // ler — ver RLS de staff_salaries/expenses — por isso só vale a pena ir
+  // buscá-los quando o lucro líquido é mesmo visível aqui. Reconstruídos tal
+  // como estavam no fim de cada período (ver fetchFixedCosts) — não o valor
+  // de hoje — para não reescrever o lucro de meses já fechados.
+  useEffect(() => {
+    const t = user?.tenantId;
+    if (!t || !canFinancial) { setCurrentFixedCosts(ZERO_FIXED); setPreviousFixedCosts(ZERO_FIXED); return; }
+    fetchFixedCosts(t, { start: activeRange?.start ?? null, end: activeRange?.end ?? new Date() })
+      .then(setCurrentFixedCosts).catch(() => setCurrentFixedCosts(ZERO_FIXED));
+    if (previousRange) {
+      fetchFixedCosts(t, previousRange).then(setPreviousFixedCosts).catch(() => setPreviousFixedCosts(ZERO_FIXED));
+    } else {
+      setPreviousFixedCosts(ZERO_FIXED);
+    }
+  }, [user?.tenantId, canFinancial, activeRange, previousRange]);
+
   const paidOrders = useMemo(() => {
     const filtered = orders.filter(o => o.paid);
     if (!activeRange) return filtered;
@@ -158,8 +156,16 @@ export default function ReportsPage() {
     return `${format(previousRange.start, 'dd MMM', { locale: pt })} – ${format(previousRange.end, 'dd MMM yyyy', { locale: pt })}`;
   }, [previousRange]);
 
-  const stats = useMemo(() => computeStats(paidOrders, inventory), [paidOrders, inventory]);
-  const prevStats = useMemo(() => computeStats(previousOrders, inventory), [previousOrders, inventory]);
+  const days = useMemo(() => periodDays(activeRange, paidOrders), [activeRange, paidOrders]);
+  const prevDays = useMemo(() => periodDays(previousRange, previousOrders), [previousRange, previousOrders]);
+  const stats = useMemo(
+    () => computeStats(paidOrders, inventory, currentFixedCosts, ivaRate, days),
+    [paidOrders, inventory, currentFixedCosts, ivaRate, days],
+  );
+  const prevStats = useMemo(
+    () => computeStats(previousOrders, inventory, previousFixedCosts, ivaRate, prevDays),
+    [previousOrders, inventory, previousFixedCosts, ivaRate, prevDays],
+  );
 
 
   // Revenue over time
@@ -385,6 +391,10 @@ export default function ReportsPage() {
     }
   };
 
+  // Depois de todos os hooks (rules-of-hooks): um return condicional antes
+  // deles mudaria a ordem/contagem de hooks entre renders.
+  if (user?.role === 'superadmin') return <Navigate to="/admin" replace />;
+
   if (isBasic) {
     return (
       <PageShell title="Relatórios" subtitle="Disponível no plano Profissional">
@@ -484,7 +494,8 @@ export default function ReportsPage() {
               <DropdownMenuItem
                 onClick={() => {
                   if (paidOrders.length === 0) { toast.info('Sem recibos no período'); return; }
-                  printBatchReceipts(paidOrders, { brand: loadSettings().brandName, rangeLabel });
+                  const s = loadSettings();
+                  printBatchReceipts(paidOrders, { brand: s.brandName, rangeLabel, logoUrl: s.receiptShowLogo ? s.receiptLogo : undefined });
                 }}
                 className="gap-2 cursor-pointer"
               >
@@ -494,7 +505,8 @@ export default function ReportsPage() {
               <DropdownMenuItem
                 onClick={() => {
                   if (paidOrders.length === 0) { toast.info('Sem recibos no período'); return; }
-                  downloadBatchReceiptsHTML(paidOrders, { brand: loadSettings().brandName, rangeLabel });
+                  const s = loadSettings();
+                  downloadBatchReceiptsHTML(paidOrders, { brand: s.brandName, rangeLabel, logoUrl: s.receiptShowLogo ? s.receiptLogo : undefined });
                 }}
                 className="gap-2 cursor-pointer"
               >
@@ -503,6 +515,11 @@ export default function ReportsPage() {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+          {user?.role === 'admin' && (
+            <Button variant="outline" size="sm" className="h-9 gap-2" asChild>
+              <Link to="/data-archive"><Archive className="w-4 h-4" /> Arquivo de Dados</Link>
+            </Button>
+          )}
         </div>
       }
     >
@@ -550,7 +567,7 @@ export default function ReportsPage() {
             {canFinancial && (
               <KpiCard
                 icon={<Award className="w-4 h-4" />}
-                label={`Lucro (${stats.margin.toFixed(1)}%)`}
+                label={`Lucro Líquido (${stats.margin.toFixed(1)}%)`}
                 value={formatMT(stats.profit)}
                 accent={stats.profit >= 0 ? 'text-success' : 'text-destructive'}
                 compare={compareActive ? { previous: formatMT(prevStats.profit), change: pctChange(stats.profit, prevStats.profit) } : undefined}
@@ -563,7 +580,7 @@ export default function ReportsPage() {
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-base flex items-center gap-2">
                 <CalendarIcon className="w-4 h-4 text-primary" />
-                {canFinancial ? 'Receita & Lucro' : 'Receita'}
+                {canFinancial ? 'Receita & Lucro Bruto' : 'Receita'}
               </CardTitle>
               <Tabs value={period} onValueChange={(v) => setPeriod(v as 'daily' | 'monthly')}>
                 <TabsList className="h-8">
@@ -591,7 +608,7 @@ export default function ReportsPage() {
                     <Legend wrapperStyle={{ fontSize: '12px' }} />
                     <Line type="monotone" dataKey="revenue" name="Receita" stroke="hsl(var(--primary))" strokeWidth={2} dot={{ r: 3 }} />
                     {canFinancial && (
-                      <Line type="monotone" dataKey="profit" name="Lucro" stroke="hsl(var(--success))" strokeWidth={2} dot={{ r: 3 }} />
+                      <Line type="monotone" dataKey="profit" name="Lucro Bruto" stroke="hsl(var(--success))" strokeWidth={2} dot={{ r: 3 }} />
                     )}
                   </LineChart>
                 </ResponsiveContainer>
@@ -680,6 +697,8 @@ export default function ReportsPage() {
                 <CardContent className="space-y-3">
                   <Row label="Receita Bruta" value={formatMT(stats.totalRevenue)} />
                   <Row label="Custo de Ingredientes" value={`-${formatMT(stats.totalCost)}`} negative />
+                  <Row label="Salários + Despesas Fixas" value={`-${formatMT(stats.fixedCosts)}`} negative />
+                  <Row label={`IVA (${ivaRate}%)`} value={`-${formatMT(stats.ivaAmount)}`} negative />
                   <div className="border-t border-border pt-3">
                     <Row label="Lucro Líquido" value={formatMT(stats.profit)} bold positive={stats.profit >= 0} />
                   </div>
@@ -689,6 +708,11 @@ export default function ReportsPage() {
                       {stats.margin.toFixed(1)}%
                     </Badge>
                   </div>
+                  {user?.role === 'admin' && (
+                    <Link to="/expenses" className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground pt-1">
+                      <Settings2 className="w-3.5 h-3.5" /> Configurar salários, IVA e outras despesas
+                    </Link>
+                  )}
                 </CardContent>
               </Card>
             )}

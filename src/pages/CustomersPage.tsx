@@ -16,7 +16,9 @@ import { Customer, Order } from '@/types/restaurant';
 import { maskMzPhone, maskNuit, validateMzMobile, validateNuit } from '@/lib/validators';
 import { toast } from 'sonner';
 import { buildCustomerReport, exportCustomersCSV, exportCustomersPDF } from '@/lib/customerReport';
-import { getLoyaltySettings, saveLoyaltySettings, tierFromPoints, LoyaltySettings } from '@/lib/loyaltySettings';
+import { getLoyaltySettings, saveLoyaltySettings, LoyaltySettings } from '@/lib/loyaltySettings';
+import { computeCustomerLoyaltyStats } from '@/lib/loyaltyStats';
+import { recordLoyaltyAdjustment, fetchLoyaltyHistory, LoyaltyHistoryEntry } from '@/lib/loyaltyHistory';
 import { useAuth } from '@/context/AuthContext';
 import { useLicense } from '@/hooks/useLicense';
 import { cn } from '@/lib/utils';
@@ -34,19 +36,11 @@ interface CustomerStats {
 }
 
 function computeStats(customer: Customer, orders: Order[], loyalty: LoyaltySettings): CustomerStats {
-  const norm = customer.phone.replace(/\D/g, '');
-  const matched = orders.filter(
-    o => o.paid && (o.customerId === customer.id || (norm && o.customerPhone?.replace(/\D/g, '') === norm))
-  );
-  const totalSpent = matched.reduce((sum, o) => sum + (o.total ?? 0), 0);
-  const lastVisit = matched
-    .map(o => o.closedAt || o.updatedAt)
-    .sort()
-    .reverse()[0];
-  const earnedPoints = loyalty.enabled ? Math.floor(totalSpent * loyalty.pointsPerMT) : 0;
-  const points = loyalty.enabled ? Math.max(0, earnedPoints + (customer.pointsAdjustment || 0)) : 0;
-  const tier: CustomerStats['tier'] = loyalty.enabled ? tierFromPoints(points, loyalty) : 'Bronze';
-  return { totalSpent, orderCount: matched.length, lastVisit, earnedPoints, points, tier, orders: matched };
+  const s = computeCustomerLoyaltyStats(customer, orders, loyalty);
+  return {
+    totalSpent: s.totalSpent, orderCount: s.orderCount, lastVisit: s.lastVisit,
+    earnedPoints: s.earnedPoints, points: s.points, tier: s.tier, orders: s.matchedOrders,
+  };
 }
 
 function thisMonthBirthday(b?: string): boolean {
@@ -267,12 +261,6 @@ export default function CustomersPage() {
               <p className="text-sm text-muted-foreground mb-3">
                 Programa de fidelidade desativado. Nenhum cliente recebe pontos ou descontos.
               </p>
-              {isManager && (
-                <Button size="sm" onClick={() => {
-                  const t = document.querySelector<HTMLButtonElement>('[data-state][value="settings"], [role="tab"][value="settings"]');
-                  t?.click();
-                }}>Configurar</Button>
-              )}
             </Card>
           ) : (
             <>
@@ -378,6 +366,8 @@ function EmptyState({ icon, text }: { icon: React.ReactNode; text: string }) {
   );
 }
 
+const CUSTOMERS_PAGE_SIZE = 24;
+
 function CustomerGrid({
   items, onView, onEdit, onDelete, showBirthday, loyaltyEnabled, canEdit,
 }: {
@@ -389,12 +379,24 @@ function CustomerGrid({
   loyaltyEnabled?: boolean;
   canEdit?: boolean;
 }) {
+  const [page, setPage] = useState(1);
+  // Reset ao mudar de aba/pesquisa (o comprimento muda) — não a cada
+  // refresh em tempo real com o mesmo número de clientes, para não saltar o
+  // utilizador de volta à página 1 enquanto navega.
+  useEffect(() => setPage(1), [items.length]);
+
   if (items.length === 0) {
     return <EmptyState icon={<UsersIcon className="w-8 h-8" />} text="Nenhum cliente encontrado" />;
   }
+
+  const totalPages = Math.max(1, Math.ceil(items.length / CUSTOMERS_PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pageItems = items.slice((safePage - 1) * CUSTOMERS_PAGE_SIZE, safePage * CUSTOMERS_PAGE_SIZE);
+
   return (
+    <div className="space-y-3">
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-      {items.map(({ customer, stats }) => (
+      {pageItems.map(({ customer, stats }) => (
         <Card key={customer.id} className="p-4 hover:border-primary/40 transition-colors">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0 flex-1 cursor-pointer" onClick={() => onView(customer)}>
@@ -431,6 +433,14 @@ function CustomerGrid({
           </div>
         </Card>
       ))}
+    </div>
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-3 pt-1">
+          <Button variant="outline" size="sm" disabled={safePage <= 1} onClick={() => setPage(p => p - 1)}>Anterior</Button>
+          <span className="text-xs text-muted-foreground">Página {safePage} de {totalPages}</span>
+          <Button variant="outline" size="sm" disabled={safePage >= totalPages} onClick={() => setPage(p => p + 1)}>Seguinte</Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -630,6 +640,14 @@ function CustomerDetailDialog({
 }) {
   const [redeemQty, setRedeemQty] = useState('');
   const { isBasic: isBasicTier } = useLicense();
+  const { user } = useAuth();
+  const [history, setHistory] = useState<LoyaltyHistoryEntry[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchLoyaltyHistory(customer.id).then(rows => { if (!cancelled) setHistory(rows); });
+    return () => { cancelled = true; };
+  }, [customer.id]);
 
   const redeem = () => {
     const n = parseInt(redeemQty, 10);
@@ -638,6 +656,7 @@ function CustomerDetailDialog({
     customerStore.update(customer.id, {
       pointsAdjustment: (customer.pointsAdjustment || 0) - n,
     });
+    pushHistoryEntry(-n, 'Resgate de pontos');
     toast.success(`${n} pontos resgatados`);
     setRedeemQty('');
     onChanged();
@@ -647,8 +666,18 @@ function CustomerDetailDialog({
     customerStore.update(customer.id, {
       pointsAdjustment: (customer.pointsAdjustment || 0) + n,
     });
+    pushHistoryEntry(n, 'Bónus manual');
     toast.success(`+${n} pontos bónus`);
     onChanged();
+  };
+
+  // O envio para a nuvem (`recordLoyaltyAdjustment`) é fire-and-forget e vai
+  // por outbox (pode estar offline) — não dá para esperar por ele para
+  // mostrar a entrada no histórico, por isso adiciona-se logo localmente.
+  const pushHistoryEntry = (delta: number, reason: string) => {
+    const by = user?.name ?? 'Equipa';
+    recordLoyaltyAdjustment(customer.id, delta, reason, by);
+    setHistory(h => [{ id: `local-${Date.now()}`, customerId: customer.id, delta, reason, createdByName: by, createdAt: new Date().toISOString() }, ...h]);
   };
 
   return (
@@ -708,6 +737,21 @@ function CustomerDetailDialog({
               </>
             ) : (
               <p className="text-[11px] text-muted-foreground mt-1">Sem permissão para gerir pontos deste cliente.</p>
+            )}
+            {history.length > 0 && (
+              <div className="mt-3 space-y-1 max-h-40 overflow-y-auto">
+                {history.map(h => (
+                  <div key={h.id} className="flex items-center justify-between text-xs px-2 py-1.5 rounded-md bg-secondary/30">
+                    <div className="min-w-0">
+                      <span className={cn('font-semibold', h.delta >= 0 ? 'text-success' : 'text-destructive')}>
+                        {h.delta >= 0 ? '+' : ''}{h.delta}
+                      </span>{' '}
+                      <span className="text-muted-foreground">{h.reason} · {h.createdByName}</span>
+                    </div>
+                    <span className="text-muted-foreground shrink-0 ml-2">{new Date(h.createdAt).toLocaleDateString('pt-PT')}</span>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
         )}

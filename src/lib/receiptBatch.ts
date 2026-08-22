@@ -1,10 +1,15 @@
 import { Order } from '@/types/restaurant';
 import { buildReceiptHTML } from './receipt';
 import { formatPrice } from './helpers';
+import { toast } from 'sonner';
 
 interface BatchOptions {
   brand?: string;
   rangeLabel?: string;
+  /** Caminho de storage ou URL do logo — se omitido, cada recibo resolve o
+   *  seu próprio a partir das definições locais (mais lento para lotes
+   *  grandes: repete a mesma leitura por cada pedido). */
+  logoUrl?: string;
 }
 
 function extractBody(html: string): string {
@@ -27,7 +32,7 @@ export function buildBatchReceiptsHTML(orders: Order[], opts: BatchOptions = {})
 
   const blocks = sorted
     .map(o => {
-      const inner = extractBody(buildReceiptHTML(o, { brand }));
+      const inner = extractBody(buildReceiptHTML(o, { brand, logoUrl: opts.logoUrl }));
       return `<section class="page">${inner}</section>`;
     })
     .join('\n');
@@ -76,7 +81,7 @@ export function buildBatchReceiptsHTML(orders: Order[], opts: BatchOptions = {})
 export function printBatchReceipts(orders: Order[], opts: BatchOptions = {}): void {
   const html = buildBatchReceiptsHTML(orders, opts);
   const w = window.open('', '_blank', 'width=480,height=720');
-  if (!w) return;
+  if (!w) { toast.error('Não foi possível abrir a janela de impressão — verifique se o navegador bloqueou o pop-up'); return; }
   w.document.open();
   w.document.write(html);
   w.document.close();

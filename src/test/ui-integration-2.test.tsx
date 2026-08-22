@@ -37,7 +37,7 @@ describe('KitchenPage — avançar estado de um item', () => {
   it('clicar num item pendente avança-o para "preparando"', async () => {
     const { default: KitchenPage } = await import('@/pages/KitchenPage');
     const user = userEvent.setup();
-    render(<KitchenPage />);
+    render(<MemoryRouter><KitchenPage /></MemoryRouter>);
 
     await user.click(screen.getByRole('button', { name: /Frango Grelhado/i }));
 
@@ -108,6 +108,89 @@ describe('POSPage — finalizar pagamento', () => {
     expect(completeOrderMock).toHaveBeenCalledWith(
       'order-1', 'cash', 0, expect.objectContaining({ discount: 0 }),
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POSPage — dividir conta / pagamento parcial (T4.1)
+// ---------------------------------------------------------------------------
+describe('POSPage — dividir conta', () => {
+  const completeOrderMock = vi.fn();
+  const addPartialPaymentMock = vi.fn();
+  const removeLastPaymentMock = vi.fn();
+
+  function servedOrder(overrides: Record<string, unknown> = {}) {
+    return order({
+      items: [{ id: 'item-1', menuItemId: 'menu-1', name: 'Frango Grelhado', quantity: 2, price: 350, status: 'served' }],
+      total: 700,
+      ...overrides,
+    });
+  }
+
+  function mockRestaurant(activeOrder: ReturnType<typeof servedOrder>) {
+    vi.doMock('@/hooks/useRestaurant', () => ({
+      useRestaurant: () => ({
+        activeOrders: [activeOrder], orders: [],
+        completeOrder: completeOrderMock, cancelOrder: vi.fn(), logPrint: vi.fn(),
+        addPartialPayment: addPartialPaymentMock, removeLastPayment: removeLastPaymentMock,
+      }),
+    }));
+  }
+
+  beforeEach(() => {
+    vi.resetModules();
+    localStorage.clear();
+    completeOrderMock.mockReset().mockResolvedValue({ ok: true });
+    addPartialPaymentMock.mockReset();
+    removeLastPaymentMock.mockReset();
+  });
+
+  it('registar uma parcela parcial chama addPartialPayment mas NÃO completeOrder', async () => {
+    addPartialPaymentMock.mockReturnValue({ ok: true, remaining: 400 });
+    mockRestaurant(servedOrder());
+    const { default: POSPage } = await import('@/pages/POSPage');
+    const user = userEvent.setup();
+    render(<POSPage />);
+
+    await user.click(screen.getByRole('button', { name: /Mesa 5/i }));
+    await user.click(screen.getByRole('button', { name: /dividir conta/i }));
+
+    const installmentInput = screen.getByLabelText(/valor desta parcela/i);
+    await user.clear(installmentInput);
+    await user.type(installmentInput, '300');
+    await user.click(screen.getByRole('button', { name: 'Registar parcela' }));
+
+    expect(addPartialPaymentMock).toHaveBeenCalledWith('order-1', 'cash', 300, 700);
+    expect(completeOrderMock).not.toHaveBeenCalled();
+  });
+
+  it('a última parcela (atinge o total) chama completeOrder com o método dessa parcela', async () => {
+    addPartialPaymentMock.mockReturnValue({ ok: true, remaining: 0 });
+    mockRestaurant(servedOrder());
+    const { default: POSPage } = await import('@/pages/POSPage');
+    const user = userEvent.setup();
+    render(<POSPage />);
+
+    await user.click(screen.getByRole('button', { name: /Mesa 5/i }));
+    await user.click(screen.getByRole('button', { name: /dividir conta/i }));
+    // Sem tocar no valor da parcela, o valor por omissão é o que falta (700).
+    await user.click(screen.getByRole('button', { name: /registar parcela e finalizar/i }));
+
+    expect(addPartialPaymentMock).toHaveBeenCalledWith('order-1', 'cash', 700, 700);
+    expect(completeOrderMock).toHaveBeenCalledWith('order-1', 'cash', 0, expect.objectContaining({ discount: 0 }));
+  });
+
+  it('"Desfazer" na última parcela chama removeLastPayment', async () => {
+    mockRestaurant(servedOrder({ payments: [{ id: 'p1', method: 'cash', amount: 300, at: new Date().toISOString() }] }));
+    const { default: POSPage } = await import('@/pages/POSPage');
+    const user = userEvent.setup();
+    render(<POSPage />);
+
+    await user.click(screen.getByRole('button', { name: /Mesa 5/i }));
+    await user.click(screen.getByRole('button', { name: /dividir conta/i }));
+    await user.click(screen.getByRole('button', { name: /desfazer/i }));
+
+    expect(removeLastPaymentMock).toHaveBeenCalledWith('order-1');
   });
 });
 
@@ -412,5 +495,73 @@ describe('SuperAdminPage — feedback', () => {
     await user.click(screen.getByRole('button', { name: /marcar como lido/i }));
 
     await waitFor(() => expect(markFeedbackStatusMock).toHaveBeenCalledWith('fb-1', 'read'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SuperAdminPage — tab "Galeria": remover uma imagem preset agora pede
+// confirmação (AlertDialog partilhado, mesmo padrão de bloquear/desbloquear)
+// em vez de apagar directo ao clique — regressão a proteger explicitamente.
+// ---------------------------------------------------------------------------
+describe('SuperAdminPage — galeria de imagens preset', () => {
+  const deletePresetImageMock = vi.fn();
+  const presetImage = {
+    id: 'preset-1', category: 'Bebidas', label: 'Coca-Cola', storagePath: 'bebidas/coca.jpg',
+  };
+
+  beforeEach(() => {
+    vi.resetModules();
+    deletePresetImageMock.mockReset().mockResolvedValue(true);
+    vi.doMock('@/lib/tenants', () => ({
+      tenantStore: { getAll: () => [], daysUntilExpiry: () => 0, block: vi.fn(), unblock: vi.fn(), extend: vi.fn(), reduce: vi.fn(), activatePlan: vi.fn(), remove: vi.fn() },
+      fetchTenants: vi.fn().mockResolvedValue([]),
+      fetchTenantTeams: vi.fn().mockResolvedValue({}),
+    }));
+    vi.doMock('@/lib/paymentAccounts', () => ({
+      getPaymentAccounts: () => ({}), savePaymentAccounts: vi.fn(), fetchPaymentAccounts: vi.fn().mockResolvedValue({}),
+    }));
+    vi.doMock('@/lib/paymentSubmissions', () => ({
+      fetchPendingSubmissions: vi.fn().mockResolvedValue([]), markSubmissionStatus: vi.fn(),
+    }));
+    vi.doMock('@/lib/feedback', () => ({
+      fetchFeedback: vi.fn().mockResolvedValue([]), markFeedbackStatus: vi.fn(),
+    }));
+    vi.doMock('@/lib/presetImages', () => ({
+      fetchPresetImages: vi.fn().mockResolvedValue([presetImage]),
+      uploadPresetImage: vi.fn(),
+      deletePresetImage: deletePresetImageMock,
+    }));
+  });
+
+  it('clicar no ícone de lixeira NÃO apaga logo — só depois de confirmar no AlertDialog', async () => {
+    const { default: SuperAdminPage } = await import('@/pages/SuperAdminPage');
+    const user = userEvent.setup();
+    render(<SuperAdminPage />);
+
+    await user.click(await screen.findByRole('tab', { name: /galeria/i }));
+    await user.click(await screen.findByRole('button', { name: /remover coca-cola/i }));
+
+    // O clique inicial só abre o diálogo — nunca apaga directamente.
+    expect(deletePresetImageMock).not.toHaveBeenCalled();
+
+    const confirmDialog = await screen.findByRole('alertdialog');
+    expect(within(confirmDialog).getByText(/coca-cola/i)).toBeInTheDocument();
+    await user.click(within(confirmDialog).getByRole('button', { name: /^remover$/i }));
+
+    await waitFor(() => expect(deletePresetImageMock).toHaveBeenCalledWith('preset-1', 'bebidas/coca.jpg'));
+  });
+
+  it('cancelar no AlertDialog não chama deletePresetImage', async () => {
+    const { default: SuperAdminPage } = await import('@/pages/SuperAdminPage');
+    const user = userEvent.setup();
+    render(<SuperAdminPage />);
+
+    await user.click(await screen.findByRole('tab', { name: /galeria/i }));
+    await user.click(await screen.findByRole('button', { name: /remover coca-cola/i }));
+
+    const confirmDialog = await screen.findByRole('alertdialog');
+    await user.click(within(confirmDialog).getByRole('button', { name: /cancelar/i }));
+
+    expect(deletePresetImageMock).not.toHaveBeenCalled();
   });
 });

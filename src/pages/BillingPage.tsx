@@ -28,7 +28,9 @@ export default function BillingPage() {
   }, [tenant, user?.tenantIds]);
 
   const totalPaid = useMemo(
-    () => (tenant?.subscription.history || []).reduce((s, h) => s + PLANS[h.plan].price, 0),
+    // `h.price` é o snapshot gravado na activação; rows antigas (antes desta
+    // coluna existir) não têm — caem para o preço actual como aproximação.
+    () => (tenant?.subscription.history || []).reduce((s, h) => s + (h.price ?? PLANS[h.plan].price), 0),
     [tenant?.subscription.history],
   );
 
@@ -209,7 +211,7 @@ export default function BillingPage() {
                   <p className="text-xs text-muted-foreground">{new Date(h.paidAt).toLocaleString('pt-MZ')}</p>
                 </div>
                 <div className="text-right">
-                  <p className="font-medium">{formatMT(PLANS[h.plan].price)}</p>
+                  <p className="font-medium">{formatMT(h.price ?? PLANS[h.plan].price)}</p>
                   {h.ref && <p className="text-xs text-muted-foreground">Ref: {h.ref.slice(0, 16)}…</p>}
                 </div>
               </div>

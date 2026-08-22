@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { CloudOff, RefreshCw, AlertTriangle, Trash2, RotateCw, ChevronDown } from 'lucide-react';
-import { subscribeOutbox, flushOutbox, retryOutbox, clearOutbox, type OutboxState } from '@/lib/outbox';
+import { subscribeOutbox, flushOutbox, retryOutbox, clearOutbox, OUTBOX_WARN_AT, type OutboxState } from '@/lib/outbox';
 import { Button } from '@/components/ui/button';
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -36,19 +36,33 @@ export default function SyncStatus() {
   }, []);
 
   const { pending, failed, ops } = state;
+  const nearLimit = ops.length >= OUTBOX_WARN_AT;
+
+  // Resumo por tabela — mostrado antes de confirmar "Limpar fila", para o
+  // utilizador perceber o que vai realmente perder, não só uma contagem.
+  // Calculado antes do "return null" abaixo para não violar as regras dos
+  // hooks se algum dia isto voltar a ser um useMemo.
+  const byTable = Array.from(
+    ops.reduce((counts, o) => counts.set(o.table, (counts.get(o.table) ?? 0) + 1), new Map<string, number>()).entries(),
+  )
+    .map(([table, count]) => ({ label: LABELS[table] ?? table, count }))
+    .sort((a, b) => b.count - a.count);
+
   if (online && pending === 0 && failed === 0) return null;
 
-  const tone = failed > 0
+  const tone = failed > 0 || nearLimit
     ? 'border-destructive/40 bg-destructive/10 text-destructive'
     : 'border-warning/30 bg-warning/10 text-warning';
 
-  const summary = failed > 0
-    ? `${failed} falha${failed === 1 ? '' : 's'} de sincronização`
-    : online
-      ? `A sincronizar ${pending} alteraç${pending === 1 ? 'ão' : 'ões'}…`
-      : pending > 0
-        ? `Offline — ${pending} por sincronizar`
-        : 'Offline — dados locais';
+  const summary = nearLimit
+    ? `Fila muito grande (${ops.length}) — verifique a ligação`
+    : failed > 0
+      ? `${failed} falha${failed === 1 ? '' : 's'} de sincronização`
+      : online
+        ? `A sincronizar ${pending} alteraç${pending === 1 ? 'ão' : 'ões'}…`
+        : pending > 0
+          ? `Offline — ${pending} por sincronizar`
+          : 'Offline — dados locais';
 
   return (
     <div className="fixed top-2 right-2 z-[60] max-w-[92vw]">
@@ -107,7 +121,8 @@ export default function SyncStatus() {
           <AlertDialogHeader>
             <AlertDialogTitle>Limpar a fila de sincronização?</AlertDialogTitle>
             <AlertDialogDescription>
-              As {pending + failed} alterações por enviar serão descartadas e nunca chegarão à nuvem.
+              As {pending + failed} alterações por enviar serão descartadas e nunca chegarão à nuvem:{' '}
+              <strong>{byTable.map(t => `${t.count} ${t.label}${t.count === 1 ? '' : 's'}`).join(', ')}</strong>.
               Esta acção não pode ser anulada.
             </AlertDialogDescription>
           </AlertDialogHeader>

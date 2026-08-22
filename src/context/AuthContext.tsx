@@ -6,8 +6,9 @@ import { hasPermission as checkPermission, fetchStaffPermissions, type Permissio
 import { fetchSettings } from '@/lib/settings';
 import { fetchLoyaltySettings } from '@/lib/loyaltySettings';
 import { fetchPaymentAccounts } from '@/lib/paymentAccounts';
-import { fetchStripeConfig, fetchPlans } from '@/lib/billing';
+import { fetchPlans } from '@/lib/billing';
 import { fetchTenantCatalog } from '@/lib/store';
+import { syncServerClock } from '@/lib/serverClock';
 import { toE164Phone } from '@/lib/validators';
 
 interface SessionUser {
@@ -34,6 +35,8 @@ interface AuthContextValue {
   hasPermission: (p: Permission) => boolean;
   switchTenant: (tenantId: string) => void;
   refreshProfile: () => Promise<void>;
+  requestPasswordReset: (email: string) => Promise<{ ok: boolean; error?: string }>;
+  updatePassword: (newPassword: string) => Promise<{ ok: boolean; error?: string }>;
   // Legacy stub — PIN auth is being replaced by per-staff Supabase accounts.
   loginWithPin: (pin: string) => { ok: boolean; error?: string };
   /**
@@ -154,9 +157,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           fetchLoyaltySettings(u.tenantId).catch(() => { }),
           fetchStaffPermissions(u.tenantId).catch(() => { }),
           fetchPaymentAccounts().catch(() => { }),
-          fetchStripeConfig().catch(() => { }),
           fetchPlans().catch(() => { }),
           fetchTenantCatalog(u.tenantId),
+          syncServerClock().catch(() => { }),
         ]).then(() => setCatalogVersion(v => v + 1));
       }
     } catch (e) {
@@ -314,11 +317,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { ok: false, error: 'Login por PIN foi descontinuado. Use o seu email e password.' };
   }, []);
 
+  const requestPasswordReset = useCallback(async (email: string) => {
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: `${window.location.origin}/reset-password`,
+    });
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  }, []);
+
+  // Só é chamável com sucesso depois de o link do email estabelecer uma
+  // sessão de recuperação (Supabase trata isso automaticamente via
+  // detectSessionInUrl) — ver ResetPasswordPage.
+  const updatePassword = useCallback(async (newPassword: string) => {
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  }, []);
+
   const value = useMemo<AuthContextValue>(() => ({
     user, session, loading, catalogVersion,
     loginWithPassword, signInWithGoogle, signUp, logout,
     hasRole, hasPermission, switchTenant, refreshProfile, loginWithPin,
-  }), [user, session, loading, catalogVersion, loginWithPassword, signInWithGoogle, signUp, logout, hasRole, hasPermission, switchTenant, refreshProfile, loginWithPin]);
+    requestPasswordReset, updatePassword,
+  }), [user, session, loading, catalogVersion, loginWithPassword, signInWithGoogle, signUp, logout, hasRole, hasPermission, switchTenant, refreshProfile, loginWithPin, requestPasswordReset, updatePassword]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
@@ -343,6 +364,12 @@ export const ROUTE_PERMISSIONS: Record<string, UserRole[]> = {
   '/reports': ['admin', 'manager'],
   '/settings': ['admin'],
   '/staff': ['admin', 'manager'],
+  // Salários e outras despesas são sensíveis — exclusivo do admin, tal como
+  // /billing e /settings (ver staff_salaries/expenses no schema, RLS admin-only).
+  '/expenses': ['admin'],
+  // Relatório anual + limpeza de dados antigos — mesmo âmbito sensível que
+  // /expenses (apaga dados definitivamente, exclusivo do admin).
+  '/data-archive': ['admin'],
   '/customers': ['admin', 'manager', 'cashier', 'waiter'],
   '/shifts': ['admin', 'manager', 'cashier', 'waiter', 'kitchen'],
   '/billing': ['admin'],

@@ -1,7 +1,11 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { Customer, Order } from '@/types/restaurant';
-import { LoyaltySettings, DEFAULT_LOYALTY, tierFromPoints } from './loyaltySettings';
+import { LoyaltySettings, DEFAULT_LOYALTY } from './loyaltySettings';
+import { computeCustomerLoyaltyStats } from './loyaltyStats';
+
+// jspdf-autotable não publica tipos para `lastAutoTable` (ver exportReports.ts).
+type JsPDFWithAutoTable = jsPDF & { lastAutoTable: { finalY: number } };
 
 export interface CustomerReportRow {
   name: string;
@@ -24,14 +28,6 @@ export interface CustomerReportOptions {
 const fmtMT = (n: number) =>
   `${n.toLocaleString('pt-PT', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} MT`;
 
-function inRange(iso: string | undefined, from?: Date, to?: Date) {
-  if (!iso) return false;
-  const t = new Date(iso).getTime();
-  if (from && t < from.getTime()) return false;
-  if (to && t > to.getTime()) return false;
-  return true;
-}
-
 export function buildCustomerReport(
   customers: Customer[],
   orders: Order[],
@@ -42,34 +38,17 @@ export function buildCustomerReport(
   const loyalty = opts.loyalty ?? DEFAULT_LOYALTY;
 
   return customers.map(c => {
-    const norm = c.phone.replace(/\D/g, '');
-    const matched = orders.filter(o => {
-      if (!o.paid) return false;
-      const link = o.customerId === c.id || (norm && o.customerPhone?.replace(/\D/g, '') === norm);
-      if (!link) return false;
-      const when = o.closedAt || o.updatedAt;
-      return inRange(when, from, to);
-    });
-    const totalSpent = matched.reduce((s, o) => s + (o.total ?? 0), 0);
-    const lastVisit = matched
-      .map(o => o.closedAt || o.updatedAt)
-      .sort()
-      .reverse()[0];
-
-    const earnedPoints = loyalty.enabled ? Math.floor(totalSpent * loyalty.pointsPerMT) : 0;
-    const points = loyalty.enabled
-      ? Math.max(0, earnedPoints + (c.pointsAdjustment || 0))
-      : 0;
-    const tier: CustomerReportRow['tier'] = loyalty.enabled ? tierFromPoints(points, loyalty) : '—';
+    const s = computeCustomerLoyaltyStats(c, orders, loyalty, { from, to });
+    const tier: CustomerReportRow['tier'] = loyalty.enabled ? s.tier : '—';
 
     return {
       name: c.name,
       phone: c.phone,
       email: c.email,
-      orderCount: matched.length,
-      totalSpent,
-      lastVisit,
-      points,
+      orderCount: s.orderCount,
+      totalSpent: s.totalSpent,
+      lastVisit: s.lastVisit,
+      points: s.points,
       tier,
       loyaltyEnabled: loyalty.enabled,
     };
@@ -152,7 +131,7 @@ export function exportCustomersPDF(rows: CustomerReportRow[], opts: CustomerRepo
   });
 
   autoTable(doc, {
-    startY: (doc as any).lastAutoTable.finalY + 6,
+    startY: (doc as JsPDFWithAutoTable).lastAutoTable.finalY + 6,
     head: [['Nome', 'Telefone', 'Pedidos', 'Gasto', 'Última', 'Pontos', 'Nível']],
     body: rows.map(r => [
       r.name,

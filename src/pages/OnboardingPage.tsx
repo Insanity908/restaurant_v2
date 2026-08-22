@@ -3,10 +3,11 @@ import { useNavigate, Navigate } from 'react-router-dom';
 import PageShell from '@/components/PageShell';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PasswordInput } from '@/components/ui/password-input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Building2, Users, Plus, Trash2, ArrowRight, Check } from 'lucide-react';
+import { Building2, Users, Plus, Trash2, ArrowRight, Check, UtensilsCrossed, LayoutGrid } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useLicense } from '@/hooks/useLicense';
 import { tenantStore } from '@/lib/tenants';
@@ -31,7 +32,7 @@ export default function OnboardingPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { tenant } = useLicense();
-  const [step, setStep] = useState<1 | 2>(1);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
 
   // Tenants owned by this account (multi-restaurant)
   const myTenants = (() => {
@@ -107,7 +108,7 @@ export default function OnboardingPage() {
 
   const finishOnboarding = async () => {
     const withContent = invites.filter(v => v.name.trim());
-    if (withContent.length === 0) { navigate('/', { replace: true }); return; }
+    if (withContent.length === 0) { setStep(3); return; }
 
     for (const v of withContent) {
       const err = inviteErrors(v);
@@ -141,19 +142,21 @@ export default function OnboardingPage() {
 
     if (created > 0) toast.success(`${created} membro(s) adicionado(s)`);
     if (failed.length > 0) toast.error(`Falhou para: ${failed.join(', ')}`);
-    navigate('/', { replace: true });
+    setStep(3);
   };
 
   return (
     <PageShell
       title="Configurar a sua unidade"
-      subtitle="Vamos preparar o seu restaurante em 2 passos"
+      subtitle="Vamos preparar o seu restaurante em 3 passos"
     >
       {/* Stepper */}
       <div className="flex items-center gap-2 mb-6 text-sm">
         <StepPill n={1} label="Restaurante" active={step === 1} done={step > 1} />
         <div className="flex-1 h-px bg-border" />
-        <StepPill n={2} label="Equipa" active={step === 2} done={false} />
+        <StepPill n={2} label="Equipa" active={step === 2} done={step > 2} />
+        <div className="flex-1 h-px bg-border" />
+        <StepPill n={3} label="Cardápio & Mesas" active={step === 3} done={false} />
       </div>
 
       {step === 1 && (
@@ -250,7 +253,7 @@ export default function OnboardingPage() {
                     </div>
                     <div>
                       <Label className="text-[11px]">Password</Label>
-                      <Input type="password" value={v.password} onChange={e => updateInvite(i, { password: e.target.value })} placeholder="mín. 8 caracteres" />
+                      <PasswordInput value={v.password} onChange={e => updateInvite(i, { password: e.target.value })} placeholder="mín. 8 caracteres" />
                     </div>
                   </div>
                 </div>
@@ -264,11 +267,48 @@ export default function OnboardingPage() {
           <div className="flex justify-between">
             <Button variant="outline" onClick={() => setStep(1)}>Voltar</Button>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => navigate('/', { replace: true })}>Saltar</Button>
+              <Button variant="outline" onClick={() => setStep(3)}>Saltar</Button>
               <Button onClick={finishOnboarding} disabled={inviting}>
                 <Check className="w-4 h-4" />{inviting ? 'A criar...' : 'Concluir'}
               </Button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {step === 3 && (
+        <div className="space-y-5">
+          <div className="glass rounded-xl p-5 text-center">
+            <h2 className="font-heading font-semibold text-lg">Quase pronto!</h2>
+            <p className="text-xs text-muted-foreground mt-1">
+              Falta só preparar o cardápio e as mesas antes do primeiro pedido.
+            </p>
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-4">
+            <button
+              onClick={() => navigate('/menu')}
+              className="glass rounded-xl p-6 text-left hover:border-primary/50 border border-transparent transition-colors"
+            >
+              <UtensilsCrossed className="w-8 h-8 text-primary mb-3" />
+              <h3 className="font-heading font-semibold">Configurar cardápio</h3>
+              <p className="text-xs text-muted-foreground mt-1">Adicione os pratos e categorias do seu menu.</p>
+            </button>
+            <button
+              onClick={() => navigate('/tables')}
+              className="glass rounded-xl p-6 text-left hover:border-primary/50 border border-transparent transition-colors"
+            >
+              <LayoutGrid className="w-8 h-8 text-primary mb-3" />
+              <h3 className="font-heading font-semibold">Configurar mesas</h3>
+              <p className="text-xs text-muted-foreground mt-1">Crie as mesas do seu espaço para começar a receber pedidos.</p>
+            </button>
+          </div>
+
+          <div className="flex justify-between">
+            <Button variant="outline" onClick={() => setStep(2)}>Voltar</Button>
+            <Button onClick={() => navigate('/', { replace: true })}>
+              Ir para o Dashboard <ArrowRight className="w-4 h-4" />
+            </Button>
           </div>
         </div>
       )}

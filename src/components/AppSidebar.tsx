@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { LayoutGrid, UtensilsCrossed, ChefHat, CreditCard, BarChart3, Settings, Coffee, Package, LogOut, Users, Clock, UserCircle, ShieldCheck, MoreHorizontal, ChevronsUpDown, Check, Plus, MessageSquare, Wallet } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -6,6 +6,8 @@ import { useOptionalAuth, ROUTE_PERMISSIONS } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
 import { useSettings } from '@/hooks/useSettings';
 import { useLicense } from '@/hooks/useLicense';
+import { useRestaurant } from '@/hooks/useRestaurant';
+import { useSuperAdminAlerts } from '@/hooks/useSuperAdminAlerts';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { tenantStore } from '@/lib/tenants';
 import { useStorageImage } from '@/hooks/useStorageImage';
@@ -24,7 +26,7 @@ const navItems = [
   { path: '/pos', icon: CreditCard, label: 'Caixa' },
   { path: '/inventory', icon: Package, label: 'Inventário' },
   { path: '/reports', icon: BarChart3, label: 'Relatórios' },
-  { path: '/staff', icon: Users, label: 'Funcionários' },
+  { path: '/staff', icon: Users, label: 'Team' },
   { path: '/customers', icon: UserCircle, label: 'Clientes' },
   { path: '/shifts', icon: Clock, label: 'Turnos' },
   { path: '/billing', icon: Wallet, label: 'Faturação' },
@@ -86,15 +88,38 @@ export default function AppSidebar() {
   const user = auth?.user ?? null;
   const logout = auth?.logout;
   const { settings } = useSettings();
-  const { tenant, status, daysLeft, isBasic } = useLicense();
+  const { tenant, status, daysLeft } = useLicense();
+  const { pendingConfirmationOrders } = useRestaurant();
+  const pendingOrdersCount = pendingConfirmationOrders.length;
+  const superAdminAlerts = useSuperAdminAlerts();
   const iconUrl = useStorageImage(LOGO_BUCKET, settings.iconUrl);
+  const backgroundImageUrl = useStorageImage(LOGO_BUCKET, settings.backgroundImageUrl);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
+  // Aplicado ao body (não a um wrapper local) porque é um pano de fundo à
+  // escala da app inteira, atrás de todas as páginas — não só da sidebar.
+  useEffect(() => {
+    const body = document.body;
+    if (!backgroundImageUrl) {
+      body.style.backgroundImage = '';
+      return;
+    }
+    body.style.backgroundImage = `url(${backgroundImageUrl})`;
+    body.style.backgroundSize = 'cover';
+    body.style.backgroundPosition = 'center';
+    body.style.backgroundRepeat = 'no-repeat';
+    body.style.backgroundAttachment = 'fixed';
+    return () => { body.style.backgroundImage = ''; };
+  }, [backgroundImageUrl]);
+
   if (!user) return null;
 
+  // Ficam sempre visíveis mesmo sem o plano Profissional — a própria página
+  // já mostra o ecrã de upsell ("disponível no plano Profissional") em vez
+  // de esconder a aba, para o cliente Básico saber que a funcionalidade
+  // existe e como a desbloquear (ver isBasic em ReportsPage).
   const visibleItems = navItems.filter(item => {
-    if (isBasic && item.path === '/reports') return false;
     const allowed = ROUTE_PERMISSIONS[item.path];
     return !allowed || allowed.includes(user.role);
   });
@@ -126,6 +151,7 @@ export default function AppSidebar() {
         <nav className="flex-1 flex flex-col gap-1 w-full px-2 overflow-y-auto">
           {visibleItems.map(({ path, icon: Icon, label }) => {
             const active = location.pathname === path;
+            const badge = path === '/tables' ? pendingOrdersCount : path === '/admin' ? superAdminAlerts : 0;
             return (
               <Link
                 key={path}
@@ -136,9 +162,21 @@ export default function AppSidebar() {
                   active && 'bg-primary/15 text-primary'
                 )}
               >
-                <Icon className={cn('w-5 h-5 shrink-0', active ? 'text-primary' : 'text-muted-foreground')} />
-                <span className={cn('hidden lg:block text-sm font-medium', active ? 'text-primary' : 'text-muted-foreground')}>
+                <span className="relative shrink-0">
+                  <Icon className={cn('w-5 h-5', active ? 'text-primary' : 'text-muted-foreground')} />
+                  {badge > 0 && (
+                    <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold flex items-center justify-center animate-pulse">
+                      {badge > 9 ? '9+' : badge}
+                    </span>
+                  )}
+                </span>
+                <span className={cn('hidden lg:flex items-center gap-2 text-sm font-medium', active ? 'text-primary' : 'text-muted-foreground')}>
                   {label}
+                  {badge > 0 && (
+                    <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold flex items-center justify-center">
+                      {badge > 9 ? '9+' : badge}
+                    </span>
+                  )}
                 </span>
               </Link>
             );
@@ -193,6 +231,7 @@ export default function AppSidebar() {
       <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 glass-strong border-t border-border/60 flex items-stretch justify-around px-1 pt-1 pb-[env(safe-area-inset-bottom)]">
         {mobilePrimary.map(({ path, icon: Icon, label }) => {
           const active = location.pathname === path;
+          const badge = path === '/tables' ? pendingOrdersCount : 0;
           return (
             <Link
               key={path}
@@ -202,7 +241,14 @@ export default function AppSidebar() {
                 active ? 'text-primary' : 'text-muted-foreground'
               )}
             >
-              <Icon className="w-5 h-5 shrink-0" />
+              <span className="relative">
+                <Icon className="w-5 h-5 shrink-0" />
+                {badge > 0 && (
+                  <span className="absolute -top-1.5 -right-2 min-w-[15px] h-[15px] px-1 rounded-full bg-destructive text-destructive-foreground text-[9px] font-bold flex items-center justify-center animate-pulse">
+                    {badge > 9 ? '9+' : badge}
+                  </span>
+                )}
+              </span>
               <span className="text-[10px] font-medium truncate max-w-full">{label}</span>
             </Link>
           );

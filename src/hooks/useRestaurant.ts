@@ -1,12 +1,8 @@
 import { useState, useCallback, useEffect } from 'react';
-import { MenuItem, Table, Order, OrderItem, InventoryItem, AuditActor } from '@/types/restaurant';
-import { menuStore, tableStore, orderStore, inventoryStore, customerStore, subscribeOperations } from '@/lib/store';
+import { MenuItem, Table, Order, OrderItem, OrderPayment, InventoryItem, AuditActor } from '@/types/restaurant';
+import { menuStore, tableStore, orderStore, inventoryStore, customerStore, subscribeOperations, generateId } from '@/lib/store';
 import { useAuth } from '@/context/AuthContext';
 import { parseQty, areUnitsCompatible, convertQty } from '@/lib/units';
-
-function generateId(): string {
-  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-}
 
 function actorFrom(user: { id: string; name: string; role: AuditActor['role'] } | null): AuditActor | undefined {
   if (!user) return undefined;
@@ -189,6 +185,43 @@ export function useRestaurant() {
     return { ok: true as const };
   }, [orders, refresh, user]);
 
+  // T4.1: dividir conta. Só regista a parcela (quem/quanto/método) — não
+  // mexe em paid/total/status, que continuam a mudar só quando
+  // `completeOrder` fecha o pedido de facto (a última chamada, quando as
+  // parcelas já somam `targetTotal`). Isto evita duplicar a lógica de
+  // desconto/taxa/fidelidade de completeOrder: o chamador (POSPage) só
+  // precisa de invocar completeOrder normalmente assim que `remaining`
+  // chegar a 0, exactamente como já fazia para um pagamento único.
+  const addPartialPayment = useCallback((
+    orderId: string,
+    method: NonNullable<Order['paymentMethod']>,
+    amount: number,
+    targetTotal: number,
+  ) => {
+    const order = orders.find(o => o.id === orderId);
+    if (!order) return { ok: false as const, error: 'Pedido não encontrado' };
+    if (order.paid) return { ok: false as const, error: 'Pedido já foi pago' };
+    const pending = order.items.filter(i => i.status !== 'served');
+    if (pending.length > 0) return { ok: false as const, error: 'Há pratos por servir' };
+    if (!(amount > 0)) return { ok: false as const, error: 'Valor inválido' };
+
+    const alreadyPaid = (order.payments ?? []).reduce((s, p) => s + p.amount, 0);
+    const remaining = Math.max(0, targetTotal - alreadyPaid);
+    if (amount > remaining + 0.01) return { ok: false as const, error: 'Valor maior do que o em falta' };
+
+    const payment: OrderPayment = { id: generateId(), method, amount, at: new Date().toISOString(), closedBy: actorFrom(user) };
+    orderStore.addPayment(orderId, payment);
+    refresh();
+    return { ok: true as const, remaining: Math.max(0, remaining - amount) };
+  }, [orders, refresh, user]);
+
+  // Corrigir um engano antes de fechar a conta — só a parcela mais recente,
+  // para não haver ambiguidade sobre qual remover.
+  const removeLastPayment = useCallback((orderId: string) => {
+    orderStore.removeLastPayment(orderId);
+    refresh();
+  }, [refresh]);
+
   const logPrint = useCallback(
     (orderId: string, kind: 'receipt' | 'served-items', note?: string) => {
       const order = orderStore.getAll().find(o => o.id === orderId);
@@ -219,6 +252,24 @@ export function useRestaurant() {
     }
     refresh();
   }, [orders, refresh, user]);
+
+  // Um grupo que muda de mesa não devia obrigar a cancelar e recriar o
+  // pedido (perdia o histórico de eventos, reimpressões, etc.) — só
+  // transfere tableId/tableNumber no pedido e currentOrderId/status nas
+  // duas mesas envolvidas.
+  const moveOrderToTable = useCallback((orderId: string, newTableId: string) => {
+    const order = orders.find(o => o.id === orderId);
+    const newTable = tableStore.getAll().find(t => t.id === newTableId);
+    if (!order || !order.tableId || !newTable) return { ok: false as const, error: 'Pedido ou mesa inválidos' };
+    if (newTable.status !== 'free') return { ok: false as const, error: 'A mesa de destino não está livre' };
+
+    const oldTableId = order.tableId;
+    orderStore.update(orderId, { tableId: newTableId, tableNumber: newTable.number });
+    tableStore.update(oldTableId, { status: 'free', currentOrderId: undefined });
+    tableStore.update(newTableId, { status: 'occupied', currentOrderId: orderId });
+    refresh();
+    return { ok: true as const };
+  }, [orders, refresh]);
 
   // Pedidos submetidos pelo próprio cliente (QR/entrega) entram como
   // 'awaiting-confirmation' — só chegam à Cozinha depois do Caixa confirmar
@@ -346,6 +397,7 @@ export function useRestaurant() {
     menuItems, tables, orders, activeOrders, kitchenOrders, pendingConfirmationOrders,
     inventory, lowStockItems,
     createOrder, appendOrderItems, updateOrder, updateOrderItemStatus, completeOrder, cancelOrder,
+    moveOrderToTable, addPartialPayment, removeLastPayment,
     confirmPendingOrder, rejectPendingOrder,
     addMenuItem, updateMenuItem, deleteMenuItem,
     addInventoryItem, updateInventoryItem, deleteInventoryItem,
