@@ -1,6 +1,6 @@
 import { MenuItem, Table, Order, OrderItem, OrderEvent, OrderPayment, Staff, InventoryItem, Shift, SecurityAlert, Customer } from '@/types/restaurant';
 import { supabase } from '@/integrations/supabase/client';
-import { cloud, pendingResourceIds } from './outbox';
+import { cloud, pendingResourceIds, enqueueWrite, subscribeOutbox } from './outbox';
 import { warmStorageUrls, MENU_BUCKET } from './storage';
 import { tenantScopedKey } from './localCache';
 import { nowIso } from './serverClock';
@@ -404,19 +404,30 @@ export const orderStore = {
     const row = orderRow(updates);
     row.updated_at = patched.updatedAt;
     row.client_updated_at = patched.updatedAt;
-    void cloud('orders').update(row as never)
-      .eq('id', id).eq('tenant_id', t)
-      .guard('client_updated_at', previous.updatedAt)
-      .resource(id)
-      .then(({ error }) => {
-        if (!error) return;
-        const rollback = orderStore.getAll();
-        const ridx = rollback.findIndex(o => o.id === id);
-        if (ridx !== -1) { rollback[ridx] = previous; orderStore.save(rollback); }
-        warn('orders.completePayment', error);
-        notifyLocalWrite();
-        void notifyReverted('O servidor rejeitou a confirmação do pagamento — pedido revertido para activo. Verifique a mesa e os pontos de fidelidade antes de tentar novamente.');
-      });
+    // `enqueueWrite` (not `cloud().update()`) — durably queues before
+    // attempting the network, so the write survives the tab closing/
+    // reloading right after this returns (see its own doc comment). Then
+    // watch the outbox for how this specific op resolves: gone = sent
+    // fine; `failed` = the server permanently rejected it, so roll back.
+    const opId = await enqueueWrite({
+      table: 'orders', action: 'update', values: row,
+      match: { id, tenant_id: t },
+      guard: { column: 'client_updated_at', value: previous.updatedAt, op: 'lte' },
+      resource: `orders:${id}`,
+      label: 'orders.completePayment',
+    });
+    const unwatch = subscribeOutbox(state => {
+      const op = state.ops.find(o => o.id === opId);
+      if (!op) { unwatch(); return; }
+      if (!op.failed) return;
+      unwatch();
+      const rollback = orderStore.getAll();
+      const ridx = rollback.findIndex(o => o.id === id);
+      if (ridx !== -1) { rollback[ridx] = previous; orderStore.save(rollback); }
+      warn('orders.completePayment', { message: op.error ?? 'rejected' });
+      notifyLocalWrite();
+      void notifyReverted('O servidor rejeitou a confirmação do pagamento — pedido revertido para activo. Verifique a mesa e os pontos de fidelidade antes de tentar novamente.');
+    });
     return { ok: true };
   },
 };

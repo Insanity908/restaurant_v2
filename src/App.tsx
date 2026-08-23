@@ -9,6 +9,7 @@ import MigrationGate from "@/components/MigrationGate";
 import RequireAuth from "@/components/RequireAuth";
 import RequireSuperAdmin from "@/components/RequireSuperAdmin";
 import SyncStatus from "@/components/SyncStatus";
+import InstallPrompt from "@/components/InstallPrompt";
 
 import { AuthProvider, useOptionalAuth } from "@/context/AuthContext";
 
@@ -96,6 +97,7 @@ const App = () => (
           <ConditionalSidebar />
           <MigrationGate />
           <SyncStatus />
+          <InstallPrompt />
           <Suspense fallback={<PageFallback />}>
             <Routes>
 

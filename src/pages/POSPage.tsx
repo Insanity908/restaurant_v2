@@ -385,6 +385,11 @@ export default function POSPage() {
                 )}
               </div>
 
+              <div className="flex items-center justify-between text-sm font-medium">
+                <span className="text-muted-foreground">Total</span>
+                <span className="text-primary font-bold">{formatPrice(grandTotal)}</span>
+              </div>
+
               {paymentMethod === 'cash' && (
                 <div className="space-y-2">
                   <label className="text-sm text-muted-foreground" htmlFor="cash-received">Valor Recebido (MT)</label>
@@ -552,29 +557,6 @@ export default function POSPage() {
                     </button>
                   </div>
                 )}
-              </div>
-
-              <div className="bg-secondary/50 rounded-xl p-4">
-                <div className="flex justify-between mb-2">
-                  <span className="text-muted-foreground">Subtotal</span>
-                  <span className="text-foreground">{formatPrice(selectedOrder.total)}</span>
-                </div>
-                {discount > 0 && (
-                  <div className="flex justify-between mb-2 text-success">
-                    <span>Desconto fidelidade ({redeemPts} pts)</span>
-                    <span>-{formatPrice(discount)}</span>
-                  </div>
-                )}
-                {isTakeawayOrDelivery && packagingFee > 0 && (
-                  <div className="flex justify-between mb-2">
-                    <span className="text-muted-foreground">Taxa de embalagem</span>
-                    <span className="text-foreground">{formatPrice(packagingFee)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between pt-2 border-t border-border font-bold text-lg">
-                  <span className="text-foreground">Total</span>
-                  <span className="text-primary">{formatPrice(grandTotal)}</span>
-                </div>
               </div>
             </>
           ) : (

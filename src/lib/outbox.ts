@@ -239,6 +239,25 @@ async function enqueue(op: WriteOp): Promise<void> {
 }
 
 /**
+ * Always queues, never attempts a direct online round trip first — unlike
+ * `queueWrite`'s online fast path, which fires the request straight away and
+ * loses it for good if the tab closes/reloads before the response lands
+ * (the browser aborts the in-flight `fetch`, and nothing was ever persisted
+ * to replay it). For a write that must survive that (payment completion —
+ * see store.ts `completePayment`), this pays a trivial localStorage
+ * read/write up front so the op is durable from the very first synchronous
+ * instant, then lets the normal `flushOutbox` machinery send it — same
+ * retry/failure surface (`subscribeOutbox`) as every other queued write.
+ * Returns the op id so the caller can watch it resolve via `subscribeOutbox`.
+ */
+export async function enqueueWrite(input: Omit<WriteOp, 'id' | 'at'>): Promise<string> {
+  const op: WriteOp = { ...input, id: crypto.randomUUID(), at: new Date().toISOString() };
+  await enqueue(op);
+  void flushOutbox();
+  return op.id;
+}
+
+/**
  * Perform a cloud write, falling back to the offline queue when unreachable.
  * Always resolves — callers keep their optimistic local state either way.
  */

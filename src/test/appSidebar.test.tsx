@@ -162,9 +162,9 @@ describe('AppSidebar — rótulo da equipa', () => {
     mockRole = 'manager'; // '/staff' não está em ROUTE_PERMISSIONS para 'waiter'
   });
 
-  it('o item de navegação para /staff mostra "Team", não "Funcionários"', async () => {
+  it('o item de navegação para /staff mostra "Team e Despesas", não "Funcionários"', async () => {
     await renderSidebar();
-    expect(screen.getByText('Team')).toBeInTheDocument();
+    expect(screen.getByText('Team e Despesas')).toBeInTheDocument();
     expect(screen.queryByText('Funcionários')).not.toBeInTheDocument();
   });
 });

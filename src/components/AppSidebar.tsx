@@ -26,7 +26,7 @@ const navItems = [
   { path: '/pos', icon: CreditCard, label: 'Caixa' },
   { path: '/inventory', icon: Package, label: 'Inventário' },
   { path: '/reports', icon: BarChart3, label: 'Relatórios' },
-  { path: '/staff', icon: Users, label: 'Team' },
+  { path: '/staff', icon: Users, label: 'Team e Despesas' },
   { path: '/customers', icon: UserCircle, label: 'Clientes' },
   { path: '/shifts', icon: Clock, label: 'Turnos' },
   { path: '/billing', icon: Wallet, label: 'Faturação' },

@@ -13,8 +13,8 @@ interface FeedbackDialogProps {
 }
 
 /**
- * Canal directo para qualquer utilizador (não só admin) enviar feedback ao
- * superadmin da plataforma — visível na tab "Feedback" do Super Admin.
+ * Canal directo para qualquer utilizador (não só admin) enviar feedback aos
+ * desenvolvedores da plataforma — visível na tab "Feedback" do Super Admin.
  */
 export default function FeedbackDialog({ open, onOpenChange }: FeedbackDialogProps) {
   const auth = useOptionalAuth();
@@ -43,7 +43,7 @@ export default function FeedbackDialog({ open, onOpenChange }: FeedbackDialogPro
           <DialogTitle>Enviar feedback</DialogTitle>
         </DialogHeader>
         <p className="text-xs text-muted-foreground -mt-2">
-          Sugestões, problemas ou o que achar importante vai directo para os densevolvedores.
+          Sugestões, problemas ou o que achar importante — vai directo para os desenvolvedores.
         </p>
         <Textarea
           value={message}
