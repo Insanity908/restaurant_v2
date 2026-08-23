@@ -43,7 +43,7 @@ export default function FeedbackDialog({ open, onOpenChange }: FeedbackDialogPro
           <DialogTitle>Enviar feedback</DialogTitle>
         </DialogHeader>
         <p className="text-xs text-muted-foreground -mt-2">
-          Sugestões, problemas ou o que achar importante — vai directo para o superadmin.
+          Sugestões, problemas ou o que achar importante vai directo para os densevolvedores.
         </p>
         <Textarea
           value={message}
