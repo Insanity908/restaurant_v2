@@ -54,10 +54,10 @@ export const expenseStore = {
     setExpensesLocal(all);
     const t = tenantId();
     if (t && isUuid(created.id)) {
-      void cloud('expenses').insert({
+      void cloud('expenses').upsert({
         id: created.id, tenant_id: t, name: created.name, category: created.category, amount: created.amount,
         recurring: created.recurring, expense_date: created.recurring ? null : (created.expenseDate ?? null),
-      }).then(({ error }) => {
+      }, { onConflict: 'id' }).then(({ error }) => {
         warn('expenses.insert', error);
         // Ponto inicial do histórico — sem isto, reconstruir o valor de
         // períodos antes da primeira edição não teria onde procurar.

@@ -1,0 +1,11 @@
+-- Corrige o cardápio do cliente (QR de mesa/entrega) a aparecer sempre como
+-- "Cardápio indisponível de momento", mesmo com itens disponíveis cadastrados.
+--
+-- A migração 20260817090000_customer_ordering_schema.sql criou a RLS policy
+-- "Anyone reads available menu items" para o papel `anon`, mas nunca concedeu
+-- o GRANT SELECT correspondente na tabela — só `authenticated` tem esse
+-- grant (ver create table menu_items). Uma RLS policy só restringe o que já
+-- é permitido pelo GRANT; sem o GRANT, o Postgres nega SELECT a `anon` por
+-- completo, e a policy nunca chega a ser avaliada. É o mesmo padrão já usado
+-- correctamente para billing_plans (grant select ... to anon).
+grant select on public.menu_items to anon;

@@ -127,7 +127,7 @@ describe('menuStore', () => {
     expect(menuStore.getAll()).toHaveLength(1);
     expect(menuStore.getAll()[0].name).toBe('Pizza Marguerita');
 
-    const call = cloudCalls.find(c => c.table === 'menu_items' && c.action === 'insert');
+    const call = cloudCalls.find(c => c.table === 'menu_items' && c.action === 'upsert');
     expect(call).toBeDefined();
     expect(call?.values).toMatchObject({
       id: created.id, tenant_id: TENANT_A, name: 'Pizza Marguerita', price: 500,
@@ -163,7 +163,7 @@ describe('menuStore', () => {
 describe('tableStore', () => {
   it('adiciona uma mesa e envia o número/lugares/estado correctos', () => {
     const created = tableStore.add({ number: 4, seats: 6, status: 'free' });
-    const call = cloudCalls.find(c => c.table === 'restaurant_tables' && c.action === 'insert');
+    const call = cloudCalls.find(c => c.table === 'restaurant_tables' && c.action === 'upsert');
     expect(call?.values).toMatchObject({ number: 4, seats: 6, status: 'free', tenant_id: TENANT_A });
     expect(created.number).toBe(4);
   });
@@ -186,7 +186,7 @@ describe('inventoryStore', () => {
       name: 'Farinha', unit: 'kg', currentStock: 10, minStock: 2, costPerUnit: 50,
       linkedMenuItemIds: [], usagePerServing: 0.5,
     });
-    const call = cloudCalls.find(c => c.table === 'inventory_items' && c.action === 'insert');
+    const call = cloudCalls.find(c => c.table === 'inventory_items' && c.action === 'upsert');
     expect(call?.values).toMatchObject({ name: 'Farinha', current_stock: 10, min_stock: 2 });
     expect(created.currentStock).toBe(10);
   });
@@ -224,7 +224,7 @@ describe('customerStore', () => {
   it('adiciona um cliente com pointsAdjustment por omissão', () => {
     const created = customerStore.add({ name: 'Maria João', phone: '841234567' });
     expect(created.pointsAdjustment).toBe(0);
-    const call = cloudCalls.find(c => c.table === 'customers' && c.action === 'insert');
+    const call = cloudCalls.find(c => c.table === 'customers' && c.action === 'upsert');
     expect(call?.values).toMatchObject({ name: 'Maria João', phone: '841234567', points_adjustment: 0 });
   });
 
@@ -241,7 +241,7 @@ describe('staffStore', () => {
     const created = staffStore.add({ id: explicitId, name: 'Ana Caixa', role: 'cashier', pin: '1234' });
 
     expect(created.id).toBe(explicitId);
-    const call = cloudCalls.find(c => c.table === 'staff' && c.action === 'insert');
+    const call = cloudCalls.find(c => c.table === 'staff' && c.action === 'upsert');
     expect(call?.values).toMatchObject({ id: explicitId, name: 'Ana Caixa', role: 'cashier', pin: '1234' });
   });
 
@@ -269,7 +269,7 @@ describe('orderStore', () => {
     expect(order.createdAt).toBeTruthy();
     expect(order.updatedAt).toBe(order.createdAt);
 
-    const call = cloudCalls.find(c => c.table === 'orders' && c.action === 'insert');
+    const call = cloudCalls.find(c => c.table === 'orders' && c.action === 'upsert');
     expect(call).toBeDefined();
     expect(call?.values).toMatchObject({ id: order.id, tenant_id: TENANT_A, type: 'dine-in', total: 700 });
   });

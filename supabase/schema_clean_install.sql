@@ -480,6 +480,10 @@ create table public.menu_items (
 create index idx_menu_items_tenant on public.menu_items(tenant_id);
 grant select, insert, update, delete on public.menu_items to authenticated;
 grant all on public.menu_items to service_role;
+-- Sem isto, a RLS policy "Anyone reads available menu items" (mais abaixo)
+-- nunca chega a ser avaliada — GRANT é a permissão base, RLS só restringe
+-- o que o GRANT já permite.
+grant select on public.menu_items to anon;
 alter table public.menu_items enable row level security;
 
 create trigger trg_menu_items_updated

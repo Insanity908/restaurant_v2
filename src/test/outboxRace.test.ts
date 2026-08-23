@@ -34,6 +34,7 @@ vi.mock('@/integrations/supabase/client', () => ({
       if (table === 'orders') {
         return {
           insert: () => Promise.resolve({ error: null }),
+          upsert: () => Promise.resolve({ error: null }),
           // fetchOrders(): select(...).eq(...).order(...).limit(...) — resolve
           // depressa, com os dados ANTIGOS do servidor (ainda não cancelado),
           // para calhar deliberadamente a meio da janela da escrita.
@@ -70,6 +71,7 @@ vi.mock('@/integrations/supabase/client', () => ({
       return {
         select: () => ({ eq: () => ({ order: () => ({ limit: () => Promise.resolve({ data: [], error: null }) }) }) }),
         insert: () => Promise.resolve({ error: null }),
+        upsert: () => Promise.resolve({ error: null }),
         update: () => ({ eq: () => Promise.resolve({ error: null }) }),
         delete: () => ({ eq: () => Promise.resolve({ error: null }) }),
       };

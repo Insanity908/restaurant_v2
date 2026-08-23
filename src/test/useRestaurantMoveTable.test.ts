@@ -23,6 +23,7 @@ vi.mock('@/lib/store', () => ({
   inventoryStore: { getAll: () => [], deductForOrder: vi.fn() },
   customerStore: { getAll: () => [] },
   subscribeOperations: () => () => {},
+  subscribeLocalWrites: () => () => {},
   tableStore: {
     getAll: () => TABLES,
     update: (id: string, updates: Partial<Table>) => { TABLES = TABLES.map(t => t.id === id ? { ...t, ...updates } : t); },

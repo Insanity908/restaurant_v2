@@ -285,79 +285,6 @@ export default function POSPage() {
               </button>
               <h2 className="font-heading font-bold text-foreground">Pagamento</h2>
 
-              {/* Customer / Loyalty */}
-              <div className="rounded-xl border border-border p-3 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold flex items-center gap-1.5">
-                    <Award className="w-4 h-4 text-primary" /> Cliente / Fidelidade
-                  </span>
-                  {linkedCustomer && (
-                    <button onClick={() => { setLinkedCustomer(null); setRedeemInput(''); }}
-                      className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
-                      <X className="w-3 h-3" /> Desligar
-                    </button>
-                  )}
-                </div>
-                {linkedCustomer ? (
-                  <>
-                    <div className="text-sm">
-                      <div className="font-semibold">{linkedCustomer.name}</div>
-                      <div className="text-xs text-muted-foreground">{linkedCustomer.phone}</div>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2 text-center">
-                      <div className="rounded-md bg-secondary/40 py-1.5">
-                        <div className="text-sm font-semibold">{customerStats?.points ?? 0}</div>
-                        <div className="text-[10px] uppercase text-muted-foreground">Pontos</div>
-                      </div>
-                      <div className="rounded-md bg-secondary/40 py-1.5">
-                        <div className="text-sm font-semibold">{customerStats?.orderCount ?? 0}</div>
-                        <div className="text-[10px] uppercase text-muted-foreground">Pedidos</div>
-                      </div>
-                      <div className="rounded-md bg-primary/15 py-1.5">
-                        <div className="text-sm font-semibold text-primary">+{willEarn}</div>
-                        <div className="text-[10px] uppercase text-muted-foreground">A ganhar</div>
-                      </div>
-                    </div>
-                    {canDiscount && (
-                      <>
-                        <div className="flex gap-2 items-center">
-                          <input
-                            type="text" inputMode="numeric" placeholder="Pontos a resgatar"
-                            value={redeemInput}
-                            onChange={e => setRedeemInput(e.target.value.replace(/\D/g, ''))}
-                            className="flex-1 bg-secondary/60 rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
-                          />
-                          <button
-                            onClick={() => setRedeemInput(String(Math.min(customerStats?.points ?? 0, Math.floor(subtotal / MT_PER_POINT))))}
-                            className="text-xs px-2 py-2 rounded-md bg-secondary text-secondary-foreground hover:bg-secondary/80"
-                          >Máx</button>
-                        </div>
-                        <p className="text-[11px] text-muted-foreground">
-                          1 ponto = {MT_PER_POINT} MT de desconto · ganha 1 ponto por cada {POINTS_PER_MT > 0 ? Math.round(1 / POINTS_PER_MT) : '—'} MT.
-                        </p>
-                      </>
-                    )}
-                  </>
-                ) : (
-                  <div className="flex gap-2">
-                    <input
-                      type="tel" placeholder="Telefone do cliente"
-                      value={phoneLookup}
-                      onChange={e => setPhoneLookup(maskMzPhone(e.target.value))}
-                      className="flex-1 bg-secondary/60 rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
-                    />
-                    <button onClick={handleLookup}
-                      className="px-3 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90">
-                      Ligar
-                    </button>
-                    <button onClick={() => setCreateOpen(true)} title="Novo cliente"
-                      className="px-2 py-2 rounded-md bg-secondary text-secondary-foreground hover:bg-secondary/80">
-                      <UserPlus className="w-4 h-4" />
-                    </button>
-                  </div>
-                )}
-              </div>
-
               {/* Packaging fee — só takeaway/entrega */}
               {isTakeawayOrDelivery && (
                 <div>
@@ -378,25 +305,6 @@ export default function POSPage() {
                   </div>
                 </div>
               )}
-
-              {/* Tip buttons */}
-              <div>
-                <p className="text-sm text-muted-foreground mb-2">Gorjeta</p>
-                <div className="flex gap-2">
-                  {[0, 50, 100, 200].map(t => (
-                    <button
-                      key={t}
-                      onClick={() => setTip(t)}
-                      className={cn(
-                        'flex-1 py-2 rounded-lg text-sm font-medium transition-all',
-                        tip === t ? 'bg-primary text-primary-foreground' : 'bg-secondary text-secondary-foreground'
-                      )}
-                    >
-                      {t === 0 ? 'Sem' : formatPrice(t)}
-                    </button>
-                  ))}
-                </div>
-              </div>
 
               {/* Payment method */}
               <div>
@@ -419,33 +327,6 @@ export default function POSPage() {
                       <span className="text-xs font-medium">{label}</span>
                     </button>
                   ))}
-                </div>
-              </div>
-
-              <div className="bg-secondary/50 rounded-xl p-4">
-                <div className="flex justify-between mb-2">
-                  <span className="text-muted-foreground">Subtotal</span>
-                  <span className="text-foreground">{formatPrice(selectedOrder.total)}</span>
-                </div>
-                {discount > 0 && (
-                  <div className="flex justify-between mb-2 text-success">
-                    <span>Desconto fidelidade ({redeemPts} pts)</span>
-                    <span>-{formatPrice(discount)}</span>
-                  </div>
-                )}
-                {isTakeawayOrDelivery && packagingFee > 0 && (
-                  <div className="flex justify-between mb-2">
-                    <span className="text-muted-foreground">Taxa de embalagem</span>
-                    <span className="text-foreground">{formatPrice(packagingFee)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between mb-2">
-                  <span className="text-muted-foreground">Gorjeta</span>
-                  <span className="text-foreground">{formatPrice(tip)}</span>
-                </div>
-                <div className="flex justify-between pt-2 border-t border-border font-bold text-lg">
-                  <span className="text-foreground">Total</span>
-                  <span className="text-primary">{formatPrice(grandTotal)}</span>
                 </div>
               </div>
 
@@ -598,6 +479,102 @@ export default function POSPage() {
                       ? (installmentAmountNum >= remaining ? 'Registar parcela e finalizar' : 'Registar parcela')
                       : 'Confirmar Pagamento'}
                 </button>
+              </div>
+
+              {/* Customer / Loyalty */}
+              <div className="rounded-xl border border-border p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold flex items-center gap-1.5">
+                    <Award className="w-4 h-4 text-primary" /> Cliente / Fidelidade
+                  </span>
+                  {linkedCustomer && (
+                    <button onClick={() => { setLinkedCustomer(null); setRedeemInput(''); }}
+                      className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
+                      <X className="w-3 h-3" /> Desligar
+                    </button>
+                  )}
+                </div>
+                {linkedCustomer ? (
+                  <>
+                    <div className="text-sm">
+                      <div className="font-semibold">{linkedCustomer.name}</div>
+                      <div className="text-xs text-muted-foreground">{linkedCustomer.phone}</div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div className="rounded-md bg-secondary/40 py-1.5">
+                        <div className="text-sm font-semibold">{customerStats?.points ?? 0}</div>
+                        <div className="text-[10px] uppercase text-muted-foreground">Pontos</div>
+                      </div>
+                      <div className="rounded-md bg-secondary/40 py-1.5">
+                        <div className="text-sm font-semibold">{customerStats?.orderCount ?? 0}</div>
+                        <div className="text-[10px] uppercase text-muted-foreground">Pedidos</div>
+                      </div>
+                      <div className="rounded-md bg-primary/15 py-1.5">
+                        <div className="text-sm font-semibold text-primary">+{willEarn}</div>
+                        <div className="text-[10px] uppercase text-muted-foreground">A ganhar</div>
+                      </div>
+                    </div>
+                    {canDiscount && (
+                      <>
+                        <div className="flex gap-2 items-center">
+                          <input
+                            type="text" inputMode="numeric" placeholder="Pontos a resgatar"
+                            value={redeemInput}
+                            onChange={e => setRedeemInput(e.target.value.replace(/\D/g, ''))}
+                            className="flex-1 bg-secondary/60 rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+                          />
+                          <button
+                            onClick={() => setRedeemInput(String(Math.min(customerStats?.points ?? 0, Math.floor(subtotal / MT_PER_POINT))))}
+                            className="text-xs px-2 py-2 rounded-md bg-secondary text-secondary-foreground hover:bg-secondary/80"
+                          >Máx</button>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">
+                          1 ponto = {MT_PER_POINT} MT de desconto · ganha 1 ponto por cada {POINTS_PER_MT > 0 ? Math.round(1 / POINTS_PER_MT) : '—'} MT.
+                        </p>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <div className="flex gap-2">
+                    <input
+                      type="tel" placeholder="Telefone do cliente"
+                      value={phoneLookup}
+                      onChange={e => setPhoneLookup(maskMzPhone(e.target.value))}
+                      className="flex-1 bg-secondary/60 rounded-md px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary"
+                    />
+                    <button onClick={handleLookup}
+                      className="px-3 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90">
+                      Ligar
+                    </button>
+                    <button onClick={() => setCreateOpen(true)} title="Novo cliente"
+                      className="px-2 py-2 rounded-md bg-secondary text-secondary-foreground hover:bg-secondary/80">
+                      <UserPlus className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-secondary/50 rounded-xl p-4">
+                <div className="flex justify-between mb-2">
+                  <span className="text-muted-foreground">Subtotal</span>
+                  <span className="text-foreground">{formatPrice(selectedOrder.total)}</span>
+                </div>
+                {discount > 0 && (
+                  <div className="flex justify-between mb-2 text-success">
+                    <span>Desconto fidelidade ({redeemPts} pts)</span>
+                    <span>-{formatPrice(discount)}</span>
+                  </div>
+                )}
+                {isTakeawayOrDelivery && packagingFee > 0 && (
+                  <div className="flex justify-between mb-2">
+                    <span className="text-muted-foreground">Taxa de embalagem</span>
+                    <span className="text-foreground">{formatPrice(packagingFee)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between pt-2 border-t border-border font-bold text-lg">
+                  <span className="text-foreground">Total</span>
+                  <span className="text-primary">{formatPrice(grandTotal)}</span>
+                </div>
               </div>
             </>
           ) : (

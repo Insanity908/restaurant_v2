@@ -42,6 +42,31 @@ export function generateId(): string {
 function tenantId(): string | null { return localStorage.getItem('current_tenant_id'); }
 function warn(op: string, err: { message: string } | null) { if (err) console.warn(`[cloud-sync] ${op} failed: ${err.message}`); }
 
+/** Notifies subscribers when a store reverts local data on its own — today
+ *  only the optimistic payment-completion rollback below, since that patch
+ *  happens well after the hook that triggered it already returned. Without
+ *  this the reverted order would sit correctly in localStorage but the
+ *  screen would keep showing the (never actually confirmed) success state. */
+type LocalWriteListener = () => void;
+const localWriteListeners = new Set<LocalWriteListener>();
+export function subscribeLocalWrites(fn: LocalWriteListener): () => void {
+  localWriteListeners.add(fn);
+  return () => { localWriteListeners.delete(fn); };
+}
+function notifyLocalWrite() { localWriteListeners.forEach(fn => fn()); }
+
+/** Toast for a write that looked optimistically fine but the server later
+ *  permanently rejected — dynamic import keeps `sonner` out of every module
+ *  that only wants store helpers (mirrors outbox.ts's notifyDiscarded). */
+async function notifyReverted(message: string): Promise<void> {
+  console.warn(`[cloud-sync] ${message}`);
+  if (typeof window === 'undefined') return;
+  try {
+    const { toast } = await import('sonner');
+    toast.error(message);
+  } catch { /* toast é cosmético — a consola já registou o essencial */ }
+}
+
 /**
  * Reconciliação: registos com escritas ainda por sincronizar mantêm a versão
  * local (o dispositivo é a fonte de verdade até a fila ser esvaziada); tudo o
@@ -70,11 +95,11 @@ export const menuStore = {
     menuStore.save(items);
     const t = tenantId();
     if (t && isUuid(newItem.id)) {
-      void cloud('menu_items').insert({
+      void cloud('menu_items').upsert({
         id: newItem.id, tenant_id: t, name: newItem.name, price: newItem.price, category: newItem.category,
         description: newItem.description ?? null, image_path: newItem.image ?? null, available: newItem.available,
         modifiers: (newItem.modifiers ?? []) as never, recipe: (newItem.recipe ?? null) as never,
-      }).then(({ error }) => warn('menu.insert', error));
+      }, { onConflict: 'id' }).then(({ error }) => warn('menu.insert', error));
     }
     return newItem;
   },
@@ -140,10 +165,10 @@ export const tableStore = {
     tableStore.save(tables);
     const t = tenantId();
     if (t && isUuid(newTable.id)) {
-      void cloud('restaurant_tables').insert({
+      void cloud('restaurant_tables').upsert({
         id: newTable.id, tenant_id: t, number: newTable.number, seats: newTable.seats,
         status: newTable.status, current_order_id: newTable.currentOrderId ?? null,
-      }).then(({ error }) => warn('tables.insert', error));
+      }, { onConflict: 'id' }).then(({ error }) => warn('tables.insert', error));
     }
     return newTable;
   },
@@ -236,7 +261,7 @@ async function syncOrderItems(orderId: string, items: OrderItem[]) {
   const { error: delErr } = await cloud('order_items').delete().eq('order_id', orderId).resource(orderId);
   warn('orderItems.delete', delErr);
   if (!items.length) return;
-  const { error } = await cloud('order_items').insert(itemRows(orderId, items) as never).resource(orderId);
+  const { error } = await cloud('order_items').upsert(itemRows(orderId, items) as never, { onConflict: 'id' }).resource(orderId);
   warn('orderItems.insert', error);
 }
 
@@ -267,7 +292,7 @@ async function syncOrderPayment(orderId: string, payment: OrderPayment) {
     amount: payment.amount,
     closed_by: (payment.closedBy ?? null) as never,
   };
-  const { error } = await cloud('order_payments').insert(row as never).resource(orderId);
+  const { error } = await cloud('order_payments').upsert(row as never, { onConflict: 'id' }).resource(orderId);
   warn('orderPayments.insert', error);
 }
 
@@ -282,11 +307,11 @@ export const orderStore = {
     const t = tenantId();
     if (t && isUuid(newOrder.id)) {
       void (async () => {
-        const { error } = await cloud('orders').insert({
+        const { error } = await cloud('orders').upsert({
           id: newOrder.id, ...orderRow(newOrder, t),
           created_at: newOrder.createdAt, updated_at: newOrder.updatedAt,
           client_updated_at: newOrder.updatedAt,
-        } as never).resource(newOrder.id);
+        } as never, { onConflict: 'id' }).resource(newOrder.id);
         warn('orders.insert', error);
         if (error) return;
         await syncOrderItems(newOrder.id, newOrder.items ?? []);
@@ -354,11 +379,15 @@ export const orderStore = {
     return orders[idx];
   },
   /**
-   * Dedicated write path for payment completion. Unlike `update()`, this
-   * awaits the cloud write and rolls back the optimistic local patch when it
-   * is permanently rejected (not merely queued for offline retry) — a
-   * financial action must not silently vanish from the active list while
-   * the server never actually recorded the payment.
+   * Dedicated write path for payment completion. Optimistic: the local patch
+   * below lands immediately and the caller doesn't wait on the network
+   * round trip (that's what used to make "Confirmar Pagamento" feel slow on
+   * a poor connection). The cloud write still happens right after, in the
+   * background — if the server permanently rejects it (not merely queued
+   * for offline retry, which is the common case and is left to the outbox),
+   * the local patch is rolled back and `subscribeLocalWrites` fires so the
+   * screen picks the reverted order back up, plus a toast so staff know to
+   * recheck the order before trying again.
    */
   completePayment: async (id: string, updates: Partial<Order>): Promise<{ ok: true } | { ok: false; error: string }> => {
     const orders = orderStore.getAll();
@@ -375,18 +404,19 @@ export const orderStore = {
     const row = orderRow(updates);
     row.updated_at = patched.updatedAt;
     row.client_updated_at = patched.updatedAt;
-    const { error } = await cloud('orders').update(row as never)
+    void cloud('orders').update(row as never)
       .eq('id', id).eq('tenant_id', t)
       .guard('client_updated_at', previous.updatedAt)
-      .resource(id);
-
-    if (error) {
-      const rollback = orderStore.getAll();
-      const ridx = rollback.findIndex(o => o.id === id);
-      if (ridx !== -1) { rollback[ridx] = previous; orderStore.save(rollback); }
-      warn('orders.completePayment', error);
-      return { ok: false, error: error.message };
-    }
+      .resource(id)
+      .then(({ error }) => {
+        if (!error) return;
+        const rollback = orderStore.getAll();
+        const ridx = rollback.findIndex(o => o.id === id);
+        if (ridx !== -1) { rollback[ridx] = previous; orderStore.save(rollback); }
+        warn('orders.completePayment', error);
+        notifyLocalWrite();
+        void notifyReverted('O servidor rejeitou a confirmação do pagamento — pedido revertido para activo. Verifique a mesa e os pontos de fidelidade antes de tentar novamente.');
+      });
     return { ok: true };
   },
 };
@@ -479,13 +509,13 @@ export const inventoryStore = {
     inventoryStore.save(items);
     const t = tenantId();
     if (t && isUuid(newItem.id)) {
-      void cloud('inventory_items').insert({
+      void cloud('inventory_items').upsert({
         id: newItem.id, tenant_id: t, name: newItem.name, unit: newItem.unit,
         current_stock: newItem.currentStock, min_stock: newItem.minStock, cost_per_unit: newItem.costPerUnit,
         linked_menu_item_ids: newItem.linkedMenuItemIds.filter(isUuid),
         usage_per_serving: newItem.usagePerServing,
         icon: newItem.icon ?? null, image: newItem.image ?? null,
-      }).then(({ error }) => warn('inventory.insert', error));
+      }, { onConflict: 'id' }).then(({ error }) => warn('inventory.insert', error));
     }
     return newItem;
   },
@@ -569,12 +599,12 @@ export const customerStore = {
     customerStore.save(all);
     const t = tenantId();
     if (t && isUuid(created.id)) {
-      void cloud('customers').insert({
+      void cloud('customers').upsert({
         id: created.id, tenant_id: t, name: created.name, phone: created.phone,
         email: created.email ?? null, nuit: created.nuit ?? null, birthday: created.birthday ?? null,
         notes: created.notes ?? null, points_adjustment: created.pointsAdjustment,
         address: created.address ?? null,
-      }).then(({ error }) => warn('customers.insert', error));
+      }, { onConflict: 'id' }).then(({ error }) => warn('customers.insert', error));
     }
     return created;
   },
@@ -646,10 +676,10 @@ export const staffStore = {
     staffStore.save(all);
     const t = tenantId();
     if (t && isUuid(newMember.id)) {
-      void cloud('staff').insert({
+      void cloud('staff').upsert({
         id: newMember.id, tenant_id: t, name: newMember.name, role: newMember.role,
         pin: newMember.pin || null,
-      }).then(({ error }) => warn('staff.insert', error));
+      }, { onConflict: 'id' }).then(({ error }) => warn('staff.insert', error));
     }
     return newMember;
   },
@@ -718,10 +748,10 @@ export const securityAlertStore = {
     securityAlertStore.save(all.slice(0, 50));
     const t = tenantId();
     if (t && isUuid(newAlert.id)) {
-      void cloud('security_alerts').insert({
+      void cloud('security_alerts').upsert({
         id: newAlert.id, tenant_id: t, type: newAlert.type, message: newAlert.message,
         attempted_pin: newAlert.attemptedPin ?? null, attempts: newAlert.attempts ?? 1, read: false,
-      }).then(({ error }) => warn('alerts.insert', error));
+      }, { onConflict: 'id' }).then(({ error }) => warn('alerts.insert', error));
     }
     return newAlert;
   },
@@ -775,11 +805,11 @@ export const shiftStore = {
     shiftStore.save(all);
     const t = tenantId();
     if (t && isUuid(newShift.id) && isUuid(newShift.staffId)) {
-      void cloud('shifts').insert({
+      void cloud('shifts').upsert({
         id: newShift.id, tenant_id: t, staff_id: newShift.staffId, staff_name: newShift.staffName,
         staff_role: newShift.staffRole, clock_in: newShift.clockIn,
         clock_out: newShift.clockOut ?? null, notes: newShift.notes ?? null,
-      }).then(({ error }) => warn('shifts.insert', error));
+      }, { onConflict: 'id' }).then(({ error }) => warn('shifts.insert', error));
     }
     return newShift;
   },

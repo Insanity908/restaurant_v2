@@ -30,6 +30,7 @@ vi.mock('@/lib/store', () => ({
   },
   orderStore: { getAll: () => ORDERS },
   subscribeOperations: () => () => {},
+  subscribeLocalWrites: () => () => {},
 }));
 
 vi.mock('@/hooks/useLicense', () => ({

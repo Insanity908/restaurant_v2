@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { MenuItem, Table, Order, OrderItem, OrderPayment, InventoryItem, AuditActor } from '@/types/restaurant';
-import { menuStore, tableStore, orderStore, inventoryStore, customerStore, subscribeOperations, generateId } from '@/lib/store';
+import { menuStore, tableStore, orderStore, inventoryStore, customerStore, subscribeOperations, subscribeLocalWrites, generateId } from '@/lib/store';
 import { useAuth } from '@/context/AuthContext';
 import { parseQty, areUnitsCompatible, convertQty } from '@/lib/units';
 
@@ -39,6 +39,12 @@ export function useRestaurant() {
     const unsubscribe = subscribeOperations(tenantId, refresh);
     return unsubscribe;
   }, [tenantId, refresh]);
+
+  // Um pagamento optimista (completeOrder → orderStore.completePayment) que
+  // o servidor acaba por rejeitar reverte o pedido no localStorage bem
+  // depois deste hook já ter devolvido sucesso ao POSPage — sem isto o ecrã
+  // ficava preso a mostrar o pedido como fechado mesmo depois do revert.
+  useEffect(() => subscribeLocalWrites(refresh), [refresh]);
 
 
   const createOrder = useCallback((order: Omit<Order, 'id' | 'createdAt' | 'updatedAt'>) => {

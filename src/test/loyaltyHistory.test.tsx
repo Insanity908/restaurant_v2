@@ -29,6 +29,7 @@ vi.mock('@/lib/store', () => ({
   customerStore: { getAll: () => [CUSTOMER], remove: vi.fn(), update: updateMock, add: vi.fn() },
   orderStore: { getAll: () => ORDERS },
   subscribeOperations: () => () => {},
+  subscribeLocalWrites: () => () => {},
 }));
 
 vi.mock('@/hooks/useLicense', () => ({ useLicense: () => ({ isBasic: false }) }));
