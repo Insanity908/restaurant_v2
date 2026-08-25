@@ -2,7 +2,7 @@ import { useMemo, useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { useLicense } from '@/hooks/useLicense';
-import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isWithinInterval, differenceInMilliseconds, subMilliseconds } from 'date-fns';
+import { format, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isWithinInterval, differenceInMilliseconds, subMilliseconds, addDays } from 'date-fns';
 import { pt } from 'date-fns/locale';
 import PageShell from '@/components/PageShell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,6 +20,7 @@ import { Link } from 'react-router-dom';
 import { staffStore, shiftStore } from '@/lib/store';
 import { fetchFixedCosts, type PeriodFixedCosts } from '@/lib/expenses';
 import { periodDays, computeStats, pctChange, ZERO_FIXED } from '@/lib/reportStats';
+import { fetchOrdersInRange } from '@/lib/dataArchive';
 import { DollarSign, TrendingUp, ShoppingBag, Award, Package, Calendar as CalendarIcon, ArrowUp, ArrowDown, Minus, Download, FileText, FileSpreadsheet, ScrollText, UserCheck, XCircle, PlusCircle, Clock as ClockIcon, BarChart3, Settings2, Archive } from 'lucide-react';
 import type { DateRange } from 'react-day-picker';
 import type { Order, Staff, Shift } from '@/types/restaurant';
@@ -118,6 +119,57 @@ export default function ReportsPage() {
 
   const compareActive = compareEnabled && !!activeRange && !!previousRange;
 
+  // `orders` (useRestaurant) é a cache local ao vivo, capada aos 500 pedidos
+  // mais recentes do tenant (ver fetchOrders em store.ts — deliberado, para
+  // não sobrecarregar as vistas do dia-a-dia). Isso está bem para Caixa/
+  // Cozinha/Mesas, mas Relatórios abre por omissão em "Todo o período": um
+  // restaurante com mais de 500 pedidos pagos no total (ou um intervalo
+  // personalizado muito grande) via essa cache mostraria receita/contagens
+  // subestimadas sem qualquer aviso — os pedidos mais antigos simplesmente
+  // não estariam lá. `cacheFloor` é null quando a cache tem menos de 500
+  // linhas (ou seja, já é o histórico completo do tenant, nada a temer);
+  // caso contrário é a data do pedido mais antigo ainda presente — se o
+  // intervalo pedido começar antes disso, a cache está mesmo truncada e é
+  // preciso ir buscar o intervalo completo ao servidor (mesmo caminho sem
+  // limite que "Arquivo de Dados" já usa).
+  const cacheFloor = useMemo(() => {
+    if (orders.length < 500) return null;
+    return orders.reduce((min, o) => (o.createdAt < min ? o.createdAt : min), orders[0].createdAt);
+  }, [orders]);
+
+  const [rangeOrders, setRangeOrders] = useState<Order[] | null>(null);
+  const [rangeLoading, setRangeLoading] = useState(false);
+
+  useEffect(() => {
+    const t = user?.tenantId;
+    const neededStart = preset === 'all' ? new Date(0) : (previousRange?.start ?? activeRange?.start);
+    const neededEnd = preset === 'all' ? addDays(startOfDay(new Date()), 1) : activeRange?.end;
+
+    if (!t || !neededStart || !neededEnd || cacheFloor === null || neededStart.toISOString() >= cacheFloor) {
+      setRangeOrders(null);
+      return;
+    }
+
+    let cancelled = false;
+    setRangeLoading(true);
+    fetchOrdersInRange(t, neededStart, neededEnd)
+      .then(rows => { if (!cancelled) setRangeOrders(rows); })
+      .catch(() => {
+        if (cancelled) return;
+        setRangeOrders(null);
+        toast.error('Não foi possível carregar o histórico completo deste período', {
+          description: 'Os números apresentados podem estar incompletos (só cobrem os pedidos mais recentes).',
+        });
+      })
+      .finally(() => { if (!cancelled) setRangeLoading(false); });
+    return () => { cancelled = true; };
+  }, [user?.tenantId, preset, activeRange, previousRange, cacheFloor]);
+
+  // Fonte efectiva para todos os cálculos abaixo: o intervalo completo
+  // buscado ao servidor quando a cache local não chega, senão a cache local
+  // (caminho rápido, sem pedido de rede extra) — ver comentário acima.
+  const effectiveOrders = rangeOrders ?? orders;
+
   // Salários e despesas fixas (água, energia, etc.) só existem para o admin
   // ler — ver RLS de staff_salaries/expenses — por isso só vale a pena ir
   // buscá-los quando o lucro líquido é mesmo visível aqui. Reconstruídos tal
@@ -136,15 +188,15 @@ export default function ReportsPage() {
   }, [user?.tenantId, canFinancial, activeRange, previousRange]);
 
   const paidOrders = useMemo(() => {
-    const filtered = orders.filter(o => o.paid);
+    const filtered = effectiveOrders.filter(o => o.paid);
     if (!activeRange) return filtered;
     return filtered.filter(o => isWithinInterval(new Date(o.createdAt), { start: activeRange.start, end: activeRange.end }));
-  }, [orders, activeRange]);
+  }, [effectiveOrders, activeRange]);
 
   const previousOrders = useMemo(() => {
     if (!previousRange) return [];
-    return orders.filter(o => o.paid && isWithinInterval(new Date(o.createdAt), { start: previousRange.start, end: previousRange.end }));
-  }, [orders, previousRange]);
+    return effectiveOrders.filter(o => o.paid && isWithinInterval(new Date(o.createdAt), { start: previousRange.start, end: previousRange.end }));
+  }, [effectiveOrders, previousRange]);
 
   const rangeLabel = useMemo(() => {
     if (!activeRange) return 'Todo o período';
@@ -257,7 +309,7 @@ export default function ReportsPage() {
       if (!activeRange) return true;
       return isWithinInterval(new Date(iso), { start: activeRange.start, end: activeRange.end });
     };
-    orders.forEach(o => {
+    effectiveOrders.forEach(o => {
       if (inRange(o.createdAt)) {
         events.push({
           kind: 'created',
@@ -304,7 +356,7 @@ export default function ReportsPage() {
         ? events.filter(e => !e.actorId)
         : events.filter(e => e.actorId === staffFilter);
     return filtered.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
-  }, [orders, activeRange, staffFilter]);
+  }, [effectiveOrders, activeRange, staffFilter]);
 
   const auditSummary = useMemo(() => {
     const map = new Map<string, { name: string; role?: string; created: number; closed: number; cancelled: number; revenue: number }>();
@@ -411,7 +463,7 @@ export default function ReportsPage() {
   return (
     <PageShell
       title="Relatórios"
-      subtitle={`Análise de vendas · ${rangeLabel}`}
+      subtitle={`Análise de vendas · ${rangeLabel}${rangeLoading ? ' · a carregar histórico completo…' : ''}`}
       actions={
         <div className="flex items-center gap-2 flex-wrap">
           <Tabs value={preset} onValueChange={(v) => { setPreset(v as RangePreset); if (v !== 'custom') setCustomRange(undefined); }}>
