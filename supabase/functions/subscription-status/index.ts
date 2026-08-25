@@ -182,8 +182,25 @@ Deno.serve(async (req) => {
     else if (effStatus === 'blocked' || effStatus === 'expired') final = 'active';
     patch.status = final;
 
-    const { error: updErr } = await admin.from('subscriptions').update(patch).eq('tenant_id', tenantId);
-    if (updErr) return json({ error: updErr.message }, 400);
+    // Para 'status' (chamada automaticamente por useLicense — em cada
+    // mount, no reconnect do Realtime, no polling de 30min) o `patch` só
+    // contém `status`, posto acima incondicionalmente. Se não mudou nada
+    // face ao que já estava gravado, NÃO escrever: um UPDATE dispara um
+    // evento Realtime mesmo que nenhuma coluna mude de valor, e esse evento
+    // é precisamente o que faz useLicense chamar syncFromServer() outra
+    // vez — sem este guard, isso reabre este mesmo pedido, que volta a
+    // fazer UPDATE, que volta a disparar o evento: um ciclo que se
+    // realimenta sozinho, sem qualquer atraso, e satura a ligação à base de
+    // dados (visto em produção: 1400+ pedidos num minuto para um único
+    // tenant, com falhas 503 em queries completamente não relacionadas
+    // devido à saturação do pool de ligações). Ações explícitas do
+    // super-admin (block/unblock/extend/reduce/activate) continuam sempre a
+    // escrever — são mutações pedidas de propósito, não um recompute.
+    const statusUnchanged = action === 'status' && final === sub.status;
+    if (!statusUnchanged) {
+      const { error: updErr } = await admin.from('subscriptions').update(patch).eq('tenant_id', tenantId);
+      if (updErr) return json({ error: updErr.message }, 400);
+    }
 
     const { data: full, error: readErr } = await admin.from('tenants').select(SELECT).eq('id', tenantId).single();
     if (readErr) return json({ error: readErr.message }, 400);
