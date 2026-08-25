@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.15"
+    PostgrestVersion: "14.17"
   }
   graphql_public: {
     Tables: {
@@ -60,6 +60,62 @@ export type Database = {
             foreignKeyName: "app_settings_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: true
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      archived_reports: {
+        Row: {
+          alerts_deleted: number | null
+          archived_at: string
+          id: string
+          month: number
+          orders_deleted: number | null
+          purged_at: string | null
+          shifts_deleted: number | null
+          status: string
+          storage_path: string
+          tenant_id: string
+          total_orders: number | null
+          total_revenue: number | null
+          year: number
+        }
+        Insert: {
+          alerts_deleted?: number | null
+          archived_at?: string
+          id?: string
+          month?: number
+          orders_deleted?: number | null
+          purged_at?: string | null
+          shifts_deleted?: number | null
+          status?: string
+          storage_path: string
+          tenant_id: string
+          total_orders?: number | null
+          total_revenue?: number | null
+          year: number
+        }
+        Update: {
+          alerts_deleted?: number | null
+          archived_at?: string
+          id?: string
+          month?: number
+          orders_deleted?: number | null
+          purged_at?: string | null
+          shifts_deleted?: number | null
+          status?: string
+          storage_path?: string
+          tenant_id?: string
+          total_orders?: number | null
+          total_revenue?: number | null
+          year?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "archived_reports_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
             referencedRelation: "tenants"
             referencedColumns: ["id"]
           },
@@ -275,54 +331,6 @@ export type Database = {
           },
         ]
       }
-      inventory_movements: {
-        Row: {
-          created_at: string
-          created_by_name: string | null
-          delta: number
-          id: string
-          inventory_item_id: string
-          reason: string
-          reference_id: string | null
-          tenant_id: string
-        }
-        Insert: {
-          created_at?: string
-          created_by_name?: string | null
-          delta: number
-          id?: string
-          inventory_item_id: string
-          reason: string
-          reference_id?: string | null
-          tenant_id: string
-        }
-        Update: {
-          created_at?: string
-          created_by_name?: string | null
-          delta?: number
-          id?: string
-          inventory_item_id?: string
-          reason?: string
-          reference_id?: string | null
-          tenant_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "inventory_movements_inventory_item_id_fkey"
-            columns: ["inventory_item_id"]
-            isOneToOne: false
-            referencedRelation: "inventory_items"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "inventory_movements_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenants"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       inventory_items: {
         Row: {
           client_updated_at: string
@@ -372,6 +380,54 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "inventory_items_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      inventory_movements: {
+        Row: {
+          created_at: string
+          created_by_name: string | null
+          delta: number
+          id: string
+          inventory_item_id: string
+          reason: string
+          reference_id: string | null
+          tenant_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by_name?: string | null
+          delta: number
+          id?: string
+          inventory_item_id: string
+          reason: string
+          reference_id?: string | null
+          tenant_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by_name?: string | null
+          delta?: number
+          id?: string
+          inventory_item_id?: string
+          reason?: string
+          reference_id?: string | null
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inventory_movements_inventory_item_id_fkey"
+            columns: ["inventory_item_id"]
+            isOneToOne: false
+            referencedRelation: "inventory_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inventory_movements_tenant_id_fkey"
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
@@ -1334,6 +1390,13 @@ export type Database = {
           _tenant_id: string
         }
         Returns: boolean
+      }
+      find_due_archive_years: {
+        Args: never
+        Returns: {
+          tenant_id: string
+          year: number
+        }[]
       }
       get_order_status: { Args: { p_order_id: string }; Returns: Json }
       get_public_branding: { Args: { p_tenant_id: string }; Returns: Json }

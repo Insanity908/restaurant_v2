@@ -1,1 +1,9 @@
 project_id = "bbpfoygfxqwjqsolisqw"
+
+# archive-old-years é chamada pelo pg_cron sem sessão de utilizador (só um
+# cabeçalho x-cron-secret) — sem isto, a plataforma rejeitava o pedido com
+# 401 antes de o código da função sequer correr. A função continua a
+# autenticar-se sozinha: modo cron por x-cron-secret == CRON_SECRET, modo
+# manual por sessão real de super-admin (ver index.ts).
+[functions.archive-old-years]
+verify_jwt = false

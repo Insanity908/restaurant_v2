@@ -58,6 +58,38 @@ export async function fetchShiftsInRange(tenantId: string, start: Date, end: Dat
   return all;
 }
 
+export interface ArchivedReport {
+  id: string;
+  year: number;
+  /** 0 = resumo do ano inteiro; 1-12 = um mês específico. */
+  month: number;
+  storagePath: string;
+  status: 'archived' | 'purged';
+  totalRevenue: number | null;
+  totalOrders: number | null;
+  archivedAt: string;
+}
+
+/** Anos/meses já arquivados automaticamente (ver edge function
+ *  archive-old-years) para este tenant — só leitura, para o admin poder
+ *  descarregar o Excel de um ano/mês cujos dados em bruto já foram apagados. */
+export async function fetchArchivedReports(tenantId: string): Promise<ArchivedReport[]> {
+  const { data, error } = await supabase
+    .from('archived_reports')
+    .select('id, year, month, storage_path, status, total_revenue, total_orders, archived_at')
+    .eq('tenant_id', tenantId)
+    .order('year', { ascending: false })
+    .order('month', { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map(r => ({
+    id: r.id, year: r.year, month: r.month, storagePath: r.storage_path,
+    status: r.status as ArchivedReport['status'],
+    totalRevenue: r.total_revenue === null ? null : Number(r.total_revenue),
+    totalOrders: r.total_orders,
+    archivedAt: r.archived_at,
+  }));
+}
+
 export async function fetchSecurityAlertsInRange(tenantId: string, start: Date, end: Date): Promise<SecurityAlert[]> {
   const all: SecurityAlert[] = [];
   let from = 0;

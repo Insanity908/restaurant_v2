@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import PageShell from '@/components/PageShell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -11,19 +11,20 @@ import {
 } from '@/components/ui/alert-dialog';
 import {
   Archive, TrendingUp, ShoppingBag, Award, FileText, FileSpreadsheet, ScrollText,
-  Trash2, AlertTriangle, Loader2, ShieldAlert, Clock as ClockIcon,
+  Trash2, AlertTriangle, Loader2, ShieldAlert, Clock as ClockIcon, Download, PackageCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/hooks/useSettings';
 import { useRestaurant } from '@/hooks/useRestaurant';
-import { fetchOrdersInRange, fetchShiftsInRange, fetchSecurityAlertsInRange } from '@/lib/dataArchive';
+import { fetchOrdersInRange, fetchShiftsInRange, fetchSecurityAlertsInRange, fetchArchivedReports, type ArchivedReport } from '@/lib/dataArchive';
 import { fetchFixedCosts, type PeriodFixedCosts } from '@/lib/expenses';
 import { fetchOrders, fetchShifts } from '@/lib/store';
 import { exportYearReportPDF, exportYearReportCSV, type YearReportPayload } from '@/lib/exportReports';
 import { exportYearReportExcel } from '@/lib/exportExcel';
 import { downloadBatchReceiptsHTML } from '@/lib/receiptBatch';
 import { supabase } from '@/integrations/supabase/client';
+import { resolveStorageUrl, ARCHIVED_REPORTS_BUCKET } from '@/lib/storage';
 import type { Order, Shift } from '@/types/restaurant';
 
 const MONTHS_PT = [
@@ -73,6 +74,39 @@ export default function DataArchivePage() {
   const [receiptsDownloaded, setReceiptsDownloaded] = useState(false);
   const [confirmText, setConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
+
+  // Anos/meses já arquivados sozinhos pelo cron (archive-old-years) — só
+  // leitura, para o admin poder descarregar o Excel de um período cujos
+  // dados em bruto já não existem. Nada aqui depende de o admin ter gerado
+  // nada nesta página; aparece assim que existir.
+  const [archivedReports, setArchivedReports] = useState<ArchivedReport[]>([]);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  useEffect(() => {
+    const t = user?.tenantId;
+    if (!t) return;
+    fetchArchivedReports(t).then(setArchivedReports).catch(() => {});
+  }, [user?.tenantId]);
+
+  const archivedByYear = useMemo(() => {
+    const map = new Map<number, ArchivedReport[]>();
+    archivedReports.forEach(r => {
+      const list = map.get(r.year) ?? [];
+      list.push(r);
+      map.set(r.year, list);
+    });
+    return Array.from(map.entries()).sort(([a], [b]) => b - a);
+  }, [archivedReports]);
+
+  const handleDownloadArchived = async (report: ArchivedReport) => {
+    setDownloadingId(report.id);
+    try {
+      const url = await resolveStorageUrl(ARCHIVED_REPORTS_BUCKET, report.storagePath);
+      if (!url) { toast.error('Não foi possível gerar o link de download'); return; }
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } finally {
+      setDownloadingId(null);
+    }
+  };
 
   const generateReport = async () => {
     const t = user?.tenantId;
@@ -390,6 +424,64 @@ export default function DataArchivePage() {
             )}
           </CardContent>
         </Card>
+
+        {archivedByYear.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <PackageCheck className="w-4 h-4" /> Relatórios Arquivados
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-xs text-muted-foreground -mt-1">
+                Anos com mais de um ano são arquivados e apagados automaticamente — os Excel
+                abaixo são a cópia guardada desses dados, mesmo depois de removidos do sistema.
+              </p>
+              {archivedByYear.map(([y, reports]) => {
+                const yearRow = reports.find(r => r.month === 0);
+                const monthRows = reports.filter(r => r.month > 0).sort((a, b) => a.month - b.month);
+                return (
+                  <div key={y} className="glass rounded-xl p-4 space-y-3">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <p className="font-heading font-bold">{y}</p>
+                        {yearRow?.totalRevenue != null && (
+                          <p className="text-xs text-muted-foreground">
+                            {formatMT(yearRow.totalRevenue)} · {yearRow.totalOrders ?? 0} pedidos
+                          </p>
+                        )}
+                      </div>
+                      {yearRow && (
+                        <Button
+                          variant="outline" size="sm" className="gap-2"
+                          disabled={downloadingId === yearRow.id}
+                          onClick={() => handleDownloadArchived(yearRow)}
+                        >
+                          {downloadingId === yearRow.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                          Excel do ano
+                        </Button>
+                      )}
+                    </div>
+                    {monthRows.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {monthRows.map(r => (
+                          <Button
+                            key={r.id} variant="secondary" size="sm" className="h-7 px-2.5 text-xs gap-1.5"
+                            disabled={downloadingId === r.id}
+                            onClick={() => handleDownloadArchived(r)}
+                          >
+                            {downloadingId === r.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                            {MONTHS_PT[r.month - 1]}
+                          </Button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        )}
 
         <Card className="border-destructive/30">
           <CardHeader>

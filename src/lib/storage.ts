@@ -3,6 +3,7 @@ import { supabase } from '@/integrations/supabase/client';
 export const MENU_BUCKET = 'menu-images';
 export const LOGO_BUCKET = 'receipt-logos';
 export const PRESET_IMAGES_BUCKET = 'preset-images';
+export const ARCHIVED_REPORTS_BUCKET = 'archived-reports';
 
 const SIGNED_TTL = 60 * 60 * 24 * 7; // 7 days
 const CACHE_KEY = 'storage_signed_urls_v1';
