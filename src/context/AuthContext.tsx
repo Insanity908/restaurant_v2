@@ -62,11 +62,23 @@ const PENDING_ONBOARDING_KEY = 'pending_onboarding';
 
 async function loadSessionUser(authUser: User): Promise<SessionUser | null> {
   // Fetch profile, roles and memberships in parallel.
-  const [{ data: profile }, { data: roles }, { data: members }] = await Promise.all([
+  const [{ data: profile }, rolesRes, membersRes] = await Promise.all([
     supabase.from('profiles').select('name, email, phone, username').eq('id', authUser.id).maybeSingle(),
     supabase.from('user_roles').select('role, tenant_id').eq('user_id', authUser.id),
     supabase.from('tenant_members').select('tenant_id').eq('user_id', authUser.id),
   ]);
+  // Um erro genuíno (rede instável, token acabado de rodar) nestas duas
+  // consultas não pode virar silenciosamente "tenantIds: []" — RequireAuth
+  // manda qualquer utilizador sem tenants para /onboarding, e um dono de
+  // restaurante real ficava ali a meio de outra coisa qualquer (ex: a criar
+  // um funcionário) por causa de uma falha transitória de rede.
+  if (rolesRes.error || membersRes.error) {
+    throw new Error(
+      `loadSessionUser: falha a carregar papéis/pertenças (${rolesRes.error?.message ?? membersRes.error?.message})`,
+    );
+  }
+  const roles = rolesRes.data;
+  const members = membersRes.data;
 
   const isSuper = (roles ?? []).some(r => r.role === 'superadmin');
   const tenantIds = Array.from(new Set((members ?? []).map(m => m.tenant_id)));
@@ -163,8 +175,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         ]).then(() => setCatalogVersion(v => v + 1));
       }
     } catch (e) {
-      console.error('Failed to load session user', e);
-      setUser(null);
+      // Não substitui um `user` já carregado por null — isto corre em
+      // qualquer refresh de sessão (ex: renovação automática do token em
+      // segundo plano), não só no arranque. Se for só uma falha transitória
+      // de rede a meio de outra coisa (ex: a criar um funcionário), o
+      // utilizador mantém a sessão como estava em vez de ser mandado para
+      // /onboarding por RequireAuth achar que perdeu os tenants. Só fica
+      // null se já não havia nenhum user carregado (arranque a falhar).
+      console.error('Failed to load session user — keeping previous state if any', e);
+      setUser(prev => prev);
     }
   }, []);
 

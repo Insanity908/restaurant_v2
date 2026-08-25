@@ -149,6 +149,28 @@ export default function DataArchivePage() {
     return Array.from(map.values()).sort((a, b) => b.quantity - a.quantity).slice(0, 10);
   }, [filteredOrders]);
 
+  // Uma linha por item vendido (não por pedido) — ordenada por data, o
+  // mesmo nível de detalhe de um livro de vendas real. `receiptTag` replica
+  // o formato já usado no recibo impresso do Caixa (POSPage), para dar para
+  // cruzar uma linha do Excel com o recibo físico correspondente.
+  const transactions = useMemo(() => {
+    const orderTypeLabel = (o: Order) =>
+      o.type === 'dine-in' ? `Mesa ${o.tableNumber ?? '—'}` : o.type === 'takeaway' ? 'Takeaway' : 'Entrega';
+    const rows = filteredOrders.flatMap(o => {
+      const date = new Date(o.createdAt).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' });
+      const receiptTag = `#${o.id.slice(-4)}`;
+      const orderType = orderTypeLabel(o);
+      return o.items.map(item => ({
+        date, receiptTag, orderType, description: item.name,
+        quantity: item.quantity, value: item.price * item.quantity,
+        _sortAt: o.createdAt,
+      }));
+    });
+    return rows
+      .sort((a, b) => a._sortAt.localeCompare(b._sortAt))
+      .map(({ _sortAt: _drop, ...r }) => r);
+  }, [filteredOrders]);
+
   const categoryData = useMemo(() => {
     const map = new Map<string, number>();
     filteredOrders.forEach(o => {
@@ -202,7 +224,7 @@ export default function DataArchivePage() {
     year, monthLabel,
     stats,
     expenses: { recurringMonthly: fixedCosts.recurringMonthly, oneTime: fixedCosts.oneTime, total: expensesTotal },
-    bestSellers, categoryData, paymentData, revenueData,
+    bestSellers, categoryData, paymentData, revenueData, transactions,
   });
 
   const handleExport = (kind: 'pdf' | 'csv' | 'excel') => {

@@ -27,6 +27,9 @@ function basePayload(overrides: Partial<YearReportPayload> = {}): YearReportPayl
     categoryData: [{ name: 'Pratos Principais', value: 60000 }],
     paymentData: [{ name: 'Dinheiro', value: 80000 }],
     revenueData: [{ label: 'Jan/25', revenue: 60000, profit: 40000, orders: 20 }],
+    transactions: [
+      { date: '03/05', receiptTag: '#a1b2', orderType: 'Mesa 4', description: 'Frango Grelhado', quantity: 2, value: 700 },
+    ],
     ...overrides,
   };
 }
@@ -36,12 +39,27 @@ beforeEach(() => {
 });
 
 describe('exportYearReportExcel', () => {
-  it('cria as 6 folhas na ordem certa', () => {
+  it('cria as 7 folhas na ordem certa', () => {
     exportYearReportExcel(basePayload());
     const wb = vi.mocked(XLSX.writeFile).mock.calls[0][0];
     expect(wb.SheetNames).toEqual([
-      'Resumo', 'Vendas Mensais', 'Mais Vendidos', 'Categorias', 'Pagamentos', 'Despesas e Salários',
+      'Resumo', 'Vendas Mensais', 'Mais Vendidos', 'Categorias', 'Pagamentos', 'Despesas e Salários', 'Transações',
     ]);
+  });
+
+  it('folha "Transações": uma linha por item vendido, com recibo e tipo de pedido', () => {
+    exportYearReportExcel(basePayload());
+    const wb = vi.mocked(XLSX.writeFile).mock.calls[0][0];
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets['Transações']);
+    expect(rows).toEqual([
+      { Data: '03/05', Recibo: '#a1b2', Tipo: 'Mesa 4', Descrição: 'Frango Grelhado', 'Qtd.': 2, Valor: 700 },
+    ]);
+  });
+
+  it('folha "Transações" vazia não lança erro — fica só com o cabeçalho', () => {
+    expect(() => exportYearReportExcel(basePayload({ transactions: [] }))).not.toThrow();
+    const wb = vi.mocked(XLSX.writeFile).mock.calls[0][0];
+    expect(XLSX.utils.sheet_to_json(wb.Sheets['Transações'])).toEqual([]);
   });
 
   it('folha "Resumo": valores arredondados ao inteiro, excepto a margem (1 casa decimal)', () => {

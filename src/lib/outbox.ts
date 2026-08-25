@@ -207,15 +207,40 @@ function isTransient(error: { message?: string; code?: string } | null): boolean
     || error.code === 'PGRST000';
 }
 
+// Numa ligação muito fraca (visto na prática: ~20 KB/s) um `fetch` pode
+// nunca resolver nem rejeitar em tempo útil — sem um limite, esse único
+// pedido pendurado bloqueava `flushOutbox` para sempre (o loop é sequencial,
+// um `await` por operação), e toda a fila atrás dele ficava parada, mesmo
+// que a ligação depois melhorasse. `withTimeout` força uma rejeição passado
+// NETWORK_TIMEOUT_MS; a mensagem contém "timeout" de propósito para
+// `isTransient()` a tratar como transitória (reentra na fila, não falha
+// definitivamente). O pedido original em voo não é cancelado — só deixa de
+// ser esperado; se vier a completar-se depois, o resultado é descartado e a
+// retentativa (agora um upsert idempotente, ver stores) repete o trabalho
+// sem duplicar nada.
+const NETWORK_TIMEOUT_MS = 20000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`timeout: sem resposta do servidor em ${ms / 1000}s`)), ms);
+    promise.then(
+      v => { clearTimeout(timer); resolve(v); },
+      e => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
 async function execute(op: WriteOp): Promise<{ error: { message: string; code?: string } | null }> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const q: any = supabase.from(op.table as never);
   try {
-    let res;
-    if (op.action === 'insert') res = await q.insert(op.values);
-    else if (op.action === 'upsert') res = await q.upsert(op.values, op.onConflict ? { onConflict: op.onConflict } : undefined);
-    else if (op.action === 'update') res = await applyFilters(q.update(op.values), op);
-    else res = await applyFilters(q.delete(), op);
+    const call = (async () => {
+      if (op.action === 'insert') return await q.insert(op.values);
+      if (op.action === 'upsert') return await q.upsert(op.values, op.onConflict ? { onConflict: op.onConflict } : undefined);
+      if (op.action === 'update') return await applyFilters(q.update(op.values), op);
+      return await applyFilters(q.delete(), op);
+    })();
+    const res = await withTimeout(call, NETWORK_TIMEOUT_MS);
     return { error: res?.error ?? null };
   } catch (e) {
     return { error: { message: e instanceof Error ? e.message : 'network error', code: '' } };
@@ -326,7 +351,11 @@ export function startOutbox() {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') void flushOutbox();
   });
-  setInterval(() => { void flushOutbox(); }, 30_000);
+  // 10s (não 30s) — a fila deixava a impressão de "presa" numa ligação
+  // instável que se recupera e falha em ciclos curtos; um intervalo mais
+  // curto limita quanto tempo uma escrita pendente fica visível como
+  // "a sincronizar" antes da próxima tentativa.
+  setInterval(() => { void flushOutbox(); }, 10_000);
   void flushOutbox();
 }
 

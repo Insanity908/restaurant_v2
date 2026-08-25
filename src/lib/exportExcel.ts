@@ -45,5 +45,17 @@ export function exportYearReportExcel(p: YearReportPayload): void {
     ['Total', fmtMT(p.expenses.total)],
   ]), 'Despesas e Salários');
 
+  // Uma linha por item vendido (não por pedido) — o mesmo nível de detalhe
+  // de um livro de vendas. Os cabeçalhos são deliberadamente os mesmos que
+  // uma futura importação (upload deste ficheiro para carregar histórico de
+  // outro sistema) teria de reconhecer — não mudar sem atualizar essa
+  // eventual leitura também.
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(
+    p.transactions.map(t => ({
+      Data: t.date, Recibo: t.receiptTag, Tipo: t.orderType,
+      Descrição: t.description, 'Qtd.': t.quantity, Valor: fmtMT(t.value),
+    })),
+  ), 'Transações');
+
   XLSX.writeFile(wb, `relatorio-anual-${p.year}${p.monthLabel ? `-${p.monthLabel}` : ''}.xlsx`);
 }

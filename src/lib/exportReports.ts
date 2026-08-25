@@ -214,6 +214,20 @@ export function exportReportsPDF(p: ExportPayload) {
 
 // -- Relatório Anual (Arquivo de Dados) ---------------------------------------
 
+/** Uma linha de item vendido — a unidade mínima de venda (um prato dentro de
+ *  um pedido), não o pedido inteiro, para dar o mesmo detalhe de um livro de
+ *  vendas real. `receiptTag` replica o formato já usado no recibo impresso
+ *  do Caixa (`#{últimos 4 do id do pedido}`) para se poder cruzar uma linha
+ *  do Excel com o recibo físico correspondente. */
+export interface TransactionRow {
+  date: string;
+  receiptTag: string;
+  orderType: string;
+  description: string;
+  quantity: number;
+  value: number;
+}
+
 export interface YearReportPayload {
   year: number;
   monthLabel?: string;
@@ -223,6 +237,7 @@ export interface YearReportPayload {
   categoryData: { name: string; value: number }[];
   paymentData: { name: string; value: number }[];
   revenueData: { label: string; revenue: number; profit: number; orders: number }[];
+  transactions: TransactionRow[];
 }
 
 function yearReportFilenameBase(p: YearReportPayload): string {
@@ -270,6 +285,13 @@ export function exportYearReportCSV(p: YearReportPayload) {
   lines.push('Receita Mensal');
   lines.push('Mês,Receita,Lucro,Pedidos');
   p.revenueData.forEach(r => lines.push(`${csvEscape(r.label)},${fmtMT(r.revenue)},${fmtMT(r.profit)},${r.orders}`));
+  lines.push('');
+
+  lines.push('Transações');
+  lines.push('Data,Recibo,Tipo,Descrição,Qtd.,Valor');
+  p.transactions.forEach(t => lines.push(
+    `${csvEscape(t.date)},${csvEscape(t.receiptTag)},${csvEscape(t.orderType)},${csvEscape(t.description)},${t.quantity},${fmtMT(t.value)}`,
+  ));
 
   const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
   downloadBlob(blob, `${yearReportFilenameBase(p)}.csv`);
