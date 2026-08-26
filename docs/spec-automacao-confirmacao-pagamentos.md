@@ -16,9 +16,14 @@ fluxo (SMS lida automaticamente, correspondência à sessão certa, código
 enviado ao cliente por email/SMS) mantém-se, só a forma de corresponder é
 que muda — ver Secção 2.
 
-**Estado**: especificação, com as decisões D1-D3, D5, D7, D8 já tomadas
-(Secção 6) — falta desenhar/implementar o código. D4 e D6 continuam em
-aberto (D6 deixou de se aplicar, ver nota na própria secção).
+**Estado**: `checkout_sessions` (schema), a função atómica de
+correspondência+activação e a Edge Function `auto-activate-payment`
+(Secção 4) já estão implementadas, testadas ponta-a-ponta e em produção.
+Falta: Carlos gerar os 12 QR (D1, tabela de códigos abaixo), configurar
+`RESEND_API_KEY`/`RESEND_FROM_EMAIL`, ligar o webhook real da app de
+reencaminhamento de SMS (D2), e o lado do cliente (Secção 5 — ecrã de
+`PricingPage`/`BillingPage` para criar a sessão e introduzir o
+`access_code`). D4 continua em aberto; D6 não se aplica.
 
 ---
 
@@ -326,7 +331,27 @@ destranca a entrada dele.
 **D1 — ✅ Resolvida.** QR pré-gerado por Carlos na app do e-Mola, um por
 plano (Secção 1-2). Falta só ele gerar os 12 (Secção 2.1) usando
 o `plan_code` de cada um como conteúdo — as duas imagens de exemplo já
-confirmadas como suficientes para testar a extracção (Secção 4.2).
+confirmadas como suficientes para testar a extracção (Secção 4.2). Os 12
+códigos exactos já estão fixados em código
+(`PLAN_CODE_TO_PLAN` em `supabase/functions/auto-activate-payment/
+index.ts`) — usar **exactamente** estes como "Conteudo" ao gerar cada QR,
+maiúsculas incluídas (mudar aqui sem avisar quem mantém o código parte a
+correspondência em produção):
+
+| `plan_code` | plano |
+|---|---|
+| `PRO-MENSAL` | monthly |
+| `PRO-MENSAL-DESC` | monthly (com desconto) |
+| `PRO-TRIMESTRAL` | quarterly |
+| `PRO-TRIMESTRAL-DESC` | quarterly (com desconto) |
+| `PRO-SEMESTRAL` | semiannual |
+| `PRO-SEMESTRAL-DESC` | semiannual (com desconto) |
+| `PRO-ANUAL` | annual |
+| `PRO-ANUAL-DESC` | annual (com desconto) |
+| `BASICO-MENSAL` | basic-monthly |
+| `BASICO-TRIMESTRAL` | basic-quarterly |
+| `BASICO-SEMESTRAL` | basic-semiannual |
+| `BASICO-ANUAL` | basic-annual |
 
 **D2 — ✅ Resolvida: Opção B** (app de reencaminhamento de SMS, ex.
 Tasker/MacroDroid). Lê a SMS directamente como texto e envia por webhook
