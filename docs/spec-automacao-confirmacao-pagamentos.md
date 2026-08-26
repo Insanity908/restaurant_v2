@@ -278,14 +278,17 @@ código novo, curto, gravá-lo em `checkout_sessions.access_code`, e
 enviá-lo ao `contact_email` guardado na sessão (Secção 2 passo 1), por
 email (D7).
 
-**Nota sobre envio de email**: este projecto já teve um problema real de
-envio de email (o `/auth/v1/signup` do Supabase falhava com "Error
-sending confirmation email" por falta de SMTP configurado, resolvido
-nesta sessão só ao desligar a confirmação por email — não ao configurar
-SMTP). Por isso o envio do `access_code` (D7) usa um serviço de email
-dedicado (ex. Resend/SendGrid, chamado a partir de uma Edge Function),
-não o SMTP do Supabase. Falta confirmar se Carlos já tem conta num destes
-serviços antes de implementar.
+**Nota sobre envio de email**: este projecto teve, numa fase anterior, um
+problema real de envio de email (o `/auth/v1/signup` do Supabase falhava
+com "Error sending confirmation email" por falta de SMTP configurado,
+resolvido nessa altura só ao desligar a confirmação por email). Esse gap
+já está fechado — Carlos já usa o Resend como SMTP da confirmação de
+conta do Supabase Auth há algum tempo. O envio do `access_code` (D7) usa
+o **mesmo Resend**, mas chamado directamente pela API HTTP do Resend a
+partir da Edge Function (não pelo caminho SMTP do Supabase Auth, que é
+uma superfície de configuração diferente) — precisa da sua própria chave
+de API como secret do Supabase (`RESEND_API_KEY`/`RESEND_FROM_EMAIL`,
+ver 4.4), não reaproveita a configuração de SMTP do Auth automaticamente.
 
 **Autenticação da chamada**: `subscription-status` hoje só aceita JWT de
 utilizador `superadmin` para acções que não sejam `status`. Recomendado
@@ -381,8 +384,10 @@ além de gravar a tentativa (Secção 4.5) para revisão manual.
 **D6 — Não se aplica**, dado D2 = Opção B (a Edge Function corre na nuvem
 por natureza, sem processo local nenhum a gerir).
 
-**D7 — ✅ Resolvida: email via Resend** (Carlos já tem conta) — não o
-SMTP do Supabase, que já falhou neste projecto (nota na Secção 4.4). SMS
+**D7 — ✅ Resolvida: email via Resend** (Carlos já usa o Resend há algum
+tempo como SMTP da confirmação de conta do Supabase Auth — a chamada
+directa à API do Resend a partir da Edge Function, Secção 4.4, é uma
+integração à parte, com a sua própria `RESEND_API_KEY`). SMS
 fica fora de âmbito por agora (evita montar uma integração nova de
 raiz). Consequência directa: o "contacto" do passo 1 da Secção 2 passa a
 ser só **email** (não telefone) — simplifica o desenho do formulário de
