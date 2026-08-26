@@ -17,3 +17,11 @@ verify_jwt = false
 # verificação é só feita dentro do próprio index.ts.
 [functions.send-push]
 verify_jwt = false
+
+# auto-activate-payment é chamada pela app de reencaminhamento de SMS no
+# telemóvel do superadmin (D2, docs/spec-automacao-confirmacao-
+# pagamentos.md) — nunca tem uma sessão Supabase, só o cabeçalho
+# x-payment-webhook-secret == PAYMENT_WEBHOOK_SECRET, verificado dentro do
+# próprio index.ts (mesmo padrão de archive-old-years/send-push acima).
+[functions.auto-activate-payment]
+verify_jwt = false
