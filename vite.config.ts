@@ -17,7 +17,12 @@ export default defineConfig(({ mode }) => ({
     VitePWA({
       registerType: "autoUpdate",
       injectRegister: null,
-      filename: "sw.js",
+      strategies: "injectManifest",
+      srcDir: "src",
+      filename: "sw.ts",
+      injectManifest: {
+        globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
+      },
       devOptions: { enabled: false },
       includeAssets: ["favicon.png", "icons/apple-touch-icon.png", "icons/icon-512-maskable.png", "robots.txt"],
       manifest: {
@@ -38,42 +43,6 @@ export default defineConfig(({ mode }) => ({
           // borda, e o Android recorta ícones maskable numa forma — sem
           // margem própria, a asa da chávena ficava cortada em alguns launchers.
           { src: "/icons/icon-512-maskable.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
-        ],
-      },
-      workbox: {
-        globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
-        navigateFallback: "/index.html",
-        navigateFallbackDenylist: [/^\/~oauth/],
-        cleanupOutdatedCaches: true,
-        clientsClaim: true,
-        skipWaiting: true,
-        runtimeCaching: [
-          {
-            urlPattern: ({ request, sameOrigin }) => sameOrigin && request.mode === "navigate",
-            handler: "NetworkFirst",
-            options: {
-              cacheName: "html-navigations",
-              networkTimeoutSeconds: 5,
-              expiration: { maxEntries: 32, maxAgeSeconds: 60 * 60 * 24 * 7 },
-            },
-          },
-          {
-            urlPattern: ({ url, sameOrigin }) => sameOrigin && /\/assets\//.test(url.pathname),
-            handler: "CacheFirst",
-            options: {
-              cacheName: "static-assets",
-              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 * 30 },
-            },
-          },
-          {
-            urlPattern: ({ url }) => /supabase\.co\/storage\//.test(url.href),
-            handler: "CacheFirst",
-            options: {
-              cacheName: "remote-images",
-              expiration: { maxEntries: 300, maxAgeSeconds: 60 * 60 * 24 * 14 },
-              cacheableResponse: { statuses: [0, 200] },
-            },
-          },
         ],
       },
     }),

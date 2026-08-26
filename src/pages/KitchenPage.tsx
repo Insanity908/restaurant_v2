@@ -34,7 +34,7 @@ const STATUS_LABELS: Record<string, string> = {
 
 export default function KitchenPage() {
   const { orders, updateOrderItemStatus, updateOrder, cancelOrder, menuItems, inventory } = useRestaurant();
-  const { user } = useAuth();
+  const { user, hasPermission } = useAuth();
   const { settings } = useSettings();
   const [searchParams, setSearchParams] = useSearchParams();
   const tvMode = searchParams.get('tv') === '1';
@@ -47,8 +47,8 @@ export default function KitchenPage() {
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
   const isKitchen = user?.role === 'kitchen';
   const isWaiterOrCashier = user?.role === 'waiter' || user?.role === 'cashier';
-  const canManageKitchen = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'kitchen';
-  const canServe = user?.role === 'admin' || user?.role === 'manager' || user?.role === 'waiter' || user?.role === 'cashier';
+  const canManageKitchen = hasPermission('kitchen.manage');
+  const canServe = hasPermission('kitchen.serve');
   const shouldReceiveReadyAlerts = isWaiterOrCashier;
   // Admin/manager veem os dois papéis no mesmo ecrã — usa o limiar mais
   // apertado para não deixar passar um atraso que interessaria a qualquer um.

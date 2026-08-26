@@ -24,7 +24,10 @@ describe('KitchenPage — avançar estado de um item', () => {
     vi.resetModules();
     updateOrderItemStatusMock.mockReset();
     vi.doMock('@/context/AuthContext', () => ({
-      useAuth: () => ({ user: { id: 'k-1', name: 'Cozinha', role: 'kitchen' } }),
+      useAuth: () => ({
+        user: { id: 'k-1', name: 'Cozinha', role: 'kitchen' },
+        hasPermission: (p: string) => p === 'kitchen.manage',
+      }),
     }));
     vi.doMock('@/hooks/useRestaurant', () => ({
       useRestaurant: () => ({

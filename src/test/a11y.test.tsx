@@ -60,7 +60,7 @@ describe('Acessibilidade — TablesPage (dialog "Nova Mesa")', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.doMock('@/context/AuthContext', () => ({
-      useAuth: () => ({ hasRole: () => true }),
+      useAuth: () => ({ hasRole: () => true, hasPermission: () => true }),
     }));
     vi.doMock('@/hooks/useRestaurant', () => ({
       useRestaurant: () => ({
@@ -95,7 +95,10 @@ describe('Acessibilidade — KitchenPage', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.doMock('@/context/AuthContext', () => ({
-      useAuth: () => ({ user: { id: 'k-1', name: 'Cozinha', role: 'kitchen' } }),
+      useAuth: () => ({
+        user: { id: 'k-1', name: 'Cozinha', role: 'kitchen' },
+        hasPermission: (p: string) => p === 'kitchen.manage',
+      }),
     }));
     vi.doMock('@/hooks/useRestaurant', () => ({
       useRestaurant: () => ({

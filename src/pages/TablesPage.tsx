@@ -32,10 +32,10 @@ export default function TablesPage() {
     tables, orders, menuItems, addTable, updateTable, deleteTable, logPrint,
     pendingConfirmationOrders, confirmPendingOrder, rejectPendingOrder, moveOrderToTable,
   } = useRestaurant();
-  const { user, hasRole } = useAuth();
+  const { user, hasRole, hasPermission } = useAuth();
   const { isBasic } = useLicense();
   const navigate = useNavigate();
-  const canManage = hasRole(['admin', 'manager']);
+  const canManage = hasPermission('tables.manage');
   const canConfirm = hasRole(['admin', 'manager', 'cashier']);
   const tableLimitReached = isBasic && tables.length >= BASIC_LIMITS.maxTables;
 

@@ -71,7 +71,7 @@ export default function CustomersPage() {
   const [deliveryLinkOpen, setDeliveryLinkOpen] = useState(false);
   const { user, hasPermission, catalogVersion } = useAuth();
   const { isBasic } = useLicense();
-  const isManager = user?.role === 'manager' || user?.role === 'admin';
+  const canManageLoyalty = hasPermission('loyalty.manage');
   const canEditCustomers = hasPermission('customers.edit');
 
   // Loyalty settings (per tenant, off by default)
@@ -240,7 +240,7 @@ export default function CustomersPage() {
           <TabsTrigger value="all">Todos ({enriched.length})</TabsTrigger>
           <TabsTrigger value="loyalty">Fidelidade</TabsTrigger>
           <TabsTrigger value="birthdays">Aniversariantes ({birthdays.length})</TabsTrigger>
-          {isManager && <TabsTrigger value="settings"><Settings2 className="w-3.5 h-3.5 mr-1" />Configurações</TabsTrigger>}
+          {canManageLoyalty && <TabsTrigger value="settings"><Settings2 className="w-3.5 h-3.5 mr-1" />Configurações</TabsTrigger>}
         </TabsList>
 
         <TabsContent value="all">
@@ -289,7 +289,7 @@ export default function CustomersPage() {
           )}
         </TabsContent>
 
-        {isManager && (
+        {canManageLoyalty && (
           <TabsContent value="settings">
             {isBasic ? (
               <Card className="p-6 text-center bg-secondary/30">

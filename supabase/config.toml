@@ -7,3 +7,13 @@ project_id = "bbpfoygfxqwjqsolisqw"
 # manual por sessão real de super-admin (ver index.ts).
 [functions.archive-old-years]
 verify_jwt = false
+
+# send-push também aceita um caminho de confiança sem JWT: gatilhos
+# Postgres (pg_net, ver supabase/migrations/*_push_event_triggers.sql)
+# autenticam-se só por x-push-trigger-secret == PUSH_TRIGGER_SECRET, sem
+# sessão de utilizador — mesmo motivo que archive-old-years acima. O
+# caminho normal (JWT de utilizador, ou Bearer com a service_role key)
+# continua a funcionar exactamente na mesma com verify_jwt = false — a
+# verificação é só feita dentro do próprio index.ts.
+[functions.send-push]
+verify_jwt = false

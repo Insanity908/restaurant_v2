@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutGrid, UtensilsCrossed, ChefHat, CreditCard, BarChart3, Settings, Coffee, Package, LogOut, Users, Clock, UserCircle, ShieldCheck, MoreHorizontal, ChevronsUpDown, Check, Plus, MessageSquare, Wallet } from 'lucide-react';
+import { LayoutGrid, UtensilsCrossed, ChefHat, CreditCard, BarChart3, Settings, Coffee, Package, LogOut, Users, Clock, UserCircle, ShieldCheck, MoreHorizontal, ChevronsUpDown, Check, Plus, MessageSquare, Wallet, Bell } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useOptionalAuth, ROUTE_PERMISSIONS } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -15,6 +15,7 @@ import { LOGO_BUCKET } from '@/lib/storage';
 import InstallAppButton from '@/components/InstallAppButton';
 import RestaurantSwitcherDialog from '@/components/RestaurantSwitcherDialog';
 import FeedbackDialog from '@/components/FeedbackDialog';
+import PushNotificationsDialog from '@/components/PushNotificationsDialog';
 
 
 const navItems = [
@@ -96,6 +97,7 @@ export default function AppSidebar() {
   const backgroundImageUrl = useStorageImage(LOGO_BUCKET, settings.backgroundImageUrl);
   const [switcherOpen, setSwitcherOpen] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [pushOpen, setPushOpen] = useState(false);
 
   // Aplicado ao body (não a um wrapper local) porque é um pano de fundo à
   // escala da app inteira, atrás de todas as páginas — não só da sidebar.
@@ -193,6 +195,16 @@ export default function AppSidebar() {
           <Button
             variant="ghost"
             size="sm"
+            onClick={() => setPushOpen(true)}
+            className="w-full justify-center lg:justify-start gap-2 text-muted-foreground hover:text-foreground"
+            aria-label="Notificações"
+          >
+            <Bell className="w-4 h-4 shrink-0" />
+            <span className="hidden lg:inline">Notificações</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => setFeedbackOpen(true)}
             className="w-full justify-center lg:justify-start gap-2 text-muted-foreground hover:text-foreground"
             aria-label="Enviar feedback"
@@ -281,6 +293,9 @@ export default function AppSidebar() {
                   <Coffee className="w-4 h-4 mr-2" /> Restaurantes
                 </DropdownMenuItem>
               )}
+              <DropdownMenuItem onClick={() => setPushOpen(true)} className="cursor-pointer">
+                <Bell className="w-4 h-4 mr-2" /> Notificações
+              </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setFeedbackOpen(true)} className="cursor-pointer">
                 <MessageSquare className="w-4 h-4 mr-2" /> Feedback
               </DropdownMenuItem>
@@ -294,6 +309,7 @@ export default function AppSidebar() {
 
       <RestaurantSwitcherDialog open={switcherOpen} onOpenChange={setSwitcherOpen} />
       <FeedbackDialog open={feedbackOpen} onOpenChange={setFeedbackOpen} />
+      <PushNotificationsDialog open={pushOpen} onOpenChange={setPushOpen} />
     </>
   );
 }

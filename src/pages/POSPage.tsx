@@ -20,6 +20,7 @@ export default function POSPage() {
   const { activeOrders, orders, completeOrder, cancelOrder, logPrint, addPartialPayment, removeLastPayment } = useRestaurant();
   const { hasPermission } = useAuth();
   const canDiscount = hasPermission('pos.discount');
+  const canCancel = hasPermission('orders.cancel');
   const [tab, setTab] = useState<POSTab>('payments');
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [tip, setTip] = useState(0);
@@ -463,15 +464,17 @@ export default function POSPage() {
               </button>
 
               <div className="flex gap-3">
-                <button
-                  onClick={() => {
-                    cancelOrder(selectedOrderId!);
-                    setSelectedOrderId(null);
-                  }}
-                  className="flex-1 bg-destructive/15 text-destructive py-3.5 rounded-xl font-bold text-sm hover:bg-destructive/25 transition-colors"
-                >
-                  Cancelar Pedido
-                </button>
+                {canCancel && (
+                  <button
+                    onClick={() => {
+                      cancelOrder(selectedOrderId!);
+                      setSelectedOrderId(null);
+                    }}
+                    className="flex-1 bg-destructive/15 text-destructive py-3.5 rounded-xl font-bold text-sm hover:bg-destructive/25 transition-colors"
+                  >
+                    Cancelar Pedido
+                  </button>
+                )}
                 <button
                   onClick={splitMode ? handleAddInstallment : handlePayment}
                   disabled={!allServed || confirmingPayment || cashInsufficient || (splitMode && !(installmentAmountNum > 0))}

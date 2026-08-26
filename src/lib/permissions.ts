@@ -6,26 +6,32 @@ export type Permission =
   | 'menu.view' | 'menu.edit'
   | 'inventory.view' | 'inventory.edit'
   | 'pos.use' | 'pos.discount' | 'pos.refund'
+  | 'orders.cancel'
   | 'reports.view' | 'reports.financial'
   | 'staff.view' | 'staff.manage'
   | 'customers.view' | 'customers.edit'
   | 'shifts.view' | 'shifts.manage'
   | 'settings.edit'
   | 'billing.manage'
-  | 'tables.view' | 'kitchen.view'
+  | 'tables.view' | 'tables.manage'
+  | 'kitchen.view' | 'kitchen.manage' | 'kitchen.serve'
+  | 'loyalty.manage'
   | 'proforma.print';
 
 export const ALL_PERMISSIONS: Permission[] = [
   'menu.view', 'menu.edit',
   'inventory.view', 'inventory.edit',
   'pos.use', 'pos.discount', 'pos.refund',
+  'orders.cancel',
   'reports.view', 'reports.financial',
   'staff.view', 'staff.manage',
   'customers.view', 'customers.edit',
   'shifts.view', 'shifts.manage',
   'settings.edit',
   'billing.manage',
-  'tables.view', 'kitchen.view',
+  'tables.view', 'tables.manage',
+  'kitchen.view', 'kitchen.manage', 'kitchen.serve',
+  'loyalty.manage',
   'proforma.print',
 ];
 
@@ -37,6 +43,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   'pos.use': 'Usar POS',
   'pos.discount': 'Aplicar descontos',
   'pos.refund': 'Reembolsos',
+  'orders.cancel': 'Cancelar pedidos',
   'reports.view': 'Ver relatórios',
   'reports.financial': 'Relatórios financeiros',
   'staff.view': 'Ver equipa',
@@ -48,7 +55,11 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   'settings.edit': 'Editar configurações',
   'billing.manage': 'Gerir faturação',
   'tables.view': 'Ver mesas',
+  'tables.manage': 'Gerir mesas',
   'kitchen.view': 'Ver cozinha',
+  'kitchen.manage': 'Gerir cozinha',
+  'kitchen.serve': 'Marcar pratos como servidos',
+  'loyalty.manage': 'Gerir fidelidade',
   'proforma.print': 'Imprimir fatura proforma',
 };
 
@@ -58,26 +69,28 @@ export const DEFAULT_PERMISSIONS: Record<UserRole, Permission[]> = {
   manager: [
     'menu.view', 'menu.edit',
     'inventory.view', 'inventory.edit',
-    'pos.use', 'pos.discount',
+    'pos.use', 'pos.discount', 'orders.cancel',
     'reports.view',
     'staff.view', 'staff.manage',
     'customers.view', 'customers.edit',
     'shifts.view', 'shifts.manage',
-    'tables.view', 'kitchen.view',
+    'tables.view', 'tables.manage',
+    'kitchen.view', 'kitchen.manage', 'kitchen.serve',
+    'loyalty.manage',
     'proforma.print',
   ],
   cashier: [
-    'menu.view', 'pos.use', 'pos.discount',
+    'menu.view', 'pos.use', 'pos.discount', 'orders.cancel',
     'customers.view', 'customers.edit',
-    'tables.view', 'shifts.view',
+    'tables.view', 'shifts.view', 'kitchen.serve',
   ],
   waiter: [
     'menu.view', 'pos.use',
     'customers.view', 'customers.edit',
-    'tables.view', 'kitchen.view', 'shifts.view',
+    'tables.view', 'kitchen.view', 'shifts.view', 'kitchen.serve',
   ],
   kitchen: [
-    'menu.view', 'kitchen.view', 'shifts.view',
+    'menu.view', 'kitchen.view', 'kitchen.manage', 'shifts.view',
   ],
 };
 

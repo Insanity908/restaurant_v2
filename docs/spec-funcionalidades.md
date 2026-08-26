@@ -624,6 +624,13 @@ qualquer outro item desta lista.
 **Feito quando**: um dispositivo fechado recebe uma notificação (ex.:
 "pedido pronto", "novo comprovativo de pagamento") mesmo sem a app aberta.
 
+**Spec detalhada (2026-08-26)**: ver `docs/spec-push-notificacoes-permissoes.md`
+— plano completo (migração do SW para `injectManifest`, chaves VAPID,
+tabela `push_subscriptions`, edge function `send-push`, gatilhos por
+evento) mais um levantamento à parte de permissões de funcionário que
+faltam/estão mortas no sistema actual (`src/lib/permissions.ts`), já que os
+gatilhos de push dependem delas para decidir quem recebe cada notificação.
+
 ---
 
 ## Ordem sugerida de execução

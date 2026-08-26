@@ -12,7 +12,10 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 vi.mock('@/context/AuthContext', () => ({
-  useAuth: () => ({ user: { id: 'k-1', name: 'Cozinha', role: 'kitchen' } }),
+  useAuth: () => ({
+    user: { id: 'k-1', name: 'Cozinha', role: 'kitchen' },
+    hasPermission: (p: string) => p === 'kitchen.manage',
+  }),
 }));
 vi.mock('@/hooks/useRestaurant', () => ({
   useRestaurant: () => ({ orders: [], updateOrderItemStatus: vi.fn(), updateOrder: vi.fn(), cancelOrder: vi.fn(), menuItems: [] }),

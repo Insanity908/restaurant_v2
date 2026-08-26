@@ -156,7 +156,7 @@ describe('TablesPage — criar e editar mesa', () => {
     updateTableMock.mockReset();
 
     vi.doMock('@/context/AuthContext', () => ({
-      useAuth: () => ({ hasRole: (roles: string[]) => roles.includes('admin') }),
+      useAuth: () => ({ hasRole: (roles: string[]) => roles.includes('admin'), hasPermission: () => true }),
     }));
     vi.doMock('@/hooks/useLicense', () => ({
       useLicense: () => ({ isBasic: false, tier: 'pro' }),
@@ -221,7 +221,7 @@ describe('TablesPage — mover pedido de mesa', () => {
     moveOrderToTableMock.mockReset().mockReturnValue({ ok: true });
 
     vi.doMock('@/context/AuthContext', () => ({
-      useAuth: () => ({ hasRole: (roles: string[]) => roles.includes('admin'), user: { tenantId: 't1' } }),
+      useAuth: () => ({ hasRole: (roles: string[]) => roles.includes('admin'), hasPermission: () => true, user: { tenantId: 't1' } }),
     }));
     vi.doMock('@/hooks/useLicense', () => ({ useLicense: () => ({ isBasic: false, tier: 'pro' }) }));
     vi.doMock('@/hooks/useRestaurant', () => ({
