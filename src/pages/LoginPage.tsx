@@ -61,7 +61,7 @@ export default function LoginPage() {
 
         <form onSubmit={submit} className="space-y-3">
           <div className="space-y-1.5">
-            <Label htmlFor="login-identifier">Email, telefone ou username</Label>
+            <Label htmlFor="login-identifier">Email ou telefone</Label>
             <Input id="login-identifier" type="text" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="username" />
           </div>
           <div className="space-y-1.5">

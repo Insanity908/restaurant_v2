@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { CreditCard, Copy, RefreshCw, Shield, ArrowUpCircle, TrendingUp, Landmark, Smartphone, MessageCircle } from 'lucide-react';
 import { useLicense } from '@/hooks/useLicense';
 import { useAuth } from '@/context/AuthContext';
-import { PLANS, formatMT, addMonths, fetchPlans, buildPlanWhatsAppLink, applyMultiRestaurantDiscount, BASIC_PLANS, PRO_PLANS } from '@/lib/billing';
+import { PLANS, formatMT, addMonths, fetchPlans, buildPlanWhatsAppLink, applyMultiRestaurantDiscount, planTier, BASIC_PLANS, PRO_PLANS } from '@/lib/billing';
 import { getPaymentAccounts, hasAnyPaymentAccounts, fetchPaymentAccounts } from '@/lib/paymentAccounts';
 import { hasProfessionalSibling } from '@/lib/tenants';
 import { toast } from 'sonner';
@@ -62,7 +62,10 @@ export default function BillingPage() {
       toast.error('O contacto de activação ainda não está configurado. Tente novamente mais tarde.');
       return;
     }
-    window.open(buildPlanWhatsAppLink(plan, tenant.name, whatsapp, discountEligible), '_blank');
+    // Desconto multi-restaurante é exclusivo do Profissional — ver Secção 2.1
+    // de docs/spec-automacao-confirmacao-pagamentos.md.
+    const eligible = discountEligible && planTier(plan) === 'pro';
+    window.open(buildPlanWhatsAppLink(plan, tenant.name, whatsapp, eligible), '_blank');
   };
 
   const baseDate =
@@ -161,14 +164,16 @@ export default function BillingPage() {
                 const p = PLANS[key];
                 const isCurrent = sub.plan === key && status === 'active';
                 const newExpiry = addMonths(baseDate, p.months);
-                const finalPrice = applyMultiRestaurantDiscount(p.price, discountEligible);
+                // Desconto multi-restaurante é exclusivo do Profissional.
+                const planDiscountEligible = discountEligible && planTier(key) === 'pro';
+                const finalPrice = applyMultiRestaurantDiscount(p.price, planDiscountEligible);
                 return (
                   <div key={key} className={`rounded-xl p-4 border ${isCurrent ? 'border-primary bg-primary/5' : 'border-border'}`}>
                     <div className="flex items-center justify-between">
                       <h3 className="font-heading font-semibold">{p.label}</h3>
                       {isCurrent && <Badge variant="outline" className="bg-primary/15 text-primary border-primary/30 text-[10px]">ATUAL</Badge>}
                     </div>
-                    {discountEligible ? (
+                    {planDiscountEligible ? (
                       <p className="mt-1">
                         <span className="text-muted-foreground text-xs line-through mr-1.5">{formatMT(p.price)}</span>
                         <span className="font-heading text-xl font-bold">{formatMT(finalPrice)}</span>
@@ -177,7 +182,7 @@ export default function BillingPage() {
                       <p className="font-heading text-xl font-bold mt-1">{formatMT(p.price)}</p>
                     )}
                     <p className="text-xs text-muted-foreground">{p.months} {p.months === 1 ? 'mês' : 'meses'}</p>
-                    {discountEligible && <p className="text-[11px] text-success">-20% multi-restaurante</p>}
+                    {planDiscountEligible && <p className="text-[11px] text-success">-20% multi-restaurante</p>}
                     {p.savings && <p className="text-[11px] text-success mt-1">{p.savings}</p>}
                     <p className="text-[11px] text-muted-foreground mt-2">
                       Nova expiração: <strong className="text-foreground">{newExpiry.toLocaleDateString('pt-MZ')}</strong>

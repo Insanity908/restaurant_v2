@@ -34,7 +34,7 @@ const FEATURES = [
   { icon: CreditCard, title: 'POS rápido', desc: 'Pagamentos, recibos e fecho de caixa otimizados para toque.' },
   { icon: ChefHat, title: 'Cozinha (KDS)', desc: 'Ecrã para a cozinha com estado de cada item em tempo real.' },
   { icon: Package, title: 'Stock e custos', desc: 'Controle ingredientes, alertas de stock baixo e margem por prato.' },
-  { icon: Users, title: 'Equipa e turnos', desc: 'PINs, papéis, ponto de entrada/saída e auditoria de ações.' },
+  { icon: Users, title: 'Equipa e turnos', desc: 'Papéis, ponto de entrada/saída e auditoria de ações.' },
   { icon: BarChart3, title: 'Relatórios', desc: 'Vendas por período, top items, lucros — exporta CSV e PDF.' },
   { icon: ShieldCheck, title: 'Offline-first', desc: 'Funciona sem internet. Sincroniza assim que voltar a ligar.' },
 ];

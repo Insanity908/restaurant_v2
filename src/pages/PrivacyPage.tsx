@@ -35,7 +35,7 @@ export default function PrivacyPage() {
           </section>
           <section>
             <h2 className="font-heading text-base font-semibold text-foreground mb-1.5">4. Armazenamento e segurança</h2>
-            <p>Os dados são armazenados em infraestrutura Supabase, com isolamento entre restaurantes (cada conta só acede aos seus próprios dados) e controlo de acesso por papel dentro da equipa. As comunicações são encriptadas em trânsito (HTTPS).</p>
+            <p>Os dados são armazenados em infraestrutura de nuvem segura, com isolamento entre restaurantes (cada conta só acede aos seus próprios dados) e controlo de acesso por papel dentro da equipa. As comunicações são encriptadas em trânsito (HTTPS).</p>
           </section>
           <section>
             <h2 className="font-heading text-base font-semibold text-foreground mb-1.5">5. Retenção e eliminação</h2>

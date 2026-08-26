@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Check, Coffee, Plus } from 'lucide-react';
 import { useOptionalAuth } from '@/context/AuthContext';
 import { tenantStore, hasProfessionalSibling } from '@/lib/tenants';
-import { PLANS, formatMT, applyMultiRestaurantDiscount } from '@/lib/billing';
+import { PLANS, formatMT } from '@/lib/billing';
 import { toast } from 'sonner';
 
 interface RestaurantSwitcherDialogProps {
@@ -52,7 +52,10 @@ export default function RestaurantSwitcherDialog({ open, onOpenChange }: Restaur
     setTimeout(() => window.location.reload(), 400);
   };
 
-  const basicPrice = applyMultiRestaurantDiscount(PLANS['basic-monthly'].price, discountEligible);
+  // Desconto multi-restaurante é exclusivo do Profissional — não se aplica
+  // aqui, já que este é sempre o preço do Básico (ver Secção 2.1 de
+  // docs/spec-automacao-confirmacao-pagamentos.md).
+  const basicPrice = PLANS['basic-monthly'].price;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -79,7 +82,7 @@ export default function RestaurantSwitcherDialog({ open, onOpenChange }: Restaur
           <p className="text-[11px] text-muted-foreground">
             Começa com 7 dias grátis. Depois disso, precisa da sua própria subscrição
             (a partir de {formatMT(basicPrice)}/mês) para continuar activo — ver /billing.
-            {discountEligible && ' Como já tem um restaurante Profissional, este tem 20% de desconto.'}
+            {discountEligible && ' Se escolher o plano Profissional, tem 20% de desconto por já ter outro restaurante Profissional.'}
           </p>
           <div className="flex gap-2">
             <Input
