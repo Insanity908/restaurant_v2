@@ -356,14 +356,22 @@ além de gravar a tentativa (Secção 4.5) para revisão manual.
 **D6 — Não se aplica**, dado D2 = Opção B (a Edge Function corre na nuvem
 por natureza, sem processo local nenhum a gerir).
 
-**D7 — ✅ Resolvida: email**, via serviço dedicado (Resend/SendGrid,
-chamado a partir de uma Edge Function) — não o SMTP do Supabase, que já
-falhou neste projecto (nota na Secção 4.4). SMS fica fora de âmbito por
-agora (evita montar uma integração nova de raiz). Falta confirmar se
-Carlos já tem conta num destes serviços antes de implementar o envio.
-Consequência directa: o "contacto" do passo 1 da Secção 2 passa a ser só
-**email** (não telefone) — simplifica o desenho do formulário de
+**D7 — ✅ Resolvida: email via Resend** (Carlos já tem conta) — não o
+SMTP do Supabase, que já falhou neste projecto (nota na Secção 4.4). SMS
+fica fora de âmbito por agora (evita montar uma integração nova de
+raiz). Consequência directa: o "contacto" do passo 1 da Secção 2 passa a
+ser só **email** (não telefone) — simplifica o desenho do formulário de
 checkout.
+
+**Nota de infraestrutura**: a chamada ao Resend acontece dentro da Edge
+Function `auto-activate-payment` (Supabase), não numa função Vercel —
+este projecto é um SPA estático no Vercel (sem `/api`, ver
+`vercel.json`), toda a lógica de servidor vive em `supabase/functions/`.
+A `RESEND_API_KEY` fica como **secret do Supabase**
+(`supabase secrets set RESEND_API_KEY=...`), não como env var do Vercel.
+Carlos já tem um domínio verificado no Resend — o endereço de envio
+(`RESEND_FROM_EMAIL`, ex. `noreply@<dominio>`) fica também como secret,
+não hardcoded na função, para não depender de alterar código se mudar.
 
 **D8 — ✅ Resolvida: adicional ao trial.** O registo grátis de 7 dias
 (`SignupPage`/`bootstrap-tenant`) mantém-se inalterado; este fluxo novo
