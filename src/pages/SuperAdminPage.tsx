@@ -12,7 +12,7 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Lock, Unlock, Trash2, Clock, Search, Building2, TrendingUp, Users, BarChart3, Copy, Landmark, Save, CheckCircle2, Inbox, MessageSquare, Mail, MailOpen, Images, ImagePlus, Wallet, HardDrive, Database } from 'lucide-react';
+import { Lock, Unlock, Trash2, Clock, Search, Building2, TrendingUp, Users, BarChart3, Copy, Landmark, Save, CheckCircle2, Inbox, MessageSquare, Mail, MailOpen, Images, ImagePlus, Wallet, HardDrive, Database, AlertTriangle } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid } from 'recharts';
 import { tenantStore, fetchTenants, fetchTenantTeams, type TenantTeam } from '@/lib/tenants';
 import { PLANS, formatMT, fetchPlans, savePlans, BASIC_PLANS, PRO_PLANS, type PlanConfig } from '@/lib/billing';
@@ -20,6 +20,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { getPaymentAccounts, savePaymentAccounts, fetchPaymentAccounts, type PaymentAccounts } from '@/lib/paymentAccounts';
 import { fetchPendingSubmissions, markSubmissionStatus, type PaymentSubmission } from '@/lib/paymentSubmissions';
 import { fetchFeedback, markFeedbackStatus, type FeedbackSubmission } from '@/lib/feedback';
+import { fetchCheckoutMatchFailures, type CheckoutMatchFailure } from '@/lib/checkoutMatchFailures';
 import { fetchPresetImages, uploadPresetImage, deletePresetImage, type PresetImage } from '@/lib/presetImages';
 import { PRESET_IMAGES_BUCKET, fetchStorageUsage, type StorageUsage } from '@/lib/storage';
 import StorageImage from '@/components/StorageImage';
@@ -76,6 +77,12 @@ export default function SuperAdminPage() {
   }, []);
   useEffect(() => { void refreshFeedback(); }, [refreshFeedback]);
   const unreadFeedbackCount = feedback.filter(f => f.status === 'unread').length;
+
+  const [matchFailures, setMatchFailures] = useState<CheckoutMatchFailure[]>([]);
+  const refreshMatchFailures = useCallback(async () => {
+    setMatchFailures(await fetchCheckoutMatchFailures().catch(() => []));
+  }, []);
+  useEffect(() => { void refreshMatchFailures(); }, [refreshMatchFailures]);
 
   const toggleFeedbackStatus = async (f: FeedbackSubmission) => {
     const next = f.status === 'unread' ? 'read' : 'unread';
@@ -303,6 +310,10 @@ export default function SuperAdminPage() {
             <TabsTrigger value="payments" className="shrink-0">Pagamentos</TabsTrigger>
             <TabsTrigger value="accounts" className="shrink-0"><Landmark className="w-3.5 h-3.5 mr-1" />Contas de recebimento</TabsTrigger>
             <TabsTrigger value="plans" className="shrink-0"><Wallet className="w-3.5 h-3.5 mr-1" />Planos</TabsTrigger>
+            <TabsTrigger value="match-failures" className="shrink-0">
+              <AlertTriangle className="w-3.5 h-3.5 mr-1" />Pagamentos não correspondidos
+              {matchFailures.length > 0 && <Badge variant="outline" className="ml-1.5 border-primary/30 text-primary">{matchFailures.length}</Badge>}
+            </TabsTrigger>
             <TabsTrigger value="feedback" className="shrink-0">
               <MessageSquare className="w-3.5 h-3.5 mr-1" />Feedback
               {unreadFeedbackCount > 0 && <Badge variant="outline" className="ml-1.5 border-primary/30 text-primary">{unreadFeedbackCount}</Badge>}
@@ -465,6 +476,43 @@ export default function SuperAdminPage() {
 
         <TabsContent value="plans">
           <PlansForm value={planForm} onChange={updatePlan} onSave={handleSavePlans} saving={savingPlans} />
+        </TabsContent>
+
+        <TabsContent value="match-failures">
+          <div className="glass rounded-xl p-5 mt-4">
+            <p className="text-xs text-muted-foreground mb-4">
+              SMS de pagamento recebidas pela activação automática (Secção 4/D5 de
+              docs/spec-automacao-confirmacao-pagamentos.md) que não puderam ser activadas com confiança — nunca
+              activadas às cegas. Reveja e, se for um pagamento real, active o plano à mão no separador "Restaurantes".
+            </p>
+            {matchFailures.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sem falhas de correspondência registadas.</p>
+            ) : (
+              <div className="space-y-2">
+                {matchFailures.map(f => (
+                  <div key={f.id} className="text-sm py-3 border-b border-border/40 last:border-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge variant="outline" className="text-[10px] border-destructive/30 text-destructive">
+                        {matchFailureReasonLabel(f.reason)}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">{new Date(f.createdAt).toLocaleString('pt-MZ')}</span>
+                    </div>
+                    {f.extracted && (
+                      <p className="text-xs text-muted-foreground mt-1.5">
+                        {f.extracted.planCode && <>Plano: <span className="font-mono">{f.extracted.planCode}</span> • </>}
+                        {f.extracted.amount != null && <>Valor: {formatMT(f.extracted.amount)} • </>}
+                        {f.extracted.payerPhone && <>De: {f.extracted.payerPhone} • </>}
+                        {f.extracted.transactionId && <>ID: <span className="font-mono">{f.extracted.transactionId}</span></>}
+                      </p>
+                    )}
+                    <p className="text-xs font-mono text-muted-foreground bg-secondary/30 rounded p-2 mt-1.5 whitespace-pre-wrap break-words">
+                      {f.rawText}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </TabsContent>
 
         <TabsContent value="payments">
@@ -777,6 +825,14 @@ const BUCKET_LABEL: Record<string, string> = {
   'receipt-logos': 'Logótipos',
   'preset-images': 'Galeria de imagens',
 };
+
+function matchFailureReasonLabel(reason: CheckoutMatchFailure['reason']): string {
+  switch (reason) {
+    case 'unparseable': return 'Texto não reconhecido';
+    case 'unknown_plan': return 'Plano não reconhecido';
+    case 'no_match': return 'Sem sessão pendente única';
+  }
+}
 
 function formatBytes(bytes: number): string {
   if (bytes <= 0) return '0 MB';
