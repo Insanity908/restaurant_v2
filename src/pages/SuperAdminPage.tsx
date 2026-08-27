@@ -96,18 +96,41 @@ export default function SuperAdminPage() {
 
   const [planForm, setPlanForm] = useState<Record<BillingPlan, PlanConfig>>(PLANS);
   const [savingPlans, setSavingPlans] = useState(false);
-  useEffect(() => { void fetchPlans().then(() => setPlanForm({ ...PLANS })).catch(() => { /* keep defaults */ }); }, []);
+  // Preços tal como estão hoje nos QR pré-gerados por Carlos no e-Mola
+  // (Secção 2.1 de docs/spec-automacao-confirmacao-pagamentos.md) — o QR
+  // fica desactualizado se o preço mudar aqui sem o regenerar lá também.
+  const savedPricesRef = useRef<Partial<Record<BillingPlan, number>>>({});
+  useEffect(() => {
+    void fetchPlans().then(() => {
+      setPlanForm({ ...PLANS });
+      savedPricesRef.current = Object.fromEntries(
+        (Object.keys(PLANS) as BillingPlan[]).map(id => [id, PLANS[id].price]),
+      );
+    }).catch(() => { /* keep defaults */ });
+  }, []);
 
   const updatePlan = (id: BillingPlan, patch: Partial<PlanConfig>) => {
     setPlanForm(prev => ({ ...prev, [id]: { ...prev[id], ...patch } }));
   };
 
   const handleSavePlans = async () => {
+    const changedPrices = (Object.keys(planForm) as BillingPlan[])
+      .filter(id => planForm[id].price !== savedPricesRef.current[id]);
     setSavingPlans(true);
     const ok = await savePlans(planForm);
     setSavingPlans(false);
     if (!ok) { toast.error('Não foi possível guardar os planos'); return; }
     toast.success('Planos atualizados');
+    if (changedPrices.length > 0) {
+      savedPricesRef.current = Object.fromEntries(
+        (Object.keys(planForm) as BillingPlan[]).map(id => [id, planForm[id].price]),
+      );
+      toast.warning(
+        `Preço alterado: ${changedPrices.map(id => planForm[id].label).join(', ')}. `
+        + 'Lembre-se de actualizar o QR correspondente na app do e-Mola — o QR antigo continua com o valor anterior.',
+        { duration: 10000 },
+      );
+    }
   };
 
   const [uploadCategory, setUploadCategory] = useState('');
