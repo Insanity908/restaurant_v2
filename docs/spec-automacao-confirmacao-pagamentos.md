@@ -18,13 +18,18 @@ que muda — ver Secção 2.
 
 **Estado**: `checkout_sessions` (schema), a função atómica de
 correspondência+activação, a Edge Function `auto-activate-payment`
-(Secção 4) e o lado do cliente (Secção 5 — `AutoPaymentDialog`, usado em
-`PricingPage`/`BillingPage`, cria a sessão e confirma o `access_code`) já
-estão implementados. D4 (reenvio do `access_code`, Edge Function
-`resend-access-code`) também está feito. Falta apenas trabalho
-operacional, não de código: Carlos gerar os 12 QR (D1, tabela de códigos
-abaixo), configurar `RESEND_API_KEY`/`RESEND_FROM_EMAIL` como secrets do
-Supabase, e ligar o webhook real da app de reencaminhamento de SMS (D2).
+(Secção 4, **deployed em produção**) e o lado do cliente (Secção 5 —
+`AutoPaymentDialog`, usado em `PricingPage`/`BillingPage`, cria a sessão e
+confirma o `access_code`) já estão implementados. D4 (reenvio do
+`access_code`, Edge Function `resend-access-code`) e o aviso de QR
+desactualizado ao editar um preço (Secção 2.1) também estão feitos. Os
+secrets `RESEND_API_KEY`/`RESEND_FROM_EMAIL`/`PAYMENT_WEBHOOK_SECRET` já
+estão configurados no Supabase (confirmado via `supabase secrets list`).
+Falta: fazer deploy de `resend-access-code` (só existe em git, ainda não
+em produção — código novo, não confirmado no CLI), Carlos gerar os 12 QR
+(D1, tabela de códigos abaixo), e ligar o webhook real da app de
+reencaminhamento de SMS (D2) — o endpoint já aceita o formato certo, falta
+só a app no telemóvel de Carlos apontar para lá.
 D6 não se aplica.
 
 ---
@@ -165,13 +170,15 @@ precisa de saber que `PRO-MENSAL-DESC` mapeia para o mesmo `BillingPlan`
 — o mecanismo generaliza directamente de 8 para 12 `plan_code`
 distintos, sem mudar o desenho.
 
-**QR fica desactualizado se o preço do plano mudar.** `billing_plans.price`
-é editável (ver `SuperAdminPage`) — se Carlos mudar o preço de um plano
-ali, o QR que já tinha pré-gerado na app do e-Mola continua com o valor
-antigo até ele o regenerar manualmente lá também. Não há forma de a app
-"avisar" a app do e-Mola disto automaticamente. Vale a pena que
-`SuperAdminPage` mostre um aviso claro ("lembre-se de actualizar o QR do
-e-Mola") sempre que um preço for editado, para isto não ficar esquecido.
+**QR fica desactualizado se o preço do plano mudar.** ✅ Mitigado por
+processo. `billing_plans.price` é editável (ver `SuperAdminPage`) — se
+Carlos mudar o preço de um plano ali, o QR que já tinha pré-gerado na app
+do e-Mola continua com o valor antigo até ele o regenerar manualmente lá
+também; não há forma de a app "avisar" a app do e-Mola disto
+automaticamente. `SuperAdminPage` (`PlansForm`/`handleSavePlans`) agora
+compara o preço guardado com o novo ao clicar "Guardar planos" e mostra um
+toast de aviso a listar os planos cujo preço mudou, para isto não ficar
+esquecido.
 
 ---
 
