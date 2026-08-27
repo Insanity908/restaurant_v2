@@ -387,7 +387,9 @@ pedidos, sem gerar um código novo. Exposta no `AutoPaymentDialog` como
 
 **D5 — ✅ Resolvida: registar + notificar Carlos por push**, reaproveitando
 o sistema já implementado em `docs/spec-push-notificacoes-permissoes.md`,
-além de gravar a tentativa (Secção 4.5) para revisão manual.
+além de gravar a tentativa (Secção 4.5) para revisão manual — visível em
+`SuperAdminPage` (separador "Pagamentos não correspondidos"), já que o
+push é só transitório e não bastava por si só para a "revisão manual".
 
 **D6 — Não se aplica**, dado D2 = Opção B (a Edge Function corre na nuvem
 por natureza, sem processo local nenhum a gerir).
