@@ -17,13 +17,15 @@ enviado ao cliente por email/SMS) mantém-se, só a forma de corresponder é
 que muda — ver Secção 2.
 
 **Estado**: `checkout_sessions` (schema), a função atómica de
-correspondência+activação e a Edge Function `auto-activate-payment`
-(Secção 4) já estão implementadas, testadas ponta-a-ponta e em produção.
-Falta: Carlos gerar os 12 QR (D1, tabela de códigos abaixo), configurar
-`RESEND_API_KEY`/`RESEND_FROM_EMAIL`, ligar o webhook real da app de
-reencaminhamento de SMS (D2), e o lado do cliente (Secção 5 — ecrã de
-`PricingPage`/`BillingPage` para criar a sessão e introduzir o
-`access_code`). D4 continua em aberto; D6 não se aplica.
+correspondência+activação, a Edge Function `auto-activate-payment`
+(Secção 4) e o lado do cliente (Secção 5 — `AutoPaymentDialog`, usado em
+`PricingPage`/`BillingPage`, cria a sessão e confirma o `access_code`) já
+estão implementados. D4 (reenvio do `access_code`, Edge Function
+`resend-access-code`) também está feito. Falta apenas trabalho
+operacional, não de código: Carlos gerar os 12 QR (D1, tabela de códigos
+abaixo), configurar `RESEND_API_KEY`/`RESEND_FROM_EMAIL` como secrets do
+Supabase, e ligar o webhook real da app de reencaminhamento de SMS (D2).
+D6 não se aplica.
 
 ---
 
@@ -371,11 +373,10 @@ de uma janela maior onde duas sessões do mesmo plano podem coexistir e
 fazer a automação recuar para revisão manual (Secção 4.3) — considerado
 aceitável ao volume actual do negócio.
 
-**D4 — O que acontece se o email com o `access_code` não chegar ou o
-cliente o perder?** Precisa de uma forma de o reenviar (ex. botão
-"reenviar código" que procura a sessão `paid` mais recente por
-tenant/contacto) sem gerar um `access_code` novo que invalide o anterior
-sem aviso.
+**D4 — ✅ Resolvida.** Edge Function `resend-access-code`: reenvia o
+`access_code` da sessão `paid` mais recente para o tenant/plano/valor
+pedidos, sem gerar um código novo. Exposta no `AutoPaymentDialog` como
+"Já pagou mas não recebeu o código? Reenviar".
 
 **D5 — ✅ Resolvida: registar + notificar Carlos por push**, reaproveitando
 o sistema já implementado em `docs/spec-push-notificacoes-permissoes.md`,
@@ -458,26 +459,27 @@ já conhecido"; o ponto de entrada da Secção 5 é sempre o de
 
 ## 8. Ordem sugerida
 
-Todas as decisões de arquitectura (D1-D3, D5, D7, D8) já estão tomadas
-(Secção 6) — falta só D4 (reenvio de `access_code`, decisão pequena,
-pode ficar para a Secção 5) antes de avançar para código.
+Todas as decisões de arquitectura (D1-D8) já estão tomadas (Secção 6).
+Todo o código está feito (1-6 abaixo); falta só o trabalho operacional
+(Secção "Estado" no topo).
 
-1. Carlos gera os 12 QR (Secção 2.1) na app do e-Mola, cada um com o
-   `plan_code` certo como conteúdo (Secção 1-2) — trabalho manual único,
-   independente do código. O ajuste ao código do desconto
-   multi-restaurante (restrito ao Profissional) já está feito.
-2. Desenhar e criar `checkout_sessions` (schema) — `tenant_id` sempre
-   `NOT NULL` (D8), `contact_email` (não `contact_phone`, D7).
-3. Construir a Edge Function nova `auto-activate-payment` (autenticação
-   por segredo dedicado, Secção 4.4) com a validação/correspondência
-   (Secção 4.3-4.4) e testá-la isoladamente com sessões de teste (sem SMS
-   reais ainda).
-4. Ligar o webhook real da app de reencaminhamento (D2, Secção 4.1-4.2),
-   testado primeiro com uma chamada simulada.
-5. Ligar a geração+envio do `access_code` por email (D7, precisa de
-   confirmar/configurar o serviço dedicado primeiro) e o ponto de entrada
-   do lado do cliente (Secção 5), incluindo o texto copiável para o caso
-   "mesmo telemóvel" (Secção 3.2) e a exclusão do caminho QR para
-   clientes elegíveis a desconto (Secção 2.1).
-6. Ligar a notificação push a Carlos quando não há correspondência
-   confiante (D5, Secção 4.5).
+1. ✅ Ajuste ao código do desconto multi-restaurante (restrito ao
+   Profissional).
+2. ✅ `checkout_sessions` (schema) — `tenant_id` sempre `NOT NULL` (D8),
+   `contact_email` (não `contact_phone`, D7).
+3. ✅ Edge Function `auto-activate-payment` (autenticação por segredo
+   dedicado, Secção 4.4) com a validação/correspondência (Secção 4.3-4.4).
+4. ⏳ Ligar o webhook real da app de reencaminhamento (D2, Secção
+   4.1-4.2) — falta só a app de reencaminhamento em si (trabalho no
+   telemóvel de Carlos), o endpoint já existe e aceita o formato certo.
+5. ✅ Geração+envio do `access_code` por email (D7), ponto de entrada do
+   lado do cliente (`AutoPaymentDialog`, Secção 5) com o texto copiável
+   (Secção 3.2) e o `plan_code`/valor certo consoante elegibilidade a
+   desconto (Secção 2.1), e reenvio (D4, `resend-access-code`).
+6. ✅ Notificação push a Carlos quando não há correspondência confiante
+   (D5, Secção 4.5, já em `auto-activate-payment`).
+
+Falta ainda, fora deste código: Carlos gerar os 12 QR (Secção 2.1) na app
+do e-Mola, cada um com o `plan_code` certo como conteúdo (Secção 1-2) —
+trabalho manual único, independente do código — e configurar
+`RESEND_API_KEY`/`RESEND_FROM_EMAIL` como secrets do Supabase (D7).

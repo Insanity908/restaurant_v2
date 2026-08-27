@@ -151,6 +151,80 @@ export type Database = {
         }
         Relationships: []
       }
+      checkout_match_failures: {
+        Row: {
+          created_at: string
+          extracted: Json | null
+          id: string
+          raw_text: string
+          reason: string
+        }
+        Insert: {
+          created_at?: string
+          extracted?: Json | null
+          id?: string
+          raw_text: string
+          reason: string
+        }
+        Update: {
+          created_at?: string
+          extracted?: Json | null
+          id?: string
+          raw_text?: string
+          reason?: string
+        }
+        Relationships: []
+      }
+      checkout_sessions: {
+        Row: {
+          access_code: string | null
+          amount: number
+          contact_email: string
+          created_at: string
+          expires_at: string
+          id: string
+          paid_at: string | null
+          plan: Database["public"]["Enums"]["billing_plan"]
+          status: string
+          tenant_id: string
+          transaction_id: string | null
+        }
+        Insert: {
+          access_code?: string | null
+          amount: number
+          contact_email: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          paid_at?: string | null
+          plan: Database["public"]["Enums"]["billing_plan"]
+          status?: string
+          tenant_id: string
+          transaction_id?: string | null
+        }
+        Update: {
+          access_code?: string | null
+          amount?: number
+          contact_email?: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          paid_at?: string | null
+          plan?: Database["public"]["Enums"]["billing_plan"]
+          status?: string
+          tenant_id?: string
+          transaction_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "checkout_sessions_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       customers: {
         Row: {
           address: string | null
@@ -1457,9 +1531,28 @@ export type Database = {
         Returns: boolean
       }
       is_tenant_member: { Args: { _tenant_id: string }; Returns: boolean }
+      match_and_activate_checkout_session: {
+        Args: {
+          p_amount: number
+          p_plan: Database["public"]["Enums"]["billing_plan"]
+          p_transaction_id: string
+        }
+        Returns: {
+          out_access_code: string
+          out_contact_email: string
+          out_session_id: string
+          out_tenant_id: string
+        }[]
+      }
       now_utc: { Args: never; Returns: string }
       resolve_login_email: { Args: { identifier: string }; Returns: string }
       resolve_login_phone: { Args: { identifier: string }; Returns: string }
+      staff_with_permission: {
+        Args: { _permission: string; _tenant_id: string }
+        Returns: {
+          staff_id: string
+        }[]
+      }
       submit_customer_order: {
         Args: {
           p_customer_name: string

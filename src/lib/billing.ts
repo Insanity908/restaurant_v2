@@ -91,6 +91,26 @@ export function formatMT(n: number): string {
   return `${n.toLocaleString('pt-PT')} MT`;
 }
 
+// Espelha PLAN_CODE_TO_PLAN em supabase/functions/auto-activate-payment/
+// index.ts (Secção 2.1 de docs/spec-automacao-confirmacao-pagamentos.md) —
+// mudar um lado sem o outro parte a correspondência automática por SMS.
+const PLAN_CODE_BASE: Record<BillingPlan, string> = {
+  monthly: 'PRO-MENSAL',
+  quarterly: 'PRO-TRIMESTRAL',
+  semiannual: 'PRO-SEMESTRAL',
+  annual: 'PRO-ANUAL',
+  'basic-monthly': 'BASICO-MENSAL',
+  'basic-quarterly': 'BASICO-TRIMESTRAL',
+  'basic-semiannual': 'BASICO-SEMESTRAL',
+  'basic-annual': 'BASICO-ANUAL',
+};
+
+/** Código a usar como "Conteudo" ao pagar — o QR fixo desse plano já tem isto pré-gravado (Secção 1-2). `discounted` só tem efeito no nível Profissional (Secção 2.1). */
+export function planCode(plan: BillingPlan, discounted: boolean): string {
+  const base = PLAN_CODE_BASE[plan];
+  return discounted && planTier(plan) === 'pro' ? `${base}-DESC` : base;
+}
+
 /** Abre uma conversa de WhatsApp com o superadmin a pedir activação do plano — pagamento manual, sem checkout automático. */
 export function buildPlanWhatsAppLink(plan: BillingPlan, tenantName: string, superadminWhatsapp: string, discountEligible = false): string {
   const p = PLANS[plan];

@@ -3,13 +3,14 @@ import { useEffect, useMemo, useState } from 'react';
 import PageShell from '@/components/PageShell';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CreditCard, Copy, RefreshCw, Shield, ArrowUpCircle, TrendingUp, Landmark, Smartphone, MessageCircle } from 'lucide-react';
+import { CreditCard, Copy, RefreshCw, Shield, ArrowUpCircle, TrendingUp, Landmark, Smartphone, MessageCircle, Zap } from 'lucide-react';
 import { useLicense } from '@/hooks/useLicense';
 import { useAuth } from '@/context/AuthContext';
 import { PLANS, formatMT, addMonths, fetchPlans, buildPlanWhatsAppLink, applyMultiRestaurantDiscount, planTier, BASIC_PLANS, PRO_PLANS } from '@/lib/billing';
 import { getPaymentAccounts, hasAnyPaymentAccounts, fetchPaymentAccounts } from '@/lib/paymentAccounts';
 import { hasProfessionalSibling } from '@/lib/tenants';
 import { toast } from 'sonner';
+import AutoPaymentDialog from '@/components/AutoPaymentDialog';
 import type { BillingPlan } from '@/types/restaurant';
 
 export default function BillingPage() {
@@ -17,6 +18,7 @@ export default function BillingPage() {
   const { user } = useAuth();
   const [, forceRefresh] = useState(0);
   const [discountEligible, setDiscountEligible] = useState(false);
+  const [autoPaymentPlan, setAutoPaymentPlan] = useState<BillingPlan | null>(null);
   useEffect(() => {
     Promise.all([fetchPlans(), fetchPaymentAccounts()])
       .then(() => forceRefresh(v => v + 1))
@@ -67,6 +69,14 @@ export default function BillingPage() {
     const eligible = discountEligible && planTier(plan) === 'pro';
     window.open(buildPlanWhatsAppLink(plan, tenant.name, whatsapp, eligible), '_blank');
   };
+
+  const openAutoPayment = (plan: BillingPlan) => {
+    if (!user?.email) { toast.error('A sua conta não tem um email associado — contacte o administrador.'); return; }
+    setAutoPaymentPlan(plan);
+  };
+
+  const autoPaymentDiscounted = autoPaymentPlan ? discountEligible && planTier(autoPaymentPlan) === 'pro' : false;
+  const autoPaymentAmount = autoPaymentPlan ? applyMultiRestaurantDiscount(PLANS[autoPaymentPlan].price, autoPaymentDiscounted) : 0;
 
   const baseDate =
     sub.expiresAt && new Date(sub.expiresAt) > new Date() && sub.status === 'active'
@@ -187,14 +197,24 @@ export default function BillingPage() {
                     <p className="text-[11px] text-muted-foreground mt-2">
                       Nova expiração: <strong className="text-foreground">{newExpiry.toLocaleDateString('pt-MZ')}</strong>
                     </p>
-                    <Button
-                      size="sm"
-                      className="w-full mt-3 gap-1.5"
-                      variant={isCurrent ? 'outline' : 'default'}
-                      onClick={() => handleSwitch(key)}
-                    >
-                      <MessageCircle className="w-3.5 h-3.5" /> {isCurrent ? 'Renovar' : 'Mudar para este'}
-                    </Button>
+                    <div className="mt-3 space-y-1.5">
+                      <Button
+                        size="sm"
+                        className="w-full gap-1.5"
+                        variant={isCurrent ? 'outline' : 'default'}
+                        onClick={() => openAutoPayment(key)}
+                      >
+                        <Zap className="w-3.5 h-3.5" /> {isCurrent ? 'Renovar automaticamente' : 'Mudar (automático)'}
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="w-full gap-1.5"
+                        variant="ghost"
+                        onClick={() => handleSwitch(key)}
+                      >
+                        <MessageCircle className="w-3.5 h-3.5" /> {isCurrent ? 'Renovar por WhatsApp' : 'Pedir por WhatsApp'}
+                      </Button>
+                    </div>
                   </div>
                 );
               })}
@@ -224,6 +244,18 @@ export default function BillingPage() {
           </div>
         )}
       </div>
+
+      {autoPaymentPlan && (
+        <AutoPaymentDialog
+          open
+          onOpenChange={open => { if (!open) setAutoPaymentPlan(null); }}
+          tenantId={tenant.id}
+          plan={autoPaymentPlan}
+          amount={autoPaymentAmount}
+          discounted={autoPaymentDiscounted}
+          contactEmail={user?.email ?? ''}
+        />
+      )}
     </PageShell>
   );
 }

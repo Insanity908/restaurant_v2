@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import PageShell from '@/components/PageShell';
 import { Button } from '@/components/ui/button';
-import { Check, ArrowLeft, MessageCircle } from 'lucide-react';
+import { Check, ArrowLeft, MessageCircle, Zap } from 'lucide-react';
 import { PLANS, formatMT, fetchPlans, buildPlanWhatsAppLink, applyMultiRestaurantDiscount, planTier, BASIC_PLANS, PRO_PLANS } from '@/lib/billing';
 import { getPaymentAccounts, fetchPaymentAccounts } from '@/lib/paymentAccounts';
 import { hasProfessionalSibling } from '@/lib/tenants';
 import { useLicense } from '@/hooks/useLicense';
 import { useAuth } from '@/context/AuthContext';
 import { toast } from 'sonner';
+import AutoPaymentDialog from '@/components/AutoPaymentDialog';
 import type { BillingPlan } from '@/types/restaurant';
 
 export default function PricingPage() {
@@ -16,6 +17,7 @@ export default function PricingPage() {
   const { user } = useAuth();
   const [, forceRefresh] = useState(0);
   const [discountEligible, setDiscountEligible] = useState(false);
+  const [autoPaymentPlan, setAutoPaymentPlan] = useState<BillingPlan | null>(null);
   useEffect(() => {
     Promise.all([fetchPlans(), fetchPaymentAccounts()])
       .then(() => forceRefresh(v => v + 1))
@@ -42,6 +44,15 @@ export default function PricingPage() {
     const eligible = discountEligible && planTier(plan) === 'pro';
     window.open(buildPlanWhatsAppLink(plan, tenant.name, whatsapp, eligible), '_blank');
   };
+
+  const openAutoPayment = (plan: BillingPlan) => {
+    if (!tenant) { toast.error('Sessão expirada. Faça login novamente.'); return; }
+    if (!user?.email) { toast.error('A sua conta não tem um email associado — contacte o administrador.'); return; }
+    setAutoPaymentPlan(plan);
+  };
+
+  const autoPaymentDiscounted = autoPaymentPlan ? discountEligible && planTier(autoPaymentPlan) === 'pro' : false;
+  const autoPaymentAmount = autoPaymentPlan ? applyMultiRestaurantDiscount(PLANS[autoPaymentPlan].price, autoPaymentDiscounted) : 0;
 
   const tiers: { key: 'basic' | 'pro'; label: string; plans: BillingPlan[] }[] = [
     { key: 'basic', label: 'Básico', plans: BASIC_PLANS },
@@ -106,9 +117,14 @@ export default function PricingPage() {
                       <li key={f} className="flex gap-2"><Check className="w-4 h-4 text-success shrink-0" /> {f}</li>
                     ))}
                   </ul>
-                  <Button className="w-full mt-6 gap-2" onClick={() => subscribe(planKey)}>
-                    <MessageCircle className="w-4 h-4" /> Subscrever
-                  </Button>
+                  <div className="mt-6 space-y-2">
+                    <Button className="w-full gap-2" variant="outline" onClick={() => openAutoPayment(planKey)}>
+                      <Zap className="w-4 h-4" /> Pagamento automático
+                    </Button>
+                    <Button className="w-full gap-2" variant="ghost" onClick={() => subscribe(planKey)}>
+                      <MessageCircle className="w-4 h-4" /> Pedir por WhatsApp
+                    </Button>
+                  </div>
                 </div>
               );
             })}
@@ -117,9 +133,21 @@ export default function PricingPage() {
       ))}
 
       <p className="text-center text-xs text-muted-foreground mt-2 max-w-xl mx-auto">
-        Pagamento manual — ao subscrever, abrimos uma conversa de WhatsApp para pedir a activação do plano escolhido.
-        Em caso de dificuldades, contacte o administrador.
+        "Pagamento automático" activa o plano assim que confirmarmos o pagamento, sem intervenção manual.
+        "Pedir por WhatsApp" abre uma conversa a pedir a activação à mão. Em caso de dificuldades, contacte o administrador.
       </p>
+
+      {tenant && autoPaymentPlan && (
+        <AutoPaymentDialog
+          open
+          onOpenChange={open => { if (!open) setAutoPaymentPlan(null); }}
+          tenantId={tenant.id}
+          plan={autoPaymentPlan}
+          amount={autoPaymentAmount}
+          discounted={autoPaymentDiscounted}
+          contactEmail={user?.email ?? ''}
+        />
+      )}
     </PageShell>
   );
 }
