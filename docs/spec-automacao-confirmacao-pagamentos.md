@@ -455,7 +455,17 @@ já conhecido"; o ponto de entrada da Secção 5 é sempre o de
   tentativas de introdução, tal como já faz no login — ver
   [[security_review_state]]/rate limiting).
 - **Falha silenciosa** — mitigada pelo registo obrigatório de toda a
-  tentativa de correspondência, mesmo quando falha (4.5).
+  tentativa de correspondência, mesmo quando falha (4.5). Isto só cobre
+  SMS que **chegam** à Edge Function; se a app de reencaminhamento parar
+  de as entregar (foi o que aconteceu no incidente de 27-28/08/2026 —
+  configuração errada no telemóvel), nem `checkout_match_failures` recebe
+  nada. Mitigado desde 28/08/2026 por um heartbeat
+  (`system_payment_accounts.last_sms_seen_at`, actualizado em todo o
+  pedido que passe a autenticação) verificado a cada 3h pela função
+  `check-payment-webhook-silence` — avisa o superadmin por push se
+  passarem `SILENCE_THRESHOLD_HOURS` (6h) sem nenhum pedido autenticado
+  **e** houver sessões de checkout criadas nesse período (evita alarme
+  falso em dias sem procura).
 - **QR desactualizado face a um preço editado** (Secção 2.1) — não é
   mitigado automaticamente, é um limite conhecido do QR fixo; mitigado
   por processo (avisar Carlos ao editar preços em `SuperAdminPage`) em

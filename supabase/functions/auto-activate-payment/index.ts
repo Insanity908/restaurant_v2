@@ -187,6 +187,15 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const admin = createClient(supabaseUrl, serviceKey);
 
+    // Heartbeat para check-payment-webhook-silence (migração
+    // 20260828010000): qualquer pedido que passe a autenticação conta,
+    // seja qual for o resultado do parsing/correspondência a seguir —
+    // isto mede "o webhook está a ser chamado", não "os pagamentos estão
+    // a bater certo" (isso é D5/checkout_match_failures). Melhor esforço,
+    // nunca bloqueia nem falha o resto do pedido.
+    admin.from('system_payment_accounts').update({ last_sms_seen_at: new Date().toISOString() }).eq('id', 1)
+      .then(({ error }) => { if (error) console.error('heartbeat update failed', error); });
+
     const text = await extractSmsText(req);
     if (!text) return json({ error: 'Empty body' }, 400);
 
