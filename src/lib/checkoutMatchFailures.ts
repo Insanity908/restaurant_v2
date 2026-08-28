@@ -2,10 +2,10 @@
  * Registo de tentativas de correspondência SMS → sessão de checkout que
  * falharam (Secção 4.5/D5 de docs/spec-automacao-confirmacao-pagamentos.md),
  * escrito só pela Edge Function `auto-activate-payment` (service role) —
- * aqui só se lê, para revisão manual em SuperAdminPage. Sem acção de
- * "resolver"/"dispensar": a tabela é só um registo (`grant select` para
- * `authenticated`, sem `update`/`delete`), o superadmin decide fora da app
- * (ex. activar o plano à mão via "Ativar plano" já existente).
+ * aqui se lê e (desde 28/08/2026) se apaga, para revisão manual em
+ * SuperAdminPage. O superadmin decide a acção fora da app (ex. activar o
+ * plano à mão via "Ativar plano" já existente) e depois apaga a entrada já
+ * revista.
  */
 import { supabase } from '@/integrations/supabase/client';
 
@@ -46,4 +46,11 @@ export async function fetchCheckoutMatchFailures(limit = 50): Promise<CheckoutMa
     .limit(limit);
   if (error) { console.warn('fetchCheckoutMatchFailures failed', error.message); return []; }
   return (data as unknown as Row[]).map(mapRow);
+}
+
+/** Super Admin apaga um registo já revisto. */
+export async function deleteCheckoutMatchFailure(id: string): Promise<boolean> {
+  const { error } = await supabase.from('checkout_match_failures').delete().eq('id', id);
+  if (error) { console.warn('deleteCheckoutMatchFailure failed', error.message); return false; }
+  return true;
 }

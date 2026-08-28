@@ -70,3 +70,10 @@ export async function markFeedbackStatus(id: string, status: 'unread' | 'read'):
   if (error) { console.warn('markFeedbackStatus failed', error.message); return false; }
   return true;
 }
+
+/** Super Admin deletes a submission já revista. */
+export async function deleteFeedback(id: string): Promise<boolean> {
+  const { error } = await supabase.from('feedback_submissions').delete().eq('id', id);
+  if (error) { console.warn('deleteFeedback failed', error.message); return false; }
+  return true;
+}

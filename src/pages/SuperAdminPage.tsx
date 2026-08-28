@@ -19,8 +19,8 @@ import { PLANS, formatMT, fetchPlans, savePlans, BASIC_PLANS, PRO_PLANS, type Pl
 import { Textarea } from '@/components/ui/textarea';
 import { getPaymentAccounts, savePaymentAccounts, fetchPaymentAccounts, type PaymentAccounts } from '@/lib/paymentAccounts';
 import { fetchPendingSubmissions, markSubmissionStatus, type PaymentSubmission } from '@/lib/paymentSubmissions';
-import { fetchFeedback, markFeedbackStatus, type FeedbackSubmission } from '@/lib/feedback';
-import { fetchCheckoutMatchFailures, type CheckoutMatchFailure } from '@/lib/checkoutMatchFailures';
+import { fetchFeedback, markFeedbackStatus, deleteFeedback, type FeedbackSubmission } from '@/lib/feedback';
+import { fetchCheckoutMatchFailures, deleteCheckoutMatchFailure, type CheckoutMatchFailure } from '@/lib/checkoutMatchFailures';
 import { fetchPresetImages, uploadPresetImage, deletePresetImage, type PresetImage } from '@/lib/presetImages';
 import { PRESET_IMAGES_BUCKET, fetchStorageUsage, type StorageUsage } from '@/lib/storage';
 import StorageImage from '@/components/StorageImage';
@@ -89,6 +89,32 @@ export default function SuperAdminPage() {
     const ok = await markFeedbackStatus(f.id, next);
     if (!ok) { toast.error('Não foi possível actualizar'); return; }
     void refreshFeedback();
+  };
+
+  const handleDeleteFeedback = (f: FeedbackSubmission) => {
+    setConfirmAction({
+      title: 'Apagar feedback?',
+      description: `De ${f.name} (${f.tenantName ?? 'restaurante removido'}) — não pode ser desfeito.`,
+      confirmLabel: 'Apagar',
+      onConfirm: async () => {
+        const ok = await deleteFeedback(f.id);
+        if (!ok) { toast.error('Não foi possível apagar'); return; }
+        void refreshFeedback();
+      },
+    });
+  };
+
+  const handleDeleteMatchFailure = (f: CheckoutMatchFailure) => {
+    setConfirmAction({
+      title: 'Apagar registo?',
+      description: 'Esta SMS de pagamento não correspondida deixa de aparecer para revisão — não pode ser desfeito.',
+      confirmLabel: 'Apagar',
+      onConfirm: async () => {
+        const ok = await deleteCheckoutMatchFailure(f.id);
+        if (!ok) { toast.error('Não foi possível apagar'); return; }
+        void refreshMatchFailures();
+      },
+    });
   };
 
   const [presetImages, setPresetImages] = useState<PresetImage[]>([]);
@@ -496,6 +522,9 @@ export default function SuperAdminPage() {
                         {matchFailureReasonLabel(f.reason)}
                       </Badge>
                       <span className="text-xs text-muted-foreground">{new Date(f.createdAt).toLocaleString('pt-MZ')}</span>
+                      <Button size="icon" variant="ghost" className="h-6 w-6 ml-auto" aria-label="Apagar" onClick={() => handleDeleteMatchFailure(f)}>
+                        <Trash2 className="w-3.5 h-3.5 text-destructive" />
+                      </Button>
                     </div>
                     {f.extracted && (
                       <p className="text-xs text-muted-foreground mt-1.5">
@@ -553,9 +582,14 @@ export default function SuperAdminPage() {
                       <p className="text-sm mt-1 whitespace-pre-wrap">{f.message}</p>
                       <p className="text-xs text-muted-foreground mt-1">{new Date(f.createdAt).toLocaleString('pt-MZ')}</p>
                     </div>
-                    <Button size="icon" variant="ghost" aria-label={f.status === 'unread' ? 'Marcar como lido' : 'Marcar como não lido'} onClick={() => toggleFeedbackStatus(f)}>
-                      {f.status === 'unread' ? <Mail className="w-4 h-4" /> : <MailOpen className="w-4 h-4 text-muted-foreground" />}
-                    </Button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <Button size="icon" variant="ghost" aria-label={f.status === 'unread' ? 'Marcar como lido' : 'Marcar como não lido'} onClick={() => toggleFeedbackStatus(f)}>
+                        {f.status === 'unread' ? <Mail className="w-4 h-4" /> : <MailOpen className="w-4 h-4 text-muted-foreground" />}
+                      </Button>
+                      <Button size="icon" variant="ghost" aria-label="Apagar" onClick={() => handleDeleteFeedback(f)}>
+                        <Trash2 className="w-4 h-4 text-destructive" />
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </div>
