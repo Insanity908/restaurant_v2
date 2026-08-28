@@ -16,31 +16,73 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 
-// Secção 2.1: 8 planos a preço cheio + 4 variantes com desconto (só
-// Profissional). Estes são os códigos EXACTOS que o superadmin usa como
-// "Conteudo" ao gerar cada um dos 12 QR na app do e-Mola (D1) — mudar aqui
-// sem avisá-lo primeiro parte a correspondência em produção.
-const PLAN_CODE_TO_PLAN: Record<string, string> = {
-  'PRO-MENSAL': 'monthly',
-  'PRO-MENSAL-DESC': 'monthly',
-  'PRO-TRIMESTRAL': 'quarterly',
-  'PRO-TRIMESTRAL-DESC': 'quarterly',
-  'PRO-SEMESTRAL': 'semiannual',
-  'PRO-SEMESTRAL-DESC': 'semiannual',
-  'PRO-ANUAL': 'annual',
-  'PRO-ANUAL-DESC': 'annual',
-  'BASICO-MENSAL': 'basic-monthly',
-  'BASICO-TRIMESTRAL': 'basic-quarterly',
-  'BASICO-SEMESTRAL': 'basic-semiannual',
-  'BASICO-ANUAL': 'basic-annual',
-};
-
-// Formato real observado (Secção 0):
+// Formato real observado (Secção 0), e-Mola:
 //   "ID Trans: PP260821.2115.C86954. Recebeu 40.00MT de 878241021, sandra
 //   maria menzissane hibrantes as 21:15:58 21/08/2026. Conteudo:
 //   Profissional. O seu novo saldo e de 47.00MT."
-const SMS_RE =
+const SMS_RE_EMOLA =
   /ID\s*Trans:\s*(?<transactionId>.+?)\.\s*Recebeu\s*(?<amount>[\d.,]+)\s*MT\s*de\s*(?<payerPhone>\d+),\s*(?<payerName>.+?)\s*as\s*(?<time>\d{2}:\d{2}:\d{2})\s*(?<date>\d{2}\/\d{2}\/\d{4})\.\s*Conteudo:\s*(?<planCode>.+?)\.\s*O seu novo saldo/i;
+
+// Formato real observado, M-Pesa (sem "Conteudo" — o M-Pesa não tem campo de
+// referência livre, por isso o plano tem de ser identificado só pelo valor,
+// via resolvePlanByAmount abaixo). Cobre tanto a transferência normal
+// (mesma operadora) como a cross-operadora (o texto a seguir à hora muda —
+// por isso a âncora final foi removida, só o essencial antes disso importa):
+//   Mesma operadora: "Confirmado DHO8LBL6G94. Recebeste 10.00MT de
+//   258844134159 - ALBERTINA aos 24/8/26 as 7:06 PM. O teu novo saldo
+//   M-Pesa e de 16.94MT. ..."
+//   Cross-operadora: "Confirmado DHP2LBZWGQG. Recebeste  300.00MT de
+//   913770 - SIMO aos 25/8/26  as 6:13 PM o novo saldo  M-Pesa e de
+//   301.94MT. ..." — note o "de 913770": não é um telefone real (só 6
+//   dígitos, não 9) — é um código mascarado da operadora de origem, nunca
+//   vai bater com um contact_phone real. resolvePayerPhone abaixo trata
+//   isto: só usa o telefone extraído se tiver exactamente 9 dígitos depois
+//   de normalizado, senão passa '' (Secção 4.3, critério de telefone
+//   ignorado quando desconhecido — migração 20260827190000).
+const SMS_RE_MPESA =
+  /Confirmado\s+(?<transactionId>\S+?)\.\s*Recebeste\s*(?<amount>[\d.,]+)\s*MT\s*de\s*(?<payerPhone>\d+)\s*-\s*(?<payerName>.+?)\s*aos\s*(?<date>\d{1,2}\/\d{1,2}\/\d{2,4})\s*as\s*(?<time>\d{1,2}:\d{2}\s*[AP]M)/i;
+
+// Formato real observado, e-Mola a receber de outra operadora (cross-
+// operadora do lado do e-Mola — molde completamente diferente do "ID
+// Trans:" normal, sem telefone nenhum e sem "Conteudo"; plano identificado
+// só pelo valor, como o M-Pesa):
+//   "ID da transacao: CI260827.1923.v63079. Acabou de receber dinheiro da
+//   mPesa SIMO as 19:23 27/08/2026, montante: 5.00 MT, Novo saldo: 172.00
+//   MT. Obrigado!"
+const SMS_RE_EMOLA_CROSS =
+  /ID\s*da\s*transacao:\s*(?<transactionId>\S+?)\.\s*Acabou\s*de\s*receber\s*dinheiro\s*da\s*mPesa\s*(?<payerName>.+?)\s*as\s*(?<time>\d{2}:\d{2})\s*(?<date>\d{2}\/\d{2}\/\d{4}),\s*montante:\s*(?<amount>[\d.,]+)\s*MT/i;
+
+// Normaliza para os últimos 9 dígitos (formato local moçambicano, sem
+// "258"/"+258") — mesma lógica duplicada em normalizePhone de
+// src/lib/checkoutSessions.ts (esta Edge Function não importa de src/).
+function normalizePhone(raw: string): string {
+  const digits = raw.replace(/\D/g, '');
+  return digits.length > 9 ? digits.slice(-9) : digits;
+}
+
+// Secção 4.3 (M-Pesa): sem "Conteudo", o plano é identificado só pelo
+// valor — reverse lookup contra os preços actuais de billing_plans (8
+// preço-cheio + 4 variantes com desconto, só Profissional — os mesmos 12
+// valores mostrados nos QR/Secção 2.1, `applyMultiRestaurantDiscount` de
+// src/lib/billing.ts espelhado aqui). Se o valor coincidir com mais do que
+// um plano (preços editados de forma a colidirem), devolve mais do que um
+// id — o chamador trata isso como 'ambiguous_amount', nunca activa às
+// cegas (4.5).
+async function resolvePlanByAmount(admin: ReturnType<typeof createClient>, amount: number): Promise<string[]> {
+  const { data } = await admin.from('billing_plans').select('id, price');
+  const rows = (data ?? []) as { id: string; price: number | string }[];
+  const target = Math.round(amount * 100);
+  const matches = new Set<string>();
+  for (const row of rows) {
+    const price = Number(row.price);
+    if (Math.round(price * 100) === target) matches.add(row.id);
+    if (!row.id.startsWith('basic-')) {
+      const discounted = Math.round(price * 0.8);
+      if (Math.round(discounted * 100) === target) matches.add(row.id);
+    }
+  }
+  return [...matches];
+}
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -68,7 +110,7 @@ async function extractSmsText(req: Request): Promise<string | null> {
 
 async function logFailure(
   admin: ReturnType<typeof createClient>,
-  reason: 'unparseable' | 'unknown_plan' | 'no_match',
+  reason: 'unparseable' | 'unknown_plan' | 'no_match' | 'ambiguous_amount',
   rawText: string,
   extracted: Record<string, unknown> | null,
 ) {
@@ -148,29 +190,66 @@ Deno.serve(async (req) => {
     const text = await extractSmsText(req);
     if (!text) return json({ error: 'Empty body' }, 400);
 
-    const match = SMS_RE.exec(text);
-    if (!match?.groups) {
+    const emolaMatch = SMS_RE_EMOLA.exec(text);
+    const mpesaMatch = emolaMatch ? null : SMS_RE_MPESA.exec(text);
+    const emolaCrossMatch = emolaMatch || mpesaMatch ? null : SMS_RE_EMOLA_CROSS.exec(text);
+    if (!emolaMatch?.groups && !mpesaMatch?.groups && !emolaCrossMatch?.groups) {
       await logFailure(admin, 'unparseable', text, null);
-      await notifySuperadminFailure(admin, supabaseUrl, serviceKey, 'SMS recebida não corresponde ao formato esperado — ver registo para rever à mão.');
+      await notifySuperadminFailure(admin, supabaseUrl, serviceKey, 'SMS recebida não corresponde a nenhum formato conhecido (e-Mola, M-Pesa, ou cross-operadora) — ver registo para rever à mão.');
       return json({ matched: false, reason: 'unparseable' });
     }
 
-    const { transactionId, payerPhone } = match.groups;
-    const planCode = match.groups.planCode.trim().toUpperCase();
-    const amount = parseFloat(match.groups.amount.replace(',', '.'));
-    const plan = PLAN_CODE_TO_PLAN[planCode];
-    const extracted = { transactionId: transactionId.trim(), amount, planCode, payerPhone };
+    // O plano é sempre identificado só pelo valor (resolvePlanByAmount),
+    // nunca pelo "Conteudo" — deixou de ser preciso mostrar/pedir isso ao
+    // cliente (removido do AutoPaymentDialog), já que cada um dos 12
+    // preços (8 + 4 variantes com desconto) já é único por construção
+    // (Secção 2.1); 'planCode' continua a ser extraído do e-Mola normal só
+    // para auditoria (a SMS real continua a trazê-lo, vem do QR pré-
+    // gerado — Secção 1), nunca usado para decidir o plano.
+    //
+    // Nenhum dos três formatos tem garantidamente um telefone utilizável:
+    // 'mpesa' e 'emola_cross' cross-operadora só trazem um código mascarado
+    // (ex. 6 dígitos) ou nada — só um valor com exactamente 9 dígitos
+    // depois de normalizado é tratado como telefone real (Secção 4.3);
+    // qualquer outra coisa passa '' para o critério de telefone ser
+    // ignorado na correspondência (migração 20260827190000).
+    const provider = emolaMatch?.groups ? 'emola' : mpesaMatch?.groups ? 'mpesa' : 'emola_cross';
+    const groups = (emolaMatch?.groups ?? mpesaMatch?.groups ?? emolaCrossMatch!.groups)!;
+    const transactionId = groups.transactionId.trim();
+    const payerPhoneRaw = groups.payerPhone ?? '';
+    const amount = parseFloat(groups.amount.replace(',', '.'));
+    const normalizedRaw = normalizePhone(payerPhoneRaw);
+    const normalizedPayerPhone = normalizedRaw.length === 9 ? normalizedRaw : '';
+    const planCode = provider === 'emola' ? groups.planCode.trim().toUpperCase() : undefined;
 
-    if (!plan || !Number.isFinite(amount)) {
-      await logFailure(admin, 'unknown_plan', text, extracted);
-      await notifySuperadminFailure(admin, supabaseUrl, serviceKey, `Plano não reconhecido no conteúdo da SMS: "${planCode}".`);
+    const baseExtracted = { transactionId, amount, payerPhoneRaw, normalizedPayerPhone, provider, planCode };
+
+    if (!Number.isFinite(amount)) {
+      await logFailure(admin, 'unknown_plan', text, baseExtracted);
+      await notifySuperadminFailure(admin, supabaseUrl, serviceKey, `Valor inválido extraído da SMS (${provider}).`);
       return json({ matched: false, reason: 'unknown_plan' });
     }
+
+    const candidatePlans = await resolvePlanByAmount(admin, amount);
+    if (candidatePlans.length !== 1) {
+      await logFailure(admin, candidatePlans.length === 0 ? 'unknown_plan' : 'ambiguous_amount', text, { ...baseExtracted, candidatePlans });
+      await notifySuperadminFailure(
+        admin, supabaseUrl, serviceKey,
+        candidatePlans.length === 0
+          ? `${provider}: valor ${amount} MT não corresponde a nenhum plano actual.`
+          : `${provider}: valor ${amount} MT corresponde a mais do que um plano (${candidatePlans.join(', ')}) — preços colidem, corrigir em SuperAdminPage.`,
+      );
+      return json({ matched: false, reason: candidatePlans.length === 0 ? 'unknown_plan' : 'ambiguous_amount' });
+    }
+    const plan = candidatePlans[0];
+
+    const extracted = { ...baseExtracted, plan };
 
     const { data: rows, error } = await admin.rpc('match_and_activate_checkout_session', {
       p_plan: plan,
       p_amount: amount,
-      p_transaction_id: transactionId.trim(),
+      p_transaction_id: transactionId,
+      p_payer_phone: normalizedPayerPhone,
     });
     if (error) {
       console.error('match_and_activate_checkout_session error', error);
@@ -184,7 +263,7 @@ Deno.serve(async (req) => {
       await logFailure(admin, 'no_match', text, extracted);
       await notifySuperadminFailure(
         admin, supabaseUrl, serviceKey,
-        `Sem sessão pendente única para ${planCode} (${amount} MT) — pode ser 0 ou mais do que 1 candidata.`,
+        `Sem sessão pendente única para ${plan} (${amount} MT, de ${normalizedPayerPhone}) — pode ser 0 ou mais do que 1 candidata (plano+valor+telefone).`,
       );
       return json({ matched: false, reason: 'no_match' });
     }

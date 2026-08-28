@@ -14,6 +14,7 @@ export interface CheckoutSession {
   plan: BillingPlan;
   amount: number;
   contactEmail: string;
+  contactPhone: string;
   status: 'pending' | 'paid';
   accessCode: string | null;
   transactionId: string | null;
@@ -28,6 +29,7 @@ interface CheckoutSessionRow {
   plan: BillingPlan;
   amount: number | string;
   contact_email: string;
+  contact_phone: string;
   status: 'pending' | 'paid';
   access_code: string | null;
   transaction_id: string | null;
@@ -43,6 +45,7 @@ function fromRow(row: CheckoutSessionRow): CheckoutSession {
     plan: row.plan,
     amount: Number(row.amount),
     contactEmail: row.contact_email,
+    contactPhone: row.contact_phone,
     status: row.status,
     accessCode: row.access_code,
     transactionId: row.transaction_id,
@@ -50,6 +53,37 @@ function fromRow(row: CheckoutSessionRow): CheckoutSession {
     expiresAt: row.expires_at,
     paidAt: row.paid_at,
   };
+}
+
+/**
+ * Normaliza para os últimos 9 dígitos (formato local moçambicano, sem
+ * "258"/"+258") — mesma lógica duplicada em supabase/functions/
+ * auto-activate-payment/index.ts (Edge Function não importa de src/).
+ * Usado para gravar `contact_phone` no mesmo formato em que o `payerPhone`
+ * chega extraído da SMS (Secção 4.3), para a comparação ser uma igualdade
+ * exacta de strings.
+ */
+export function normalizePhone(raw: string): string {
+  const digits = raw.replace(/\D/g, '');
+  return digits.length > 9 ? digits.slice(-9) : digits;
+}
+
+/** Prefixos reais das operadoras moçambicanas — Vodacom (M-Pesa) 84/85, Movitel (e-Mola) 86/87. */
+export const OPERATOR_PHONE_PREFIXES = {
+  mpesa: ['84', '85'],
+  emola: ['86', '87'],
+} as const;
+
+/**
+ * Confirma que o número indicado é mesmo da operadora escolhida — evita
+ * que o cliente escolha "M-Pesa" mas digite um número Movitel (ou
+ * vice-versa), o que faria a correspondência automática nunca encontrar o
+ * telefone certo na SMS (Secção 4.3, 3º critério).
+ */
+export function phoneMatchesOperator(phone: string, operator: keyof typeof OPERATOR_PHONE_PREFIXES): boolean {
+  const normalized = normalizePhone(phone);
+  if (normalized.length !== 9) return false;
+  return OPERATOR_PHONE_PREFIXES[operator].some(prefix => normalized.startsWith(prefix));
 }
 
 /**
@@ -64,7 +98,16 @@ export async function getOrCreateCheckoutSession(
   plan: BillingPlan,
   amount: number,
   contactEmail: string,
+  contactPhone: string,
 ): Promise<CheckoutSession> {
+  const phone = normalizePhone(contactPhone);
+  if (phone.length !== 9) throw new Error('Número de telefone inválido.');
+
+  // Reaproveita por tenant+plano+valor só (não por telefone também) — RLS
+  // impede `authenticated` de fazer UPDATE em checkout_sessions (só a Edge
+  // Function, com service role, escreve depois da SMS validada), por isso
+  // uma sessão reaproveitada mantém o telefone gravado na primeira vez, não
+  // o que for passado aqui numa segunda chamada.
   const { data: existing, error: findErr } = await supabase
     .from('checkout_sessions')
     .select('*')
@@ -81,7 +124,7 @@ export async function getOrCreateCheckoutSession(
 
   const { data, error } = await supabase
     .from('checkout_sessions')
-    .insert({ tenant_id: tenantId, plan, amount, contact_email: contactEmail })
+    .insert({ tenant_id: tenantId, plan, amount, contact_email: contactEmail, contact_phone: phone })
     .select('*')
     .single();
   if (error) throw error;

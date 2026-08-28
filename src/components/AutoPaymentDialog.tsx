@@ -3,11 +3,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Copy, KeyRound, Loader2, RotateCw, Smartphone } from 'lucide-react';
+import { Copy, KeyRound, Loader2, RotateCw, Smartphone, Clock } from 'lucide-react';
 import { toast } from 'sonner';
-import { PLANS, formatMT, planCode } from '@/lib/billing';
+import { PLANS, formatMT } from '@/lib/billing';
 import { getPaymentAccounts } from '@/lib/paymentAccounts';
-import { getOrCreateCheckoutSession, redeemAccessCode, resendAccessCode } from '@/lib/checkoutSessions';
+import { getOrCreateCheckoutSession, normalizePhone, phoneMatchesOperator, redeemAccessCode, resendAccessCode } from '@/lib/checkoutSessions';
 import { useLicense } from '@/hooks/useLicense';
 import type { BillingPlan } from '@/types/restaurant';
 
@@ -17,8 +17,9 @@ interface AutoPaymentDialogProps {
   tenantId: string;
   plan: BillingPlan;
   amount: number;
-  discounted: boolean;
   contactEmail: string;
+  /** Pré-preenchido a partir do perfil, se existir — sempre editável/confirmado pelo cliente antes de criar a sessão (Secção 4.3: usado como 3º critério de correspondência automática). */
+  contactPhone?: string;
 }
 
 /**
@@ -30,8 +31,13 @@ interface AutoPaymentDialogProps {
  * confirma/dá entrada, por isso um `refresh()` chega para reflectir o
  * estado (Realtime já devia ter actualizado sozinho, isto só garante).
  */
-export default function AutoPaymentDialog({ open, onOpenChange, tenantId, plan, amount, discounted, contactEmail }: AutoPaymentDialogProps) {
+type Operator = 'emola' | 'mpesa';
+
+export default function AutoPaymentDialog({ open, onOpenChange, tenantId, plan, amount, contactEmail, contactPhone }: AutoPaymentDialogProps) {
   const { refresh } = useLicense();
+  const [operator, setOperator] = useState<Operator>('emola');
+  const [phone, setPhone] = useState(contactPhone ?? '');
+  const [phoneConfirmed, setPhoneConfirmed] = useState(false);
   const [creating, setCreating] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [code, setCode] = useState('');
@@ -45,12 +51,17 @@ export default function AutoPaymentDialog({ open, onOpenChange, tenantId, plan, 
   const requestedKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!open) { setSessionId(null); setCode(''); requestedKeyRef.current = null; return; }
+    if (!open) {
+      setSessionId(null); setCode(''); setPhoneConfirmed(false); setPhone(contactPhone ?? ''); setOperator('emola');
+      requestedKeyRef.current = null;
+      return;
+    }
+    if (!phoneConfirmed) return;
     const key = `${tenantId}:${plan}:${amount}`;
     if (requestedKeyRef.current === key) return;
     requestedKeyRef.current = key;
     setCreating(true);
-    getOrCreateCheckoutSession(tenantId, plan, amount, contactEmail)
+    getOrCreateCheckoutSession(tenantId, plan, amount, contactEmail, phone)
       .then(session => setSessionId(session.id))
       .catch(err => {
         requestedKeyRef.current = null;
@@ -60,10 +71,14 @@ export default function AutoPaymentDialog({ open, onOpenChange, tenantId, plan, 
       })
       .finally(() => setCreating(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, tenantId, plan, amount, contactEmail]);
+  }, [open, phoneConfirmed, tenantId, plan, amount, contactEmail]);
+
+  const phoneValid = normalizePhone(phone).length === 9;
+  const phoneMatchesChosenOperator = phone.trim() === '' || phoneMatchesOperator(phone, operator);
 
   const accounts = getPaymentAccounts();
-  const code_ = planCode(plan, discounted);
+  const operatorNumber = operator === 'emola' ? accounts.emolaNumber : accounts.mpesaNumber;
+  const operatorLabel = operator === 'emola' ? 'e-Mola' : 'M-Pesa';
 
   const copy = async (text: string, label: string) => {
     await navigator.clipboard.writeText(text);
@@ -102,40 +117,71 @@ export default function AutoPaymentDialog({ open, onOpenChange, tenantId, plan, 
           <DialogTitle>Pagamento automático — {PLANS[plan].label}</DialogTitle>
         </DialogHeader>
 
-        {creating || !sessionId ? (
+        {!phoneConfirmed ? (
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <Label>Vai pagar por</Label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button type="button" variant={operator === 'emola' ? 'default' : 'outline'} onClick={() => setOperator('emola')}>
+                  e-Mola
+                </Button>
+                <Button type="button" variant={operator === 'mpesa' ? 'default' : 'outline'} onClick={() => setOperator('mpesa')}>
+                  M-Pesa
+                </Button>
+              </div>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              De que número vai pagar? Usamos isto para confirmar automaticamente que foi você quem fez o pagamento.
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="payer-phone">O seu número {operatorLabel}</Label>
+              <Input
+                id="payer-phone"
+                placeholder="Ex: 86 645 3202"
+                inputMode="tel"
+                value={phone}
+                onChange={e => setPhone(e.target.value)}
+                className="font-mono"
+              />
+              {phoneValid && !phoneMatchesChosenOperator && (
+                <p className="text-xs text-destructive">
+                  Este número não parece ser {operatorLabel} — confirma o número, ou muda a operadora acima.
+                </p>
+              )}
+            </div>
+            <Button className="w-full" disabled={!phoneValid || !phoneMatchesChosenOperator} onClick={() => setPhoneConfirmed(true)}>
+              Continuar
+            </Button>
+          </div>
+        ) : creating || !sessionId ? (
           <div className="flex items-center justify-center py-8 text-muted-foreground gap-2 text-sm">
             <Loader2 className="w-4 h-4 animate-spin" /> A preparar…
           </div>
         ) : (
           <div className="space-y-4">
+            <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+              <Clock className="w-3.5 h-3.5" /> A aguardar pagamento…
+            </div>
             <div className="rounded-lg bg-secondary/40 p-3 text-sm space-y-2">
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground text-xs">Valor a pagar</span>
                 <span className="font-heading font-bold">{formatMT(amount)}</span>
               </div>
-              {accounts.mobileMoney && (
+              {operatorNumber && (
                 <div className="flex justify-between items-center gap-2">
-                  <span className="text-muted-foreground text-xs flex items-center gap-1"><Smartphone className="w-3 h-3" />{accounts.mobileMoneyProvider || 'Nº de pagamento'}</span>
+                  <span className="text-muted-foreground text-xs flex items-center gap-1"><Smartphone className="w-3 h-3" />{operatorLabel}</span>
                   <div className="flex items-center gap-1.5">
-                    <span className="font-mono">{accounts.mobileMoney}</span>
-                    <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => copy(accounts.mobileMoney!, 'Número')}>
+                    <span className="font-mono">{operatorNumber}</span>
+                    <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => copy(operatorNumber, 'Número')}>
                       <Copy className="w-3 h-3" />
                     </Button>
                   </div>
                 </div>
               )}
-              <div className="flex justify-between items-center gap-2">
-                <span className="text-muted-foreground text-xs">Conteúdo / referência</span>
-                <div className="flex items-center gap-1.5">
-                  <span className="font-mono font-semibold">{code_}</span>
-                  <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => copy(code_, 'Código')}>
-                    <Copy className="w-3 h-3" />
-                  </Button>
-                </div>
-              </div>
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Pague o valor exacto acima usando o "Conteúdo"/referência indicado. Assim que confirmarmos o pagamento,
+              Pague o valor exacto acima — não precisa de colocar nenhuma referência/conteúdo.
+              Assim que confirmarmos o pagamento,
               enviamos um código de acesso para <strong className="text-foreground">{contactEmail}</strong> — introduza-o abaixo para confirmar.
             </p>
 

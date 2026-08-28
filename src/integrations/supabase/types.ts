@@ -180,6 +180,7 @@ export type Database = {
           access_code: string | null
           amount: number
           contact_email: string
+          contact_phone: string
           created_at: string
           expires_at: string
           id: string
@@ -193,6 +194,7 @@ export type Database = {
           access_code?: string | null
           amount: number
           contact_email: string
+          contact_phone?: string
           created_at?: string
           expires_at?: string
           id?: string
@@ -206,6 +208,7 @@ export type Database = {
           access_code?: string | null
           amount?: number
           contact_email?: string
+          contact_phone?: string
           created_at?: string
           expires_at?: string
           id?: string
@@ -1360,9 +1363,11 @@ export type Database = {
           bank_account: string | null
           bank_holder: string | null
           bank_name: string | null
+          emola_number: string | null
           id: number
           mobile_money: string | null
           mobile_money_provider: string | null
+          mpesa_number: string | null
           notes: string | null
           stripe_link_annual: string | null
           stripe_link_monthly: string | null
@@ -1376,9 +1381,11 @@ export type Database = {
           bank_account?: string | null
           bank_holder?: string | null
           bank_name?: string | null
+          emola_number?: string | null
           id?: number
           mobile_money?: string | null
           mobile_money_provider?: string | null
+          mpesa_number?: string | null
           notes?: string | null
           stripe_link_annual?: string | null
           stripe_link_monthly?: string | null
@@ -1392,9 +1399,11 @@ export type Database = {
           bank_account?: string | null
           bank_holder?: string | null
           bank_name?: string | null
+          emola_number?: string | null
           id?: number
           mobile_money?: string | null
           mobile_money_provider?: string | null
+          mpesa_number?: string | null
           notes?: string | null
           stripe_link_annual?: string | null
           stripe_link_monthly?: string | null
@@ -1534,6 +1543,7 @@ export type Database = {
       match_and_activate_checkout_session: {
         Args: {
           p_amount: number
+          p_payer_phone: string
           p_plan: Database["public"]["Enums"]["billing_plan"]
           p_transaction_id: string
         }

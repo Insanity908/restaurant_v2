@@ -4,27 +4,12 @@ import { Download } from 'lucide-react';
 import { useInstallPrompt } from '@/hooks/useInstallPrompt';
 import { useOptionalAuth } from '@/context/AuthContext';
 
-const DISMISS_KEY = 'pwa_install_dismissed_at';
-const SNOOZE_DAYS = 7;
-
-function snoozed(): boolean {
-  const raw = localStorage.getItem(DISMISS_KEY);
-  if (!raw) return false;
-  const dismissedAt = Number(raw);
-  if (!Number.isFinite(dismissedAt)) return false;
-  return Date.now() - dismissedAt < SNOOZE_DAYS * 24 * 60 * 60 * 1000;
-}
-
-function snooze() {
-  try { localStorage.setItem(DISMISS_KEY, String(Date.now())); } catch { /* quota */ }
-}
-
 /**
  * Notificação (toast) que aparece ao abrir a app convidando a instalar o
  * PWA — só quando o browser oferece o prompt nativo ou no iOS (que não
- * oferece, só instruções manuais), nunca se já estiver instalada, e no
- * máximo uma vez por SNOOZE_DAYS depois de dispensada, para não repetir em
- * cada abertura. Não renderiza nada — é só o efeito de disparar o toast.
+ * oferece, só instruções manuais), nunca se já estiver instalada. Aparece
+ * em toda entrada na app (sem "snooze" persistente) — pedido explícito do
+ * utilizador em 2026-08-27, veio a substituir o snooze de 7 dias anterior.
  */
 export default function InstallPrompt() {
   const auth = useOptionalAuth();
@@ -36,7 +21,6 @@ export default function InstallPrompt() {
     if (shown.current) return;
     if (!hasUser || isInstalled) return;
     if (!canPromptInstall && !isIOS) return;
-    if (snoozed()) return;
     shown.current = true;
 
     toast('Instale a app no seu telemóvel', {
@@ -49,8 +33,6 @@ export default function InstallPrompt() {
       action: canPromptInstall
         ? { label: 'Instalar', onClick: () => { void promptInstall(); } }
         : undefined,
-      onDismiss: snooze,
-      onAutoClose: snooze,
     });
   }, [hasUser, canPromptInstall, isIOS, isInstalled, promptInstall]);
 

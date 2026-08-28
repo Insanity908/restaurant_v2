@@ -15,6 +15,10 @@ export interface PaymentAccounts {
   notes?: string;
   /** Número de WhatsApp do superadmin — usado para pedir activação de planos. */
   superadminWhatsapp?: string;
+  /** Número receptor no e-Mola (Movitel) — mostrado no AutoPaymentDialog quando o cliente escolhe pagar por e-Mola. */
+  emolaNumber?: string;
+  /** Número receptor no M-Pesa (Vodacom) — mostrado no AutoPaymentDialog quando o cliente escolhe pagar por M-Pesa. */
+  mpesaNumber?: string;
   updatedAt?: string;
 }
 
@@ -43,6 +47,8 @@ export function savePaymentAccounts(p: PaymentAccounts): PaymentAccounts {
     mobile_money_provider: next.mobileMoneyProvider ?? null,
     mobile_money: next.mobileMoney ?? null,
     superadmin_whatsapp: next.superadminWhatsapp ?? null,
+    emola_number: next.emolaNumber ?? null,
+    mpesa_number: next.mpesaNumber ?? null,
   }, { onConflict: 'id' }).then(({ error }) => {
     if (error) console.warn('savePaymentAccounts upsert failed', error.message);
   });
@@ -55,7 +61,7 @@ export async function fetchPaymentAccounts(): Promise<PaymentAccounts> {
   try {
     const res = await supabase
       .from('system_payment_accounts')
-      .select('bank_name, bank_account, bank_holder, notes, mobile_money_provider, mobile_money, superadmin_whatsapp, updated_at')
+      .select('bank_name, bank_account, bank_holder, notes, mobile_money_provider, mobile_money, superadmin_whatsapp, emola_number, mpesa_number, updated_at')
       .eq('id', 1)
       .maybeSingle();
     if (res.error) { console.warn('fetchPaymentAccounts failed', res.error.message); return readCache(); }
@@ -73,6 +79,8 @@ export async function fetchPaymentAccounts(): Promise<PaymentAccounts> {
     mobileMoneyProvider: (data.mobile_money_provider as string) ?? undefined,
     mobileMoney: (data.mobile_money as string) ?? undefined,
     superadminWhatsapp: (data.superadmin_whatsapp as string) ?? undefined,
+    emolaNumber: (data.emola_number as string) ?? undefined,
+    mpesaNumber: (data.mpesa_number as string) ?? undefined,
     updatedAt: (data.updated_at as string) ?? undefined,
   };
   writeCache(merged);

@@ -252,8 +252,8 @@ export default function BillingPage() {
           tenantId={tenant.id}
           plan={autoPaymentPlan}
           amount={autoPaymentAmount}
-          discounted={autoPaymentDiscounted}
           contactEmail={user?.email ?? ''}
+          contactPhone={user?.phone ?? ''}
         />
       )}
     </PageShell>

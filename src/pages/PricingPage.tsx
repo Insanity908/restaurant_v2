@@ -144,8 +144,8 @@ export default function PricingPage() {
           tenantId={tenant.id}
           plan={autoPaymentPlan}
           amount={autoPaymentAmount}
-          discounted={autoPaymentDiscounted}
           contactEmail={user?.email ?? ''}
+          contactPhone={user?.phone ?? ''}
         />
       )}
     </PageShell>

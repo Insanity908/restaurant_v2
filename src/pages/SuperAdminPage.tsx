@@ -1085,6 +1085,16 @@ function PaymentAccountsForm() {
           <Label>Número da conta móvel</Label>
           <Input value={data.mobileMoney || ''} onChange={e => set('mobileMoney', e.target.value)} placeholder="84 000 0000" />
         </div>
+        <div className="space-y-1.5">
+          <Label>Número e-Mola (Movitel)</Label>
+          <Input value={data.emolaNumber || ''} onChange={e => set('emolaNumber', e.target.value)} placeholder="86 000 0000" />
+          <p className="text-[11px] text-muted-foreground">Mostrado no pagamento automático quando o cliente escolhe pagar por e-Mola.</p>
+        </div>
+        <div className="space-y-1.5">
+          <Label>Número M-Pesa (Vodacom)</Label>
+          <Input value={data.mpesaNumber || ''} onChange={e => set('mpesaNumber', e.target.value)} placeholder="84 000 0000" />
+          <p className="text-[11px] text-muted-foreground">Mostrado no pagamento automático quando o cliente escolhe pagar por M-Pesa.</p>
+        </div>
         <div className="space-y-1.5 sm:col-span-2">
           <Label>Notas / instruções</Label>
           <Input value={data.notes || ''} onChange={e => set('notes', e.target.value)} placeholder="Ex: enviar comprovativo para..." />
