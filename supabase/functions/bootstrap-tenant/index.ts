@@ -52,21 +52,6 @@ Deno.serve(async (req) => {
 
     const admin = createClient(supabaseUrl, serviceKey);
 
-    // If the user is already a tenant member somewhere, don't auto-create a new
-    // one — UNLESS this call is explicitly asking for an additional unit
-    // (e.g. "Adicionar outra unidade" in Onboarding/Sidebar).
-    if (!additional) {
-      const { data: existing } = await admin
-        .from('tenant_members')
-        .select('tenant_id')
-        .eq('user_id', user.id)
-        .limit(1);
-      if (existing && existing.length > 0) {
-        return new Response(JSON.stringify({ ok: true, tenantId: existing[0].tenant_id, existed: true }), {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        });
-      }
-    }
     // Qualquer nível pode adicionar mais restaurantes (sem restrição) — se a
     // conta já tiver outro restaurante no Profissional, esse novo restaurante
     // tem 20% de desconto na subscrição (ver MULTI_RESTAURANT_DISCOUNT em
@@ -74,19 +59,32 @@ Deno.serve(async (req) => {
     // e mencionado na mensagem de WhatsApp; a activação continua manual, por
     // isso não há nada a impor aqui no momento da criação).
 
-    // 1) tenant
+    // 1) tenant — verificação "já tem tenant?" + criação feitas ATOMICAMENTE
+    // dentro de bootstrap_tenant_slot (migração 20260829010000), com um
+    // pg_advisory_xact_lock por utilizador. Antes disto eram dois passos
+    // PostgREST separados (SELECT aqui, depois INSERT), cada um a sua
+    // própria transacção — pedidos quase simultâneos (duplo-toque, ligação
+    // instável) passavam ambos a verificação antes de qualquer um confirmar
+    // o INSERT, criando tenants duplicados (aconteceu de verdade em
+    // produção — ver comentário na migração).
     const licenseKey = `lic_${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}`;
-    const { data: tenant, error: tenantErr } = await admin
-      .from('tenants')
-      .insert({
-        name: restaurantName.trim(),
-        owner_email: user.email ?? '',
-        owner_phone: ownerPhone?.trim() ?? null,
-        license_key: licenseKey,
-      })
-      .select()
-      .single();
-    if (tenantErr || !tenant) throw tenantErr ?? new Error('Tenant creation failed');
+    const { data: slotRows, error: slotErr } = await admin.rpc('bootstrap_tenant_slot', {
+      p_user_id: user.id,
+      p_name: restaurantName.trim(),
+      p_owner_email: user.email ?? '',
+      p_owner_phone: ownerPhone?.trim() ?? null,
+      p_license_key: licenseKey,
+      p_additional: additional ?? false,
+    });
+    if (slotErr) throw slotErr;
+    const slot = (slotRows as { out_tenant_id: string; out_existed: boolean }[] | null)?.[0];
+    if (!slot) throw new Error('bootstrap_tenant_slot returned no row');
+    if (slot.out_existed) {
+      return new Response(JSON.stringify({ ok: true, tenantId: slot.out_tenant_id, existed: true }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+    const tenant = { id: slot.out_tenant_id };
 
     // 2) profile fields (in case trigger already ran, patch phone/name).
     // Also default a username (email local-part) so the owner can log in
@@ -108,9 +106,10 @@ Deno.serve(async (req) => {
     }
     await admin.from('profiles').update(profilePatch).eq('id', user.id);
 
-    // 3) membership + admin role
-    const { error: memberErr } = await admin.from('tenant_members').insert({ tenant_id: tenant.id, user_id: user.id });
-    if (memberErr) throw memberErr;
+    // 3) admin role — a membership em tenant_members já foi criada dentro
+    // de bootstrap_tenant_slot (passo 1 acima), na mesma transacção que
+    // resolve a corrida; inserir aqui outra vez colidiria com a PK
+    // (tenant_id, user_id).
     const { error: roleErr } = await admin.from('user_roles').insert({ tenant_id: tenant.id, user_id: user.id, role: 'admin' });
     if (roleErr) throw roleErr;
 
@@ -145,7 +144,11 @@ Deno.serve(async (req) => {
     });
   } catch (e) {
     console.error('bootstrap-tenant error', e);
-    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : 'Unknown error' }), {
+    // Erros do supabase-js (ex. violação de constraint) são objectos
+    // PostgrestError, não `instanceof Error` — sem isto, a resposta e os
+    // logs mostravam sempre "Unknown error", escondendo a causa real.
+    const message = e instanceof Error ? e.message : (e as { message?: string } | null)?.message ?? 'Unknown error';
+    return new Response(JSON.stringify({ error: message }), {
       status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
