@@ -21,16 +21,28 @@ correspondência+activação, a Edge Function `auto-activate-payment`
 (Secção 4, **deployed em produção**) e o lado do cliente (Secção 5 —
 `AutoPaymentDialog`, usado em `PricingPage`/`BillingPage`, cria a sessão e
 confirma o `access_code`) já estão implementados. D4 (reenvio do
-`access_code`, Edge Function `resend-access-code`) e o aviso de QR
-desactualizado ao editar um preço (Secção 2.1) também estão feitos. Os
-secrets `RESEND_API_KEY`/`RESEND_FROM_EMAIL`/`PAYMENT_WEBHOOK_SECRET` já
-estão configurados no Supabase (confirmado via `supabase secrets list`).
-Falta: fazer deploy de `resend-access-code` (só existe em git, ainda não
-em produção — código novo, não confirmado no CLI), Carlos gerar os 12 QR
-(D1, tabela de códigos abaixo), e ligar o webhook real da app de
-reencaminhamento de SMS (D2) — o endpoint já aceita o formato certo, falta
-só a app no telemóvel de Carlos apontar para lá.
-D6 não se aplica.
+`access_code`, Edge Function `resend-access-code`, **deployed**) e o aviso
+de QR desactualizado ao editar um preço (Secção 2.1) também estão feitos.
+Os secrets `RESEND_API_KEY`/`RESEND_FROM_EMAIL`/`PAYMENT_WEBHOOK_SECRET`
+já estão configurados no Supabase.
+
+**D2 (webhook do MacroDroid) verificado em produção a 27-28/08/2026**:
+teste real de ponta a ponta com um pagamento e-Mola — SMS → Edge Function
+→ correspondência por plano+valor+telefone → activação → email do
+`access_code` recebido. Três problemas reais encontrados e corrigidos
+durante a verificação, todos do lado da configuração no telemóvel (não do
+código): URL do webhook mal escrita à mão (typo no ref do projecto
+Supabase), `PAYMENT_WEBHOOK_SECRET` desactualizado/não documentado
+(gerado um novo e aplicado), e duas variáveis do MacroDroid (corpo do
+pedido, mensagem de diagnóstico) escritas à mão com chavetas `{...}` em
+vez de inseridas pelo picker de Magic Text do próprio MacroDroid (sintaxe
+inválida, envia a string literal em vez do valor). Ficou também confirmado
+o risco já registado no D2/Secção 7 — o MacroDroid parava de reagir a SMS
+com a app em segundo plano; resolvido a excluir a app da optimização de
+bateria e a activar o início automático.
+
+Falta apenas: Carlos gerar os 12 QR (D1, tabela de códigos abaixo) — único
+item manual pendente, fora de código. D6 não se aplica.
 
 ---
 
@@ -365,14 +377,13 @@ correspondência em produção):
 | `BASICO-SEMESTRAL` | basic-semiannual |
 | `BASICO-ANUAL` | basic-annual |
 
-**D2 — ✅ Resolvida: Opção B** (app de reencaminhamento de SMS, ex.
-Tasker/MacroDroid). Lê a SMS directamente como texto e envia por webhook
-assim que chega — sem screenshot, sem OCR/visão (Secção 4). Condição
-para confiar nisto em produção: confirmar que a app fica excluída da
-optimização de bateria do Android de forma persistente no telemóvel de
-Carlos (senão pode parar de encaminhar silenciosamente); considerar
-também um alerta se ficar tempo demais sem nenhuma SMS recebida, como
-sinal indirecto de que parou.
+**D2 — ✅ Resolvida e verificada em produção (27-28/08/2026)**: Opção B
+(MacroDroid). Lê a SMS directamente como texto e envia por webhook assim
+que chega — sem screenshot, sem OCR/visão (Secção 4). App excluída da
+optimização de bateria e com início automático activado no telemóvel de
+Carlos, testado com a app em segundo plano. Alerta de "sem SMS há muito
+tempo" continua por fazer, não bloqueante (a notificação push de D5 já
+avisa por evento, não por ausência de eventos).
 
 **D3 — ✅ Resolvida: 60 minutos.** `expires_at = created_at + 60min`.
 Dá folga ao cliente para pagar com calma; aceite o risco correspondente
@@ -478,9 +489,9 @@ Todo o código está feito (1-6 abaixo); falta só o trabalho operacional
    `contact_email` (não `contact_phone`, D7).
 3. ✅ Edge Function `auto-activate-payment` (autenticação por segredo
    dedicado, Secção 4.4) com a validação/correspondência (Secção 4.3-4.4).
-4. ⏳ Ligar o webhook real da app de reencaminhamento (D2, Secção
-   4.1-4.2) — falta só a app de reencaminhamento em si (trabalho no
-   telemóvel de Carlos), o endpoint já existe e aceita o formato certo.
+4. ✅ Ligar o webhook real da app de reencaminhamento (D2, Secção
+   4.1-4.2) — verificado em produção com pagamento real (ver "Estado" no
+   topo).
 5. ✅ Geração+envio do `access_code` por email (D7), ponto de entrada do
    lado do cliente (`AutoPaymentDialog`, Secção 5) com o texto copiável
    (Secção 3.2) e o `plan_code`/valor certo consoante elegibilidade a
@@ -490,5 +501,4 @@ Todo o código está feito (1-6 abaixo); falta só o trabalho operacional
 
 Falta ainda, fora deste código: Carlos gerar os 12 QR (Secção 2.1) na app
 do e-Mola, cada um com o `plan_code` certo como conteúdo (Secção 1-2) —
-trabalho manual único, independente do código — e configurar
-`RESEND_API_KEY`/`RESEND_FROM_EMAIL` como secrets do Supabase (D7).
+único item manual pendente.
