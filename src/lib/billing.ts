@@ -91,11 +91,22 @@ export function formatMT(n: number): string {
   return `${n.toLocaleString('pt-PT')} MT`;
 }
 
+/** Normaliza para o formato internacional (258...) exigido pelo wa.me. */
+export function normalizeWhatsAppPhone(phone: string): string {
+  const digits = phone.replace(/\D/g, '');
+  return digits.startsWith('258') ? digits : `258${digits}`;
+}
+
+/** Link genérico de contacto por WhatsApp — usado na Landing (T1.5, antes do signup) sem plano/restaurante nenhum associado. */
+export function buildContactWhatsAppLink(superadminWhatsapp: string): string {
+  const text = encodeURIComponent('Olá! Tenho uma dúvida sobre o Sabor POS.');
+  return `https://wa.me/${normalizeWhatsAppPhone(superadminWhatsapp)}?text=${text}`;
+}
+
 /** Abre uma conversa de WhatsApp com o superadmin a pedir activação do plano — pagamento manual, sem checkout automático. */
 export function buildPlanWhatsAppLink(plan: BillingPlan, tenantName: string, superadminWhatsapp: string, discountEligible = false): string {
   const p = PLANS[plan];
-  const digits = superadminWhatsapp.replace(/\D/g, '');
-  const waPhone = digits.startsWith('258') ? digits : `258${digits}`;
+  const waPhone = normalizeWhatsAppPhone(superadminWhatsapp);
   const finalPrice = applyMultiRestaurantDiscount(p.price, discountEligible);
   const priceText = discountEligible
     ? `${formatMT(finalPrice)}, com 20% de desconto por já ter outro restaurante Profissional — preço normal ${formatMT(p.price)}`

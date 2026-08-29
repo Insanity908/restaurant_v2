@@ -21,67 +21,6 @@ interface Ingredient {
   image?: string;
 }
 
-// Mock recipes — keyed by item name
-const RECIPES: Record<string, { ingredients: Ingredient[]; steps: PrepStep[]; temp?: string }> = {
-  'Pizza Pepperoni': {
-    ingredients: [
-      { name: 'Mozzarella', qty: '200g', icon: '🧀' },
-      { name: 'Pepperoni', qty: '100g', icon: '🍖' },
-      { name: 'Molho de tomate', qty: '160g', icon: '🥫' },
-      { name: 'Orégano', qty: '2 colheres', icon: '🌿' },
-    ],
-    steps: [
-      { label: 'Espalhar molho de tomate', icon: '🥫', done: true },
-      { label: 'Adicionar mozzarella', icon: '🧀', done: true },
-      { label: 'Colocar pepperoni', icon: '🍖', done: true },
-      { label: 'Levar ao forno a 220°C por 10 minutos', icon: '🔥' },
-    ],
-    temp: '220°C / 10m',
-  },
-  'Hambúrguer Gourmet': {
-    ingredients: [
-      { name: 'Pão brioche', qty: '1 un', icon: '🍞' },
-      { name: 'Carne bovina', qty: '180g', icon: '🥩' },
-      { name: 'Queijo cheddar', qty: '40g', icon: '🧀' },
-      { name: 'Alface e tomate', qty: 'q.b.', icon: '🥬' },
-    ],
-    steps: [
-      { label: 'Temperar e moldar a carne', icon: '🥩', done: true },
-      { label: 'Grelhar 4 min cada lado', icon: '🔥' },
-      { label: 'Adicionar queijo e derreter', icon: '🧀' },
-      { label: 'Montar no pão tostado', icon: '🍞' },
-    ],
-    temp: '4+4 min',
-  },
-  'Sushi Roll Misto': {
-    ingredients: [
-      { name: 'Arroz para sushi', qty: '150g', icon: '🍚' },
-      { name: 'Salmão fresco', qty: '80g', icon: '🐟' },
-      { name: 'Alga nori', qty: '1 folha', icon: '🟢' },
-      { name: 'Pepino', qty: '30g', icon: '🥒' },
-    ],
-    steps: [
-      { label: 'Estender arroz sobre nori', icon: '🍚', done: true },
-      { label: 'Adicionar recheios', icon: '🐟' },
-      { label: 'Enrolar com a esteira', icon: '🍣' },
-      { label: 'Cortar em 8 peças', icon: '🔪' },
-    ],
-  },
-  'Frango Grelhado': {
-    ingredients: [
-      { name: 'Peito de frango', qty: '220g', icon: '🍗' },
-      { name: 'Azeite e ervas', qty: 'q.b.', icon: '🌿' },
-      { name: 'Limão', qty: '½', icon: '🍋' },
-    ],
-    steps: [
-      { label: 'Temperar com ervas e limão', icon: '🌿', done: true },
-      { label: 'Grelhar 6 min cada lado', icon: '🔥' },
-      { label: 'Repousar 2 min antes de servir', icon: '⏱️' },
-    ],
-    temp: '6+6 min',
-  },
-};
-
 const DEFAULT_RECIPE: { ingredients: Ingredient[]; steps: PrepStep[]; temp?: string } = {
   ingredients: [{ name: 'Ingredientes do prato', qty: 'conforme ficha', icon: '🍽️' }],
   steps: [
@@ -106,7 +45,7 @@ interface Props {
 
 // Ingrediente ligado a um item do inventário (inventoryItemId) herda a
 // imagem/ícone de lá — é uma imagem partilhada, não uma cópia por receita.
-function resolveRecipe(itemName: string, menuItemId: string, menuItems?: MenuItem[], inventory?: InventoryItem[]): { ingredients: Ingredient[]; steps: PrepStep[]; temp?: string } {
+function resolveRecipe(menuItemId: string, menuItems?: MenuItem[], inventory?: InventoryItem[]): { ingredients: Ingredient[]; steps: PrepStep[]; temp?: string } {
   const mi = menuItems?.find(m => m.id === menuItemId);
   if (mi?.recipe && (mi.recipe.ingredients.length || mi.recipe.steps.length)) {
     return {
@@ -120,7 +59,7 @@ function resolveRecipe(itemName: string, menuItemId: string, menuItems?: MenuIte
       temp: mi.recipe.temp,
     };
   }
-  return RECIPES[itemName] || DEFAULT_RECIPE;
+  return DEFAULT_RECIPE;
 }
 
 export default function KitchenOrderDetail({ order, menuItems, inventory, onClose, canManage, canServe, viewerRole, onStart, onComplete, onServe }: Props) {
@@ -374,7 +313,7 @@ function OrderItemPanel({ order, activeItem, menuItems }: { order: Order; active
 }
 
 function IngredientsPanel({ activeItem, menuItems, inventory }: { activeItem?: Order['items'][number]; menuItems?: MenuItem[]; inventory?: InventoryItem[] }) {
-  const recipe = activeItem ? resolveRecipe(activeItem.name, activeItem.menuItemId, menuItems, inventory) : DEFAULT_RECIPE;
+  const recipe = activeItem ? resolveRecipe(activeItem.menuItemId, menuItems, inventory) : DEFAULT_RECIPE;
   const qty = activeItem?.quantity ?? 1;
 
   return (
@@ -405,7 +344,7 @@ function IngredientsPanel({ activeItem, menuItems, inventory }: { activeItem?: O
 }
 
 function PreparationPanel({ activeItem, menuItems }: { activeItem?: Order['items'][number]; menuItems?: MenuItem[] }) {
-  const recipe = activeItem ? resolveRecipe(activeItem.name, activeItem.menuItemId, menuItems) : DEFAULT_RECIPE;
+  const recipe = activeItem ? resolveRecipe(activeItem.menuItemId, menuItems) : DEFAULT_RECIPE;
 
   return (
     <div className="space-y-4">

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { Coffee, CreditCard, BarChart3, Users, Package, ChefHat, ShieldCheck, Check } from 'lucide-react';
-import { PLANS, formatMT, fetchPlans, BASIC_PLANS, PRO_PLANS } from '@/lib/billing';
+import { Coffee, CreditCard, BarChart3, Users, Package, ChefHat, ShieldCheck, Check, MessageCircle } from 'lucide-react';
+import { PLANS, formatMT, fetchPlans, BASIC_PLANS, PRO_PLANS, buildContactWhatsAppLink } from '@/lib/billing';
+import { fetchPaymentAccounts } from '@/lib/paymentAccounts';
 import InstallAppButton from '@/components/InstallAppButton';
 import { HeroShowcase, ProductShowcaseSection } from '@/components/landing/ProductShowcase';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -43,6 +44,13 @@ export default function LandingPage() {
   const [, forceRefresh] = useState(0);
   useEffect(() => { fetchPlans().then(() => forceRefresh(v => v + 1)).catch(() => { /* keep defaults */ }); }, []);
 
+  const [contactWhatsapp, setContactWhatsapp] = useState<string | null>(null);
+  useEffect(() => {
+    fetchPaymentAccounts().then(acc => {
+      if (acc.superadminWhatsapp) setContactWhatsapp(acc.superadminWhatsapp);
+    }).catch(() => { /* botão simplesmente não aparece */ });
+  }, []);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-background to-primary/5">
       <header className="container mx-auto px-6 py-5 flex items-center justify-between">
@@ -53,6 +61,11 @@ export default function LandingPage() {
           <span className="font-heading font-bold">Sabor POS</span>
         </div>
         <nav className="flex items-center gap-2">
+          {contactWhatsapp && (
+            <a href={buildContactWhatsAppLink(contactWhatsapp)} target="_blank" rel="noopener noreferrer">
+              <Button variant="ghost" className="hidden sm:inline-flex gap-1.5"><MessageCircle className="w-4 h-4" />Fale connosco</Button>
+            </a>
+          )}
           <Link to="/login"><Button variant="ghost">Entrar</Button></Link>
           <Link to="/signup"><Button>Criar conta</Button></Link>
         </nav>
