@@ -204,7 +204,7 @@ export default function BillingPage() {
                         variant={isCurrent ? 'outline' : 'default'}
                         onClick={() => openAutoPayment(key)}
                       >
-                        <Zap className="w-3.5 h-3.5" /> {isCurrent ? 'Renovar automaticamente' : 'Mudar (automático)'}
+                        <Zap className="w-3.5 h-3.5" /> {isCurrent ? 'Renovar plano' : 'Mudar plano'}
                       </Button>
                       <Button
                         size="sm"
