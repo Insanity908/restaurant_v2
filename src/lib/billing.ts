@@ -91,6 +91,27 @@ export function formatMT(n: number): string {
   return `${n.toLocaleString('pt-PT')} MT`;
 }
 
+// Nome do ficheiro do QR pré-gerado por Carlos na app do e-Mola (bucket
+// payment-qr), Secção 2.1 — espelha PLAN_CODE_TO_PLAN em supabase/functions/
+// auto-activate-payment/index.ts (usado lá só para auditoria; aqui é só a
+// chave para encontrar a imagem certa, nunca decide o plano).
+const QR_CODE_BASE: Record<BillingPlan, string> = {
+  monthly: 'PRO-MENSAL',
+  quarterly: 'PRO-TRIMESTRAL',
+  semiannual: 'PRO-SEMESTRAL',
+  annual: 'PRO-ANUAL',
+  'basic-monthly': 'BASICO-MENSAL',
+  'basic-quarterly': 'BASICO-TRIMESTRAL',
+  'basic-semiannual': 'BASICO-SEMESTRAL',
+  'basic-annual': 'BASICO-ANUAL',
+};
+
+/** Caminho (no bucket payment-qr) do QR fixo para este plano/desconto — só existe para e-Mola (Secção 0/1). */
+export function paymentQrPath(plan: BillingPlan, discounted: boolean): string {
+  const base = QR_CODE_BASE[plan];
+  return `${discounted && planTier(plan) === 'pro' ? `${base}-DESC` : base}.png`;
+}
+
 /** Normaliza para o formato internacional (258...) exigido pelo wa.me. */
 export function normalizeWhatsAppPhone(phone: string): string {
   const digits = phone.replace(/\D/g, '');

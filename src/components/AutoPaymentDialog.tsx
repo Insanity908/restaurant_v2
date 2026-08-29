@@ -5,10 +5,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Copy, KeyRound, Loader2, RotateCw, Smartphone, Clock } from 'lucide-react';
 import { toast } from 'sonner';
-import { PLANS, formatMT } from '@/lib/billing';
+import { PLANS, formatMT, paymentQrPath } from '@/lib/billing';
 import { getPaymentAccounts } from '@/lib/paymentAccounts';
 import { getOrCreateCheckoutSession, normalizePhone, phoneMatchesOperator, redeemAccessCode, resendAccessCode } from '@/lib/checkoutSessions';
 import { useLicense } from '@/hooks/useLicense';
+import { PAYMENT_QR_BUCKET } from '@/lib/storage';
+import StorageImage from '@/components/StorageImage';
 import type { BillingPlan } from '@/types/restaurant';
 
 interface AutoPaymentDialogProps {
@@ -24,8 +26,10 @@ interface AutoPaymentDialogProps {
 
 /**
  * Secção 3/5 (docs/spec-automacao-confirmacao-pagamentos.md): cria/reaproveita
- * a sessão de checkout, mostra os dados para pagar (texto copiável — Secção
- * 3.2, sempre a base de referência; ainda sem imagem de QR) e o campo para
+ * a sessão de checkout, mostra os dados para pagar (QR fixo por plano — só
+ * e-Mola, Secção 1-2 — mais o texto copiável, Secção 3.2, sempre a base de
+ * referência para quem está no mesmo telemóvel que tem o e-Mola/M-Pesa) e o
+ * campo para
  * confirmar com o `access_code` recebido por email. A activação em si já
  * aconteceu no servidor quando a SMS foi correspondida (4.4) — isto só
  * confirma/dá entrada, por isso um `refresh()` chega para reflectir o
@@ -79,6 +83,11 @@ export default function AutoPaymentDialog({ open, onOpenChange, tenantId, plan, 
   const accounts = getPaymentAccounts();
   const operatorNumber = operator === 'emola' ? accounts.emolaNumber : accounts.mpesaNumber;
   const operatorLabel = operator === 'emola' ? 'e-Mola' : 'M-Pesa';
+  // O amount já vem com o desconto multi-restaurante aplicado (se elegível)
+  // — inferir directamente do valor evita precisar de mais uma prop só para
+  // isto (o QR fixo só existe para e-Mola, Secção 0/1 — nunca para M-Pesa).
+  const discounted = amount < PLANS[plan].price;
+  const qrPath = paymentQrPath(plan, discounted);
 
   const copy = async (text: string, label: string) => {
     await navigator.clipboard.writeText(text);
@@ -162,6 +171,16 @@ export default function AutoPaymentDialog({ open, onOpenChange, tenantId, plan, 
             <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
               <Clock className="w-3.5 h-3.5" /> A aguardar pagamento…
             </div>
+            {operator === 'emola' && (
+              <div className="flex justify-center">
+                <StorageImage
+                  bucket={PAYMENT_QR_BUCKET}
+                  path={qrPath}
+                  alt={`QR de pagamento — ${PLANS[plan].label}`}
+                  className="w-44 h-44 rounded-lg border border-border bg-white p-1.5"
+                />
+              </div>
+            )}
             <div className="rounded-lg bg-secondary/40 p-3 text-sm space-y-2">
               <div className="flex justify-between items-center">
                 <span className="text-muted-foreground text-xs">Valor a pagar</span>
@@ -180,7 +199,7 @@ export default function AutoPaymentDialog({ open, onOpenChange, tenantId, plan, 
               )}
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Pague o valor exacto acima — não precisa de colocar nenhuma referência/conteúdo.
+              {operator === 'emola' ? 'Escaneie o QR acima ou pague' : 'Pague'} o valor exacto — não precisa de colocar nenhuma referência/conteúdo.
               Assim que confirmarmos o pagamento,
               enviamos um código de acesso para <strong className="text-foreground">{contactEmail}</strong> — introduza-o abaixo para confirmar.
             </p>
