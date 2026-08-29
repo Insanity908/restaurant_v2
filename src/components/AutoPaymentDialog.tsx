@@ -146,7 +146,6 @@ export default function AutoPaymentDialog({ open, onOpenChange, tenantId, plan, 
               <Label htmlFor="payer-phone">O seu número {operatorLabel}</Label>
               <Input
                 id="payer-phone"
-                placeholder="Ex: 86 645 3202"
                 inputMode="tel"
                 value={phone}
                 onChange={e => setPhone(e.target.value)}
