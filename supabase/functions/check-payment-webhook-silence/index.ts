@@ -9,7 +9,7 @@
 //      autenticação de auto-activate-payment (system_payment_accounts.
 //      last_sms_seen_at) — ou seja, o webhook está mesmo calado, não é só
 //      "sem pagamentos a bater certo" (isso já é coberto por D5/
-//      checkout_match_failures, evento a evento).
+//      payment_sms_log, evento a evento).
 //   2. Houve pelo menos uma sessão de checkout criada nesse período de
 //      silêncio — sinal de que havia procura real (alguém a tentar pagar)
 //      sem nenhuma SMS alguma vez ter chegado. Sem esta segunda condição,

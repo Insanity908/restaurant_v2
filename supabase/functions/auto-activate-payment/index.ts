@@ -108,18 +108,22 @@ async function extractSmsText(req: Request): Promise<string | null> {
   }
 }
 
-async function logFailure(
+// Regista TODA a SMS de pagamento processada — tanto a que activa um plano
+// com sucesso ('matched') como as que falham — para dar ao superadmin um
+// registo único e classificável em SuperAdminPage (aba "Mensagens de
+// pagamento"), em vez de só ver as falhas.
+async function logPaymentSms(
   admin: ReturnType<typeof createClient>,
-  reason: 'unparseable' | 'unknown_plan' | 'no_match' | 'ambiguous_amount',
+  reason: 'matched' | 'unparseable' | 'unknown_plan' | 'no_match' | 'ambiguous_amount',
   rawText: string,
   extracted: Record<string, unknown> | null,
 ) {
-  const { error } = await admin.from('checkout_match_failures').insert({ reason, raw_text: rawText, extracted });
-  if (error) console.error('logFailure insert failed', error);
+  const { error } = await admin.from('payment_sms_log').insert({ reason, raw_text: rawText, extracted });
+  if (error) console.error('logPaymentSms insert failed', error);
 }
 
 // Melhor esforço: nunca deixa uma falha aqui derrubar a resposta do
-// webhook. O registo em checkout_match_failures (logFailure) já é a fonte
+// webhook. O registo em payment_sms_log (logPaymentSms) já é a fonte
 // de verdade para revisão manual — isto é só o alerta activo extra (D5).
 async function notifySuperadminFailure(
   admin: ReturnType<typeof createClient>,
@@ -191,7 +195,7 @@ Deno.serve(async (req) => {
     // 20260828010000): qualquer pedido que passe a autenticação conta,
     // seja qual for o resultado do parsing/correspondência a seguir —
     // isto mede "o webhook está a ser chamado", não "os pagamentos estão
-    // a bater certo" (isso é D5/checkout_match_failures). Melhor esforço,
+    // a bater certo" (isso é D5/payment_sms_log). Melhor esforço,
     // nunca bloqueia nem falha o resto do pedido.
     admin.from('system_payment_accounts').update({ last_sms_seen_at: new Date().toISOString() }).eq('id', 1)
       .then(({ error }) => { if (error) console.error('heartbeat update failed', error); });
@@ -203,7 +207,7 @@ Deno.serve(async (req) => {
     const mpesaMatch = emolaMatch ? null : SMS_RE_MPESA.exec(text);
     const emolaCrossMatch = emolaMatch || mpesaMatch ? null : SMS_RE_EMOLA_CROSS.exec(text);
     if (!emolaMatch?.groups && !mpesaMatch?.groups && !emolaCrossMatch?.groups) {
-      await logFailure(admin, 'unparseable', text, null);
+      await logPaymentSms(admin, 'unparseable', text, null);
       await notifySuperadminFailure(admin, supabaseUrl, serviceKey, 'SMS recebida não corresponde a nenhum formato conhecido (e-Mola, M-Pesa, ou cross-operadora) — ver registo para rever à mão.');
       return json({ matched: false, reason: 'unparseable' });
     }
@@ -234,14 +238,14 @@ Deno.serve(async (req) => {
     const baseExtracted = { transactionId, amount, payerPhoneRaw, normalizedPayerPhone, provider, planCode };
 
     if (!Number.isFinite(amount)) {
-      await logFailure(admin, 'unknown_plan', text, baseExtracted);
+      await logPaymentSms(admin, 'unknown_plan', text, baseExtracted);
       await notifySuperadminFailure(admin, supabaseUrl, serviceKey, `Valor inválido extraído da SMS (${provider}).`);
       return json({ matched: false, reason: 'unknown_plan' });
     }
 
     const candidatePlans = await resolvePlanByAmount(admin, amount);
     if (candidatePlans.length !== 1) {
-      await logFailure(admin, candidatePlans.length === 0 ? 'unknown_plan' : 'ambiguous_amount', text, { ...baseExtracted, candidatePlans });
+      await logPaymentSms(admin, candidatePlans.length === 0 ? 'unknown_plan' : 'ambiguous_amount', text, { ...baseExtracted, candidatePlans });
       await notifySuperadminFailure(
         admin, supabaseUrl, serviceKey,
         candidatePlans.length === 0
@@ -269,7 +273,7 @@ Deno.serve(async (req) => {
       | { out_session_id: string; out_tenant_id: string; out_contact_email: string; out_access_code: string }
       | undefined;
     if (!result) {
-      await logFailure(admin, 'no_match', text, extracted);
+      await logPaymentSms(admin, 'no_match', text, extracted);
       await notifySuperadminFailure(
         admin, supabaseUrl, serviceKey,
         `Sem sessão pendente única para ${plan} (${amount} MT, de ${normalizedPayerPhone}) — pode ser 0 ou mais do que 1 candidata (plano+valor+telefone).`,
@@ -278,6 +282,14 @@ Deno.serve(async (req) => {
     }
 
     const { data: planRow } = await admin.from('billing_plans').select('label').eq('id', plan).maybeSingle();
+    const { data: tenantRow } = await admin.from('tenants').select('name').eq('id', result.out_tenant_id).maybeSingle();
+    await logPaymentSms(admin, 'matched', text, {
+      ...extracted,
+      sessionId: result.out_session_id,
+      tenantName: tenantRow?.name ?? null,
+      contactEmail: result.out_contact_email,
+      planLabel: planRow?.label ?? plan,
+    });
     try {
       await sendAccessCodeEmail(result.out_contact_email, result.out_access_code, planRow?.label ?? plan);
     } catch (e) {

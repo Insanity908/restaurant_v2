@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Lock, LogOut, Coffee, Landmark, Smartphone, Send, Clock } from 'lucide-react';
+import { Lock, LogOut, Coffee, Landmark, Smartphone, Send, Clock, CreditCard } from 'lucide-react';
 import { useLicense } from '@/hooks/useLicense';
 import { useAuth } from '@/context/AuthContext';
 import { tenantStore } from '@/lib/tenants';
@@ -13,6 +14,7 @@ import { toast } from 'sonner';
 export default function BlockedPage() {
   const { tenant } = useLicense();
   const { user, logout, switchTenant } = useAuth();
+  const navigate = useNavigate();
   const sub = tenant?.subscription;
 
   const [accounts, setAccounts] = useState<PaymentAccounts>({});
@@ -39,6 +41,11 @@ export default function BlockedPage() {
     .map(id => tenantStore.getById(id))
     .filter((t): t is NonNullable<typeof t> => !!t);
 
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login', { replace: true });
+  };
+
   const send = async () => {
     if (!tenant?.id || !reference.trim()) return;
     setSubmitting(true);
@@ -62,6 +69,12 @@ export default function BlockedPage() {
           {sub?.blockReason || 'A sua conta foi bloqueada pelo administrador. Contacte-o para regularizar.'}
         </p>
 
+        {user?.role === 'admin' && (
+          <Button className="w-full" onClick={() => navigate('/pricing')}>
+            <CreditCard className="w-4 h-4" />Ver planos e pagar
+          </Button>
+        )}
+
         {otherTenants.length > 0 && (
           <div className="text-left rounded-xl border border-border/60 p-3 space-y-1">
             <p className="text-xs font-medium text-muted-foreground mb-1">Mudar para outro restaurante</p>
@@ -82,7 +95,10 @@ export default function BlockedPage() {
         {loaded && hasAnyPaymentAccounts(accounts) && (
           <div className="text-left rounded-xl border border-primary/30 p-3 space-y-2">
             <p className="text-xs font-medium text-muted-foreground flex items-center gap-1">
-              <Landmark className="w-3.5 h-3.5" /> Dados para pagamento manual
+              <Landmark className="w-3.5 h-3.5" /> Alternativa: transferência bancária/manual
+            </p>
+            <p className="text-[11px] text-muted-foreground">
+              Para pagar por e-Mola/M-Pesa com activação automática, use "Ver planos e pagar" acima.
             </p>
             {accounts.bankAccount && (
               <div className="text-xs">
@@ -134,7 +150,7 @@ export default function BlockedPage() {
         )}
 
         <div className="flex flex-col gap-2 pt-2">
-          <Button variant="outline" onClick={logout}><LogOut className="w-4 h-4" />Sair</Button>
+          <Button variant="outline" onClick={handleLogout}><LogOut className="w-4 h-4" />Sair</Button>
         </div>
       </div>
     </div>

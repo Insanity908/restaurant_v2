@@ -12,7 +12,7 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Lock, Unlock, Trash2, Clock, Search, Building2, TrendingUp, Users, BarChart3, Copy, Landmark, Save, CheckCircle2, Inbox, MessageSquare, Mail, MailOpen, Images, ImagePlus, Wallet, HardDrive, Database, AlertTriangle } from 'lucide-react';
+import { Lock, Unlock, Trash2, Clock, Search, Building2, TrendingUp, Users, BarChart3, Copy, Landmark, Save, CheckCircle2, Inbox, MessageSquare, Mail, MailOpen, Images, ImagePlus, Wallet, HardDrive, Database, AlertTriangle, Smartphone } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid } from 'recharts';
 import { tenantStore, fetchTenants, fetchTenantTeams, type TenantTeam } from '@/lib/tenants';
 import { PLANS, formatMT, fetchPlans, savePlans, BASIC_PLANS, PRO_PLANS, type PlanConfig } from '@/lib/billing';
@@ -20,7 +20,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { getPaymentAccounts, savePaymentAccounts, fetchPaymentAccounts, type PaymentAccounts } from '@/lib/paymentAccounts';
 import { fetchPendingSubmissions, markSubmissionStatus, type PaymentSubmission } from '@/lib/paymentSubmissions';
 import { fetchFeedback, markFeedbackStatus, deleteFeedback, type FeedbackSubmission } from '@/lib/feedback';
-import { fetchCheckoutMatchFailures, deleteCheckoutMatchFailure, type CheckoutMatchFailure } from '@/lib/checkoutMatchFailures';
+import { fetchPaymentSmsLog, deletePaymentSmsLogEntry, type PaymentSmsLogEntry, type PaymentSmsReason } from '@/lib/paymentSmsLog';
 import { fetchPresetImages, uploadPresetImage, deletePresetImage, type PresetImage } from '@/lib/presetImages';
 import { PRESET_IMAGES_BUCKET, fetchStorageUsage, type StorageUsage } from '@/lib/storage';
 import StorageImage from '@/components/StorageImage';
@@ -78,11 +78,11 @@ export default function SuperAdminPage() {
   useEffect(() => { void refreshFeedback(); }, [refreshFeedback]);
   const unreadFeedbackCount = feedback.filter(f => f.status === 'unread').length;
 
-  const [matchFailures, setMatchFailures] = useState<CheckoutMatchFailure[]>([]);
-  const refreshMatchFailures = useCallback(async () => {
-    setMatchFailures(await fetchCheckoutMatchFailures().catch(() => []));
+  const [paymentMessages, setPaymentMessages] = useState<PaymentSmsLogEntry[]>([]);
+  const refreshPaymentMessages = useCallback(async () => {
+    setPaymentMessages(await fetchPaymentSmsLog().catch(() => []));
   }, []);
-  useEffect(() => { void refreshMatchFailures(); }, [refreshMatchFailures]);
+  useEffect(() => { void refreshPaymentMessages(); }, [refreshPaymentMessages]);
 
   const toggleFeedbackStatus = async (f: FeedbackSubmission) => {
     const next = f.status === 'unread' ? 'read' : 'unread';
@@ -104,15 +104,29 @@ export default function SuperAdminPage() {
     });
   };
 
-  const handleDeleteMatchFailure = (f: CheckoutMatchFailure) => {
+  const handleDeletePaymentMessage = (f: PaymentSmsLogEntry) => {
     setConfirmAction({
       title: 'Apagar registo?',
-      description: 'Esta SMS de pagamento não correspondida deixa de aparecer para revisão — não pode ser desfeito.',
+      description: 'Esta mensagem de pagamento deixa de aparecer aqui — não pode ser desfeito.',
       confirmLabel: 'Apagar',
       onConfirm: async () => {
-        const ok = await deleteCheckoutMatchFailure(f.id);
+        const ok = await deletePaymentSmsLogEntry(f.id);
         if (!ok) { toast.error('Não foi possível apagar'); return; }
-        void refreshMatchFailures();
+        void refreshPaymentMessages();
+      },
+    });
+  };
+
+  const handleDeletePaymentMessages = (ids: string[], description: string) => {
+    if (ids.length === 0) return;
+    setConfirmAction({
+      title: 'Limpar mensagens?',
+      description,
+      confirmLabel: 'Limpar',
+      onConfirm: async () => {
+        const results = await Promise.all(ids.map(id => deletePaymentSmsLogEntry(id)));
+        if (results.some(ok => !ok)) toast.error('Algumas mensagens não puderam ser apagadas');
+        void refreshPaymentMessages();
       },
     });
   };
@@ -336,9 +350,9 @@ export default function SuperAdminPage() {
             <TabsTrigger value="payments" className="shrink-0">Pagamentos</TabsTrigger>
             <TabsTrigger value="accounts" className="shrink-0"><Landmark className="w-3.5 h-3.5 mr-1" />Contas de recebimento</TabsTrigger>
             <TabsTrigger value="plans" className="shrink-0"><Wallet className="w-3.5 h-3.5 mr-1" />Planos</TabsTrigger>
-            <TabsTrigger value="match-failures" className="shrink-0">
-              <AlertTriangle className="w-3.5 h-3.5 mr-1" />Pagamentos não correspondidos
-              {matchFailures.length > 0 && <Badge variant="outline" className="ml-1.5 border-primary/30 text-primary">{matchFailures.length}</Badge>}
+            <TabsTrigger value="payment-messages" className="shrink-0">
+              <Smartphone className="w-3.5 h-3.5 mr-1" />Mensagens de pagamento
+              {paymentMessages.length > 0 && <Badge variant="outline" className="ml-1.5 border-primary/30 text-primary">{paymentMessages.length}</Badge>}
             </TabsTrigger>
             <TabsTrigger value="feedback" className="shrink-0">
               <MessageSquare className="w-3.5 h-3.5 mr-1" />Feedback
@@ -504,42 +518,18 @@ export default function SuperAdminPage() {
           <PlansForm value={planForm} onChange={updatePlan} onSave={handleSavePlans} saving={savingPlans} />
         </TabsContent>
 
-        <TabsContent value="match-failures">
+        <TabsContent value="payment-messages">
           <div className="glass rounded-xl p-5 mt-4">
             <p className="text-xs text-muted-foreground mb-4">
-              SMS de pagamento recebidas pela activação automática (Secção 4/D5 de
-              docs/spec-automacao-confirmacao-pagamentos.md) que não puderam ser activadas com confiança — nunca
-              activadas às cegas. Reveja e, se for um pagamento real, active o plano à mão no separador "Restaurantes".
+              Toda a SMS de pagamento processada pela activação automática (Secção 4/D5 de
+              docs/spec-automacao-confirmacao-pagamentos.md) — as recebidas com sucesso (agrupadas por plano/valor) e as
+              que não puderam ser activadas com confiança (nunca activadas às cegas — reveja e, se for um pagamento
+              real, active o plano à mão no separador "Restaurantes").
             </p>
-            {matchFailures.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Sem falhas de correspondência registadas.</p>
+            {paymentMessages.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Sem mensagens de pagamento registadas.</p>
             ) : (
-              <div className="space-y-2">
-                {matchFailures.map(f => (
-                  <div key={f.id} className="text-sm py-3 border-b border-border/40 last:border-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <Badge variant="outline" className="text-[10px] border-destructive/30 text-destructive">
-                        {matchFailureReasonLabel(f.reason)}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground">{new Date(f.createdAt).toLocaleString('pt-MZ')}</span>
-                      <Button size="icon" variant="ghost" className="h-6 w-6 ml-auto" aria-label="Apagar" onClick={() => handleDeleteMatchFailure(f)}>
-                        <Trash2 className="w-3.5 h-3.5 text-destructive" />
-                      </Button>
-                    </div>
-                    {f.extracted && (
-                      <p className="text-xs text-muted-foreground mt-1.5">
-                        {f.extracted.planCode && <>Plano: <span className="font-mono">{f.extracted.planCode}</span> • </>}
-                        {f.extracted.amount != null && <>Valor: {formatMT(f.extracted.amount)} • </>}
-                        {f.extracted.payerPhone && <>De: {f.extracted.payerPhone} • </>}
-                        {f.extracted.transactionId && <>ID: <span className="font-mono">{f.extracted.transactionId}</span></>}
-                      </p>
-                    )}
-                    <p className="text-xs font-mono text-muted-foreground bg-secondary/30 rounded p-2 mt-1.5 whitespace-pre-wrap break-words">
-                      {f.rawText}
-                    </p>
-                  </div>
-                ))}
-              </div>
+              <PaymentMessagesList messages={paymentMessages} onDeleteOne={handleDeletePaymentMessage} onDeleteMany={handleDeletePaymentMessages} />
             )}
           </div>
         </TabsContent>
@@ -860,12 +850,136 @@ const BUCKET_LABEL: Record<string, string> = {
   'preset-images': 'Galeria de imagens',
 };
 
-function matchFailureReasonLabel(reason: CheckoutMatchFailure['reason']): string {
-  switch (reason) {
-    case 'unparseable': return 'Texto não reconhecido';
-    case 'unknown_plan': return 'Plano não reconhecido';
-    case 'no_match': return 'Sem sessão pendente única';
-  }
+const PAYMENT_SMS_REASON_ORDER: PaymentSmsReason[] = ['matched', 'unparseable', 'unknown_plan', 'no_match', 'ambiguous_amount'];
+
+const PAYMENT_SMS_REASON_META: Record<PaymentSmsReason, { label: string; tone: string }> = {
+  matched: { label: 'Recebido', tone: 'border-success/30 text-success' },
+  unparseable: { label: 'Texto não reconhecido', tone: 'border-destructive/30 text-destructive' },
+  unknown_plan: { label: 'Plano não reconhecido', tone: 'border-destructive/30 text-destructive' },
+  no_match: { label: 'Sem sessão pendente única', tone: 'border-destructive/30 text-destructive' },
+  ambiguous_amount: { label: 'Valor ambíguo entre planos', tone: 'border-destructive/30 text-destructive' },
+};
+
+/**
+ * Filtros por tipo (Todas + um por `reason`) + "Limpar" em massa scoped ao
+ * filtro activo (pedido do Carlos, 30/08/2026). As mensagens `matched`
+ * (pagamento recebido e activado) aparecem agrupadas por plano/valor —
+ * as restantes (falhas de correspondência) continuam numa lista simples.
+ */
+function PaymentMessagesList({
+  messages, onDeleteOne, onDeleteMany,
+}: {
+  messages: PaymentSmsLogEntry[];
+  onDeleteOne: (f: PaymentSmsLogEntry) => void;
+  onDeleteMany: (ids: string[], description: string) => void;
+}) {
+  const [filter, setFilter] = useState<'all' | PaymentSmsReason>('all');
+
+  const counts = useMemo(() => {
+    const c: Record<string, number> = { all: messages.length };
+    for (const r of PAYMENT_SMS_REASON_ORDER) c[r] = messages.filter(m => m.reason === r).length;
+    return c;
+  }, [messages]);
+
+  const filtered = filter === 'all' ? messages : messages.filter(m => m.reason === filter);
+  const matched = filtered.filter(m => m.reason === 'matched');
+  const others = filtered.filter(m => m.reason !== 'matched');
+
+  const matchedGroups = useMemo(() => {
+    const groups = new Map<string, { label: string; amount: number | null; entries: PaymentSmsLogEntry[] }>();
+    for (const m of matched) {
+      const label = m.extracted?.planLabel ?? m.extracted?.plan ?? 'Plano desconhecido';
+      const amount = m.extracted?.amount ?? null;
+      const key = `${label}|${amount}`;
+      if (!groups.has(key)) groups.set(key, { label, amount, entries: [] });
+      groups.get(key)!.entries.push(m);
+    }
+    return [...groups.values()].sort((a, b) => (b.entries[0]?.createdAt ?? '').localeCompare(a.entries[0]?.createdAt ?? ''));
+  }, [matched]);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        <Button size="sm" variant={filter === 'all' ? 'default' : 'outline'} onClick={() => setFilter('all')}>
+          Todas {counts.all > 0 && `(${counts.all})`}
+        </Button>
+        {PAYMENT_SMS_REASON_ORDER.filter(r => counts[r] > 0).map(r => (
+          <Button key={r} size="sm" variant={filter === r ? 'default' : 'outline'} onClick={() => setFilter(r)}>
+            {PAYMENT_SMS_REASON_META[r].label} ({counts[r]})
+          </Button>
+        ))}
+        {filtered.length > 0 && (
+          <Button
+            size="sm" variant="ghost" className="ml-auto text-destructive hover:text-destructive"
+            onClick={() => onDeleteMany(
+              filtered.map(f => f.id),
+              filter === 'all'
+                ? `Todas as ${filtered.length} mensagens listadas deixam de aparecer aqui — não pode ser desfeito.`
+                : `As ${filtered.length} mensagens "${PAYMENT_SMS_REASON_META[filter as PaymentSmsReason].label}" deixam de aparecer aqui — não pode ser desfeito.`,
+            )}
+          >
+            <Trash2 className="w-3.5 h-3.5" />Limpar {filter === 'all' ? 'tudo' : 'estas'}
+          </Button>
+        )}
+      </div>
+
+      {filtered.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Sem mensagens para este filtro.</p>
+      ) : (
+        <>
+          {matchedGroups.length > 0 && (
+            <div className="space-y-3">
+              {matchedGroups.map(group => (
+                <div key={`${group.label}|${group.amount}`} className="rounded-lg border border-success/20 bg-success/5 p-3">
+                  <p className="text-xs font-medium text-success mb-2 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    {group.label}{group.amount != null && <> — {formatMT(group.amount)}</>}
+                    <Badge variant="outline" className="ml-1 text-[10px] border-success/30 text-success">{group.entries.length}</Badge>
+                  </p>
+                  <div className="space-y-2">
+                    {group.entries.map(f => <PaymentMessageRow key={f.id} f={f} onDelete={onDeleteOne} />)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {others.length > 0 && (
+            <div className="space-y-2">
+              {others.map(f => <PaymentMessageRow key={f.id} f={f} onDelete={onDeleteOne} />)}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function PaymentMessageRow({ f, onDelete }: { f: PaymentSmsLogEntry; onDelete: (f: PaymentSmsLogEntry) => void }) {
+  const meta = PAYMENT_SMS_REASON_META[f.reason];
+  const phone = f.extracted?.normalizedPayerPhone || f.extracted?.payerPhoneRaw;
+  return (
+    <div className="text-sm py-3 border-b border-border/40 last:border-0">
+      <div className="flex items-center gap-2 flex-wrap">
+        <Badge variant="outline" className={`text-[10px] ${meta.tone}`}>{meta.label}</Badge>
+        <span className="text-xs text-muted-foreground">{new Date(f.createdAt).toLocaleString('pt-MZ')}</span>
+        <Button size="icon" variant="ghost" className="h-6 w-6 ml-auto" aria-label="Apagar" onClick={() => onDelete(f)}>
+          <Trash2 className="w-3.5 h-3.5 text-destructive" />
+        </Button>
+      </div>
+      {f.extracted && (
+        <p className="text-xs text-muted-foreground mt-1.5">
+          {f.extracted.tenantName && <>Restaurante: <span className="font-medium text-foreground">{f.extracted.tenantName}</span> • </>}
+          {f.extracted.planCode && <>Plano: <span className="font-mono">{f.extracted.planCode}</span> • </>}
+          {f.extracted.amount != null && <>Valor: {formatMT(f.extracted.amount)} • </>}
+          {phone && <>De: {phone} • </>}
+          {f.extracted.transactionId && <>ID: <span className="font-mono">{f.extracted.transactionId}</span></>}
+        </p>
+      )}
+      <p className="text-xs font-mono text-muted-foreground bg-secondary/30 rounded p-2 mt-1.5 whitespace-pre-wrap break-words">
+        {f.rawText}
+      </p>
+    </div>
+  );
 }
 
 function formatBytes(bytes: number): string {

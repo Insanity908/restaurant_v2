@@ -10,7 +10,7 @@ export type Database = {
   // Allows to automatically instantiate createClient with right options
   // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
-    PostgrestVersion: "14.17"
+    PostgrestVersion: "14.5"
   }
   graphql_public: {
     Tables: {
@@ -148,30 +148,6 @@ export type Database = {
           price?: number
           savings?: string | null
           updated_at?: string
-        }
-        Relationships: []
-      }
-      checkout_match_failures: {
-        Row: {
-          created_at: string
-          extracted: Json | null
-          id: string
-          raw_text: string
-          reason: string
-        }
-        Insert: {
-          created_at?: string
-          extracted?: Json | null
-          id?: string
-          raw_text: string
-          reason: string
-        }
-        Update: {
-          created_at?: string
-          extracted?: Json | null
-          id?: string
-          raw_text?: string
-          reason?: string
         }
         Relationships: []
       }
@@ -890,6 +866,30 @@ export type Database = {
           },
         ]
       }
+      payment_sms_log: {
+        Row: {
+          created_at: string
+          extracted: Json | null
+          id: string
+          raw_text: string
+          reason: string
+        }
+        Insert: {
+          created_at?: string
+          extracted?: Json | null
+          id?: string
+          raw_text: string
+          reason: string
+        }
+        Update: {
+          created_at?: string
+          extracted?: Json | null
+          id?: string
+          raw_text?: string
+          reason?: string
+        }
+        Relationships: []
+      }
       payment_submissions: {
         Row: {
           created_at: string
@@ -1365,6 +1365,7 @@ export type Database = {
           bank_name: string | null
           emola_number: string | null
           id: number
+          last_sms_seen_at: string
           mobile_money: string | null
           mobile_money_provider: string | null
           mpesa_number: string | null
@@ -1383,6 +1384,7 @@ export type Database = {
           bank_name?: string | null
           emola_number?: string | null
           id?: number
+          last_sms_seen_at?: string
           mobile_money?: string | null
           mobile_money_provider?: string | null
           mpesa_number?: string | null
@@ -1401,6 +1403,7 @@ export type Database = {
           bank_name?: string | null
           emola_number?: string | null
           id?: number
+          last_sms_seen_at?: string
           mobile_money?: string | null
           mobile_money_provider?: string | null
           mpesa_number?: string | null
@@ -1508,6 +1511,20 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      bootstrap_tenant_slot: {
+        Args: {
+          p_additional: boolean
+          p_license_key: string
+          p_name: string
+          p_owner_email: string
+          p_owner_phone: string
+          p_user_id: string
+        }
+        Returns: {
+          out_existed: boolean
+          out_tenant_id: string
+        }[]
+      }
       can_assign_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
