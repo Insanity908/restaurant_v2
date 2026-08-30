@@ -1592,6 +1592,10 @@ export type Database = {
         }
         Returns: string
       }
+      update_checkout_session_phone: {
+        Args: { p_phone: string; p_session_id: string }
+        Returns: undefined
+      }
       verify_loyalty_customer: {
         Args: { p_phone: string; p_tenant_id: string }
         Returns: Json

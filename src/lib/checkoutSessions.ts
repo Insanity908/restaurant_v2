@@ -92,6 +92,13 @@ export function phoneMatchesOperator(phone: string, operator: keyof typeof OPERA
  * tempo fazem a correspondência automática recuar para revisão manual
  * (Secção 4.3), incluindo o caso trivial de o próprio cliente clicar duas
  * vezes ou abrir a página em duas abas.
+ *
+ * Se o telefone indicado agora for diferente do gravado na sessão
+ * reaproveitada (ex: o cliente fechou o diálogo e reabriu escolhendo pagar
+ * de outro número), actualiza-o via RPC (`update_checkout_session_phone` —
+ * RLS não deixa `authenticated` fazer UPDATE directo nesta tabela) — sem
+ * isto, o 3º critério de correspondência (4.3) nunca batia certo com o
+ * pagamento real, feito do número novo.
  */
 export async function getOrCreateCheckoutSession(
   tenantId: string,
@@ -120,7 +127,18 @@ export async function getOrCreateCheckoutSession(
     .limit(1)
     .maybeSingle();
   if (findErr) throw findErr;
-  if (existing) return fromRow(existing as CheckoutSessionRow);
+  if (existing) {
+    const row = existing as CheckoutSessionRow;
+    if (row.contact_phone !== phone) {
+      const { error: updateErr } = await supabase.rpc('update_checkout_session_phone', {
+        p_session_id: row.id,
+        p_phone: phone,
+      });
+      if (updateErr) throw updateErr;
+      row.contact_phone = phone;
+    }
+    return fromRow(row);
+  }
 
   const { data, error } = await supabase
     .from('checkout_sessions')

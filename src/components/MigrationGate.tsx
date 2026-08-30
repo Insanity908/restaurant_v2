@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { useOptionalAuth } from '@/context/AuthContext';
-import { hasLegacyData, runLegacyImport } from '@/lib/legacyImport';
+import { hasLegacyData, runLegacyImport, markLegacyImportDone } from '@/lib/legacyImport';
 import { fetchTenantCatalog } from '@/lib/store';
 import { Button } from '@/components/ui/button';
 
@@ -72,7 +72,22 @@ export default function MigrationGate({ children }: { children?: React.ReactNode
             <AlertTriangle className="mx-auto mb-4 h-10 w-10 text-destructive" />
             <h1 className="text-lg font-semibold">Falha na migração</h1>
             <p className="mt-2 break-words text-sm text-muted-foreground">{error}</p>
-            <Button variant="outline" className="mt-5 w-full" onClick={() => setPhase('idle')}>Continuar mesmo assim</Button>
+            <Button
+              variant="outline"
+              className="mt-5 w-full"
+              onClick={() => {
+                // Sem isto, como `hasLegacyData` continua true (os dados
+                // antigos nunca são limpos numa falha), este ecrã bloqueante
+                // voltava a aparecer em TODO login/refresh seguinte — o
+                // utilizador nunca conseguia mesmo "continuar". Os dados
+                // antigos ficam guardados no dispositivo para se poder
+                // tentar importar à mão mais tarde, só deixa de bloquear.
+                if (tenantId) markLegacyImportDone(tenantId);
+                setPhase('idle');
+              }}
+            >
+              Continuar mesmo assim
+            </Button>
           </>
         )}
       </div>

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Download, Share, SquarePlus } from 'lucide-react';
+import { Download, Share, SquarePlus, Menu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { useInstallPrompt } from '@/hooks/useInstallPrompt';
@@ -13,24 +13,35 @@ interface Props {
 
 /**
  * Botão "Instalar app" — dispara o prompt nativo do browser (Android/Chrome/
- * Edge/desktop) ou, no iOS Safari (que não suporta esse prompt), abre um
- * diálogo com o passo a passo manual. Não aparece se a app já estiver
- * instalada, nem em browsers que não ofereçam nenhuma das duas vias.
+ * Edge/desktop) ou, quando o browser não oferece esse prompt (iOS Safari
+ * nunca oferece; Firefox Android/desktop e outros também não implementam
+ * `beforeinstallprompt`), abre um diálogo com o passo a passo manual. Fica
+ * sempre visível para qualquer utilizador poder instalar — antes só
+ * aparecia em browsers com suporte a `beforeinstallprompt` ou no iOS,
+ * ficando invisível (nenhum botão, nenhuma instrução) em todos os outros,
+ * ex. Firefox Android. Só desaparece quando a app já está instalada.
  */
 export default function InstallAppButton({ variant = 'cta', className }: Props) {
   const { canPromptInstall, isIOS, isInstalled, promptInstall } = useInstallPrompt();
   const [showIOSInstructions, setShowIOSInstructions] = useState(false);
+  const [showGenericInstructions, setShowGenericInstructions] = useState(false);
 
-  if (isInstalled || (!canPromptInstall && !isIOS)) return null;
+  if (isInstalled) return null;
 
   const label = variant === 'cta' ? 'Instalar no telemóvel' : 'Instalar app';
+
+  const handleClick = () => {
+    if (canPromptInstall) { void promptInstall(); return; }
+    if (isIOS) { setShowIOSInstructions(true); return; }
+    setShowGenericInstructions(true);
+  };
 
   return (
     <>
       <Button
         variant={variant === 'cta' ? 'outline' : 'ghost'}
         size={variant === 'cta' ? 'lg' : 'sm'}
-        onClick={() => (canPromptInstall ? promptInstall() : setShowIOSInstructions(true))}
+        onClick={handleClick}
         className={cn(
           variant === 'compact' && 'w-full justify-center lg:justify-start gap-2 text-muted-foreground',
           className,
@@ -61,6 +72,33 @@ export default function InstallAppButton({ variant = 'cta', className }: Props) 
             <li className="flex items-start gap-3">
               <span className="w-6 h-6 rounded-full bg-primary/15 text-primary text-xs font-bold flex items-center justify-center shrink-0">3</span>
               <span>Confirma em "Adicionar" — o ícone da app fica no ecrã principal.</span>
+            </li>
+          </ol>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showGenericInstructions} onOpenChange={setShowGenericInstructions}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Instalar a app</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground mb-1">
+            Este navegador não oferece um botão directo de instalação — instale pelo menu do próprio navegador:
+          </p>
+          <ol className="space-y-3 text-sm text-foreground">
+            <li className="flex items-start gap-3">
+              <span className="w-6 h-6 rounded-full bg-primary/15 text-primary text-xs font-bold flex items-center justify-center shrink-0">1</span>
+              <span className="flex items-center gap-1.5">
+                Abre o menu do navegador <Menu className="w-4 h-4 inline text-muted-foreground" /> (⋮ ou ≡, geralmente no canto superior direito).
+              </span>
+            </li>
+            <li className="flex items-start gap-3">
+              <span className="w-6 h-6 rounded-full bg-primary/15 text-primary text-xs font-bold flex items-center justify-center shrink-0">2</span>
+              <span>Procura "Instalar aplicação", "Adicionar ao ecrã principal" ou "Adicionar a Início".</span>
+            </li>
+            <li className="flex items-start gap-3">
+              <span className="w-6 h-6 rounded-full bg-primary/15 text-primary text-xs font-bold flex items-center justify-center shrink-0">3</span>
+              <span>Confirma — o ícone da app fica disponível para abrir directamente, mesmo offline.</span>
             </li>
           </ol>
         </DialogContent>
