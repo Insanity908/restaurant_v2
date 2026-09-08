@@ -55,15 +55,29 @@ export function savePaymentAccounts(p: PaymentAccounts): PaymentAccounts {
   return next;
 }
 
+const FULL_COLUMNS = 'bank_name, bank_account, bank_holder, notes, mobile_money_provider, mobile_money, superadmin_whatsapp, emola_number, mpesa_number, updated_at';
+/** Colunas que `anon` tem grant para ler (ver migração 20260908110000) — usado
+ * como fallback para visitantes não autenticados (Landing/Pricing antes de
+ * login), que só precisam do contacto de WhatsApp. */
+const PUBLIC_COLUMNS = 'superadmin_whatsapp, updated_at';
+
 /** Hydrate cache from Supabase. */
 export async function fetchPaymentAccounts(): Promise<PaymentAccounts> {
   let data: Record<string, unknown> | null = null;
   try {
-    const res = await supabase
+    let res = await supabase
       .from('system_payment_accounts')
-      .select('bank_name, bank_account, bank_holder, notes, mobile_money_provider, mobile_money, superadmin_whatsapp, emola_number, mpesa_number, updated_at')
+      .select(FULL_COLUMNS)
       .eq('id', 1)
       .maybeSingle();
+    if (res.error) {
+      // Visitante anónimo: só tem grant nas colunas públicas.
+      res = await supabase
+        .from('system_payment_accounts')
+        .select(PUBLIC_COLUMNS)
+        .eq('id', 1)
+        .maybeSingle();
+    }
     if (res.error) { console.warn('fetchPaymentAccounts failed', res.error.message); return readCache(); }
     data = res.data;
   } catch (err) {

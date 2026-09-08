@@ -9,7 +9,7 @@
 // client's own RLS-scoped session is allowed to do.
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
+import { buildCorsHeaders } from '../_shared/cors.ts';
 import { z } from 'npm:zod@3';
 
 const BodySchema = z.object({
@@ -18,6 +18,7 @@ const BodySchema = z.object({
 });
 
 Deno.serve(async (req) => {
+  const corsHeaders = buildCorsHeaders(req.headers.get('origin'));
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {

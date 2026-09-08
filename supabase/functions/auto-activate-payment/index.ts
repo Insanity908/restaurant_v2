@@ -14,7 +14,7 @@
 // x-push-trigger-secret).
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
+import { buildCorsHeaders } from '../_shared/cors.ts';
 
 // Formato real observado (Secção 0), e-Mola:
 //   "ID Trans: PP260821.2115.C86954. Recebeu 40.00MT de 878241021, sandra
@@ -82,13 +82,6 @@ async function resolvePlanByAmount(admin: ReturnType<typeof createClient>, amoun
     }
   }
   return [...matches];
-}
-
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
 }
 
 // Aceita tanto JSON (a maioria das apps de reencaminhamento, ex.
@@ -178,6 +171,13 @@ async function sendAccessCodeEmail(email: string, accessCode: string, planLabel:
 }
 
 Deno.serve(async (req) => {
+  const corsHeaders = buildCorsHeaders(req.headers.get('origin'));
+  function json(body: unknown, status = 200) {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 

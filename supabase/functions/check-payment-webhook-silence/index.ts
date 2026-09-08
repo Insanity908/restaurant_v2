@@ -17,16 +17,9 @@
 //      alarme falso todos os dias.
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
+import { buildCorsHeaders } from '../_shared/cors.ts';
 
 const SILENCE_THRESHOLD_HOURS = 6;
-
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-}
 
 // Mesmo padrão de notifySuperadminFailure em auto-activate-payment/
 // index.ts (duplicado de propósito — Edge Functions não importam de
@@ -61,6 +54,13 @@ async function notifySuperadmins(
 }
 
 Deno.serve(async (req) => {
+  const corsHeaders = buildCorsHeaders(req.headers.get('origin'));
+  function json(body: unknown, status = 200) {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {

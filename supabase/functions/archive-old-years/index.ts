@@ -25,7 +25,7 @@
 // gravado.
 
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2';
-import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
+import { buildCorsHeaders } from '../_shared/cors.ts';
 import { z } from 'npm:zod@3';
 import * as XLSX from 'npm:xlsx@0.18.5';
 
@@ -36,12 +36,6 @@ const MONTHS_PT = [
   'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
   'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
 ];
-
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-}
 
 // -- Tipos mínimos (só os campos que os cálculos abaixo realmente usam) -----
 
@@ -365,6 +359,12 @@ async function archiveYear(admin: SupabaseClient, tenantId: string, year: number
 const ManualBodySchema = z.object({ tenantId: z.string().uuid(), year: z.number().int().min(2000).max(2100) });
 
 Deno.serve(async (req) => {
+  const corsHeaders = buildCorsHeaders(req.headers.get('origin'));
+  function json(body: unknown, status = 200) {
+    return new Response(JSON.stringify(body), {
+      status, headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {

@@ -10,7 +10,7 @@
 // leitura directa do cliente).
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
+import { buildCorsHeaders } from '../_shared/cors.ts';
 import { z } from 'npm:zod@3';
 
 const BodySchema = z.object({
@@ -21,13 +21,6 @@ const BodySchema = z.object({
   ]),
   amount: z.number().positive(),
 });
-
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-}
 
 async function sendAccessCodeEmail(email: string, accessCode: string, planLabel: string) {
   const apiKey = Deno.env.get('RESEND_API_KEY')!;
@@ -49,6 +42,13 @@ async function sendAccessCodeEmail(email: string, accessCode: string, planLabel:
 }
 
 Deno.serve(async (req) => {
+  const corsHeaders = buildCorsHeaders(req.headers.get('origin'));
+  function json(body: unknown, status = 200) {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {

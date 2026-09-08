@@ -3,7 +3,7 @@
 // - `block` / `unblock` / `extend` / `reduce` / `activate` / `delete`: super-admin only.
 
 import { createClient } from 'npm:@supabase/supabase-js@2';
-import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
+import { buildCorsHeaders } from '../_shared/cors.ts';
 import { z } from 'npm:zod@3';
 
 // Os 4 primeiros são o nível "Profissional" (implícito, sem prefixo); os
@@ -31,13 +31,6 @@ const SELECT =
   ' subscriptions(plan, status, started_at, expires_at, last_payment_ref, blocked_by_admin, block_reason),' +
   ' subscription_history(plan, paid_at, ref, price)';
 
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  });
-}
-
 function addMonths(date: Date, months: number) {
   const d = new Date(date);
   d.setMonth(d.getMonth() + months);
@@ -45,6 +38,13 @@ function addMonths(date: Date, months: number) {
 }
 
 Deno.serve(async (req) => {
+  const corsHeaders = buildCorsHeaders(req.headers.get('origin'));
+  function json(body: unknown, status = 200) {
+    return new Response(JSON.stringify(body), {
+      status,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    });
+  }
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
