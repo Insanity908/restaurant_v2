@@ -323,9 +323,18 @@ function PendingConfirmationPanel({
                 <li key={item.id}>{item.quantity}x {item.name}{item.notes ? ` — ${item.notes}` : ''}</li>
               ))}
             </ul>
-            {order.contactPhone && (
+            {order.type === 'delivery' && order.customerPhone && (
               <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                <Phone className="w-3 h-3 shrink-0" /> Contacto: {order.contactPhone}
+                <Phone className="w-3 h-3 shrink-0" /> Registado: {order.customerPhone}
+              </p>
+            )}
+            {order.contactPhone && order.contactPhone !== order.customerPhone && (
+              // O cliente pode estar a usar um número diferente do registado
+              // na fidelização (ex: telemóvel de outra pessoa) — este é o
+              // número que ele próprio pediu para usar neste pedido, por
+              // isso fica destacado em vez de escondido como o registado.
+              <p className="flex items-center gap-1 text-xs font-semibold text-primary">
+                <Phone className="w-3 h-3 shrink-0" /> Ligar para este pedido: {order.contactPhone}
               </p>
             )}
             {order.deliveryAddress && (

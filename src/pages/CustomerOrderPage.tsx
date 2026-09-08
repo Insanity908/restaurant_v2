@@ -158,7 +158,16 @@ export default function CustomerOrderPage() {
       pos => {
         setLocating(false);
         const link = `https://www.google.com/maps?q=${pos.coords.latitude},${pos.coords.longitude}`;
-        setAddress(prev => (prev.trim() ? `${prev.trim()}\n${link}` : link));
+        // A morada pode já vir pré-preenchida com um link de mapa de um
+        // pedido anterior (found?.address) — substitui-o em vez de acumular,
+        // senão um segundo clique (ou uma morada já reaproveitada) duplica o
+        // link em vez de o actualizar.
+        setAddress(prev => {
+          // Global: se a morada guardada já tiver ficado com mais do que um
+          // link (dados antigos, de antes desta correção), remove-os todos.
+          const withoutOldLinks = prev.replace(new RegExp(MAPS_LINK_RE.source, 'g'), '').trim();
+          return withoutOldLinks ? `${withoutOldLinks}\n${link}` : link;
+        });
       },
       err => {
         setLocating(false);

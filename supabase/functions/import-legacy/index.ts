@@ -92,7 +92,12 @@ Deno.serve(async (req) => {
 
     const imported: Record<string, number> = {};
 
-    // Skip anything already present so re-running is safe.
+    // Skip anything already present so re-running is safe. `idOf()` mints a
+    // fresh random uuid for any legacy item without a valid one (localStorage
+    // ids were never real uuids) — so an id-only check never matches across
+    // two separate calls and re-running silently doubles the data. Every
+    // block below must also match on a stable natural key (like tables/
+    // customers/staff already did), not just `id`.
     const existingIds = async (table: string) => {
       const { data: rows } = await admin.from(table).select('id').eq('tenant_id', tenantId);
       return new Set((rows ?? []).map(r => r.id as string));
@@ -100,11 +105,16 @@ Deno.serve(async (req) => {
 
     if (data.menuItems.length) {
       const seen = await existingIds('menu_items');
-      const rows = data.menuItems.map(m => ({
-        id: idOf(m.id), tenant_id: tenantId, name: m.name, price: m.price, category: m.category,
-        description: m.description ?? null, image_path: m.image ?? null, available: m.available,
-        modifiers: m.modifiers ?? [], recipe: m.recipe ?? null,
-      })).filter(r => !seen.has(r.id));
+      const { data: existingItems } = await admin.from('menu_items').select('name').eq('tenant_id', tenantId);
+      const names = new Set((existingItems ?? []).map(r => (r.name ?? '').trim().toLowerCase()));
+      const rows = data.menuItems
+        .filter(m => !names.has(m.name.trim().toLowerCase()))
+        .map(m => ({
+          id: idOf(m.id), tenant_id: tenantId, name: m.name, price: m.price, category: m.category,
+          description: m.description ?? null, image_path: m.image ?? null, available: m.available,
+          modifiers: m.modifiers ?? [], recipe: m.recipe ?? null,
+        }))
+        .filter(r => !seen.has(r.id));
       if (rows.length) {
         const { error } = await admin.from('menu_items').insert(rows);
         if (error) throw error;
@@ -127,11 +137,16 @@ Deno.serve(async (req) => {
 
     if (data.inventory.length) {
       const seen = await existingIds('inventory_items');
-      const rows = data.inventory.map(i => ({
-        id: idOf(i.id), tenant_id: tenantId, name: i.name, unit: i.unit,
-        current_stock: i.currentStock, min_stock: i.minStock, cost_per_unit: i.costPerUnit,
-        linked_menu_item_ids: i.linkedMenuItemIds, usage_per_serving: i.usagePerServing,
-      })).filter(r => !seen.has(r.id));
+      const { data: existingInventory } = await admin.from('inventory_items').select('name').eq('tenant_id', tenantId);
+      const invNames = new Set((existingInventory ?? []).map(r => (r.name ?? '').trim().toLowerCase()));
+      const rows = data.inventory
+        .filter(i => !invNames.has(i.name.trim().toLowerCase()))
+        .map(i => ({
+          id: idOf(i.id), tenant_id: tenantId, name: i.name, unit: i.unit,
+          current_stock: i.currentStock, min_stock: i.minStock, cost_per_unit: i.costPerUnit,
+          linked_menu_item_ids: i.linkedMenuItemIds, usage_per_serving: i.usagePerServing,
+        }))
+        .filter(r => !seen.has(r.id));
       if (rows.length) {
         const { error } = await admin.from('inventory_items').insert(rows);
         if (error) throw error;
