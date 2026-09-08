@@ -166,7 +166,11 @@ export default function AppSidebar() {
                 <span className="relative shrink-0">
                   <Icon className={cn('w-5 h-5', active ? 'text-primary' : 'text-muted-foreground')} />
                   {badge > 0 && (
-                    <span className="absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold flex items-center justify-center animate-pulse">
+                    // Só na barra estreita (md-lg, só ícone) — a partir de lg
+                    // o rótulo aparece com o seu próprio badge ao lado (ver
+                    // baixo); sem este lg:hidden os dois ficavam visíveis ao
+                    // mesmo tempo, mostrando a contagem duplicada.
+                    <span className="lg:hidden absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-destructive text-destructive-foreground text-[10px] font-bold flex items-center justify-center animate-pulse">
                       {badge > 9 ? '9+' : badge}
                     </span>
                   )}
