@@ -1,6 +1,7 @@
 import { describe, it, beforeEach, expect, vi } from 'vitest';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
@@ -106,7 +107,7 @@ describe('BlockedPage', () => {
   it('mostra a opção de mudar para outro restaurante do utilizador', async () => {
     const { default: BlockedPage } = await import('@/pages/BlockedPage');
     const user = userEvent.setup();
-    render(<BlockedPage />);
+    render(<MemoryRouter><BlockedPage /></MemoryRouter>);
 
     await user.click(await screen.findByText('Restaurante OK'));
 
@@ -116,7 +117,7 @@ describe('BlockedPage', () => {
   it('mostra os dados de pagamento manual e submete um comprovativo', async () => {
     const { default: BlockedPage } = await import('@/pages/BlockedPage');
     const user = userEvent.setup();
-    render(<BlockedPage />);
+    render(<MemoryRouter><BlockedPage /></MemoryRouter>);
 
     expect(await screen.findByText('123456')).toBeInTheDocument();
 
@@ -130,7 +131,7 @@ describe('BlockedPage', () => {
   it('"Sair" continua a chamar logout', async () => {
     const { default: BlockedPage } = await import('@/pages/BlockedPage');
     const user = userEvent.setup();
-    render(<BlockedPage />);
+    render(<MemoryRouter><BlockedPage /></MemoryRouter>);
 
     await user.click(await screen.findByRole('button', { name: /sair/i }));
 
