@@ -44,7 +44,6 @@ vi.mock('@/lib/tenants', () => ({
   tenantStore: { getAll: () => [], current: () => null },
 }));
 
-vi.mock('@/components/InstallAppButton', () => ({ default: () => null }));
 vi.mock('@/components/RestaurantSwitcherDialog', () => ({ default: () => null }));
 vi.mock('@/components/FeedbackDialog', () => ({ default: () => null }));
 

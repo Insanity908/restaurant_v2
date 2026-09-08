@@ -767,6 +767,7 @@ export type Database = {
           client_updated_at: string
           closed_at: string | null
           closed_by: Json | null
+          contact_phone: string | null
           created_at: string
           created_by: Json | null
           customer_id: string | null
@@ -794,6 +795,7 @@ export type Database = {
           client_updated_at?: string
           closed_at?: string | null
           closed_by?: Json | null
+          contact_phone?: string | null
           created_at?: string
           created_by?: Json | null
           customer_id?: string | null
@@ -821,6 +823,7 @@ export type Database = {
           client_updated_at?: string
           closed_at?: string | null
           closed_by?: Json | null
+          contact_phone?: string | null
           created_at?: string
           created_by?: Json | null
           customer_id?: string | null
@@ -1582,6 +1585,7 @@ export type Database = {
       }
       submit_customer_order: {
         Args: {
+          p_contact_phone?: string
           p_customer_name: string
           p_customer_phone: string
           p_delivery_address?: string

@@ -91,6 +91,11 @@ export default function CustomerOrderPage() {
   const [addressConfirmed, setAddressConfirmed] = useState(false);
   const [locating, setLocating] = useState(false);
 
+  // Contacto extra opcional para este pedido — além do telefone já
+  // registado na fidelização (entrega) ou, na mesa, o único contacto que o
+  // cliente deixa (não há verificação de telefone nesse fluxo).
+  const [contactPhone, setContactPhone] = useState('');
+
   useEffect(() => {
     if (!tenantId) return;
     fetchPublicMenu(tenantId).then(setMenu);
@@ -180,6 +185,7 @@ export default function CustomerOrderPage() {
         customerPhone: isDelivery ? phone : undefined,
         customerName: customer?.name,
         deliveryAddress: isDelivery ? address.trim() : undefined,
+        contactPhone: contactPhone.trim() || undefined,
         items: lines.map(l => ({ menuItemId: l.item.id, quantity: l.quantity, notes: l.notes || undefined })),
         idempotencyKey: idempotencyKeyRef.current,
       });
@@ -352,8 +358,12 @@ export default function CustomerOrderPage() {
                 return (
                   <div
                     key={item.id}
+                    onClick={() => setQty(item, qty + 1)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setQty(item, qty + 1); } }}
                     className={cn(
-                      'bg-card rounded-2xl overflow-hidden border transition-shadow',
+                      'bg-card rounded-2xl overflow-hidden border transition-shadow cursor-pointer active:scale-[0.98] transition-transform',
                       qty > 0 ? 'border-primary/40 shadow-sm' : 'border-border',
                     )}
                   >
@@ -371,14 +381,17 @@ export default function CustomerOrderPage() {
                       />
                       {qty === 0 ? (
                         <button
-                          onClick={() => setQty(item, 1)}
+                          onClick={e => { e.stopPropagation(); setQty(item, 1); }}
                           aria-label={`Adicionar ${item.name}`}
                           className="absolute bottom-2 right-2 w-9 h-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-md active:scale-95 transition-transform"
                         >
                           <Plus className="w-4 h-4" />
                         </button>
                       ) : (
-                        <div className="absolute bottom-2 right-2 flex items-center gap-1 bg-background/95 backdrop-blur rounded-full px-1 py-1 shadow-md border border-border">
+                        <div
+                          onClick={e => e.stopPropagation()}
+                          className="absolute bottom-2 right-2 flex items-center gap-1 bg-background/95 backdrop-blur rounded-full px-1 py-1 shadow-md border border-border"
+                        >
                           <button
                             onClick={() => setQty(item, qty - 1)}
                             aria-label={`Remover ${item.name}`}
@@ -441,6 +454,21 @@ export default function CustomerOrderPage() {
                   </div>
                 </div>
               ))}
+              <div className="space-y-1.5 pt-1">
+                <label className="text-xs text-muted-foreground" htmlFor="contact-phone">
+                  Outro contacto para este pedido (opcional)
+                </label>
+                <div className="flex items-center gap-2">
+                  <Phone className="w-4 h-4 text-muted-foreground shrink-0" />
+                  <Input
+                    id="contact-phone"
+                    value={contactPhone}
+                    onChange={e => setContactPhone(maskMzPhone(e.target.value))}
+                    placeholder="84 123 4567"
+                    inputMode="numeric"
+                  />
+                </div>
+              </div>
             </section>
           )}
         </div>

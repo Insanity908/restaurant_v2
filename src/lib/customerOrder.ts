@@ -79,6 +79,10 @@ export interface SubmitCustomerOrderParams {
   customerPhone?: string;
   customerName?: string;
   deliveryAddress?: string;
+  /** Contacto extra opcional deixado pelo cliente neste pedido, além do
+   *  customerPhone (que na entrega é sempre o telefone já registado na
+   *  fidelização, e na mesa nem existe). */
+  contactPhone?: string;
   items: CustomerCartItem[];
   /** Gerada uma vez por visita à página (ver CustomerOrderPage) — reenviada
    *  em qualquer nova tentativa do mesmo carrinho, para que um duplo-toque
@@ -95,6 +99,7 @@ export async function submitCustomerOrder(params: SubmitCustomerOrderParams): Pr
     p_customer_phone: params.customerPhone ?? null,
     p_customer_name: params.customerName ?? null,
     p_delivery_address: params.deliveryAddress ?? null,
+    p_contact_phone: params.contactPhone?.trim() || null,
     p_items: params.items.map(i => ({
       menu_item_id: i.menuItemId,
       quantity: i.quantity,

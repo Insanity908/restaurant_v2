@@ -5,7 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useLicense } from '@/hooks/useLicense';
 import { BASIC_LIMITS } from '@/lib/billing';
 import { cn } from '@/lib/utils';
-import { Users, Plus, Pencil, Trash2, X, Clock, Eye, Printer, QrCode, Check, Ban, Bell, ArrowRightLeft } from 'lucide-react';
+import { Users, Plus, Pencil, Trash2, X, Clock, Eye, Printer, QrCode, Check, Ban, Bell, ArrowRightLeft, Phone } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { Table as TableType, Order, MenuItem } from '@/types/restaurant';
 import { formatPrice, getMenuItemImage, findMenuItemImagePath } from '@/lib/helpers';
@@ -323,6 +323,11 @@ function PendingConfirmationPanel({
                 <li key={item.id}>{item.quantity}x {item.name}{item.notes ? ` — ${item.notes}` : ''}</li>
               ))}
             </ul>
+            {order.contactPhone && (
+              <p className="flex items-center gap-1 text-xs text-muted-foreground">
+                <Phone className="w-3 h-3 shrink-0" /> Contacto: {order.contactPhone}
+              </p>
+            )}
             {order.deliveryAddress && (
               <p className="text-xs text-muted-foreground">
                 Morada: {order.deliveryAddress.split('\n').map((line, idx) => (

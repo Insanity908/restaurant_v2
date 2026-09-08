@@ -229,6 +229,7 @@ function orderRow(o: Partial<Order>, t?: string) {
   if (o.customerName !== undefined) row.customer_name = o.customerName ?? null;
   if (o.customerPhone !== undefined) row.customer_phone = o.customerPhone ?? null;
   if (o.deliveryAddress !== undefined) row.delivery_address = o.deliveryAddress ?? null;
+  if (o.contactPhone !== undefined) row.contact_phone = o.contactPhone ?? null;
   if (o.total !== undefined) row.total = o.total;
   if (o.discount !== undefined) row.discount = o.discount ?? 0;
   if (o.tip !== undefined) row.tip = o.tip ?? 0;
@@ -448,6 +449,7 @@ export function mapOrderRow(r: Record<string, unknown>): Order {
     customerName: (r.customer_name as string) ?? undefined,
     customerPhone: (r.customer_phone as string) ?? undefined,
     deliveryAddress: (r.delivery_address as string) ?? undefined,
+    contactPhone: (r.contact_phone as string) ?? undefined,
     total: Number(r.total ?? 0),
     discount: Number(r.discount ?? 0) || undefined,
     tip: Number(r.tip ?? 0) || undefined,

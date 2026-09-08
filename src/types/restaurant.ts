@@ -68,6 +68,9 @@ export interface Order {
   customerId?: string;
   /** Snapshot da morada usada neste pedido — só para 'delivery' submetido pelo próprio cliente. */
   deliveryAddress?: string;
+  /** Contacto extra opcional deixado pelo cliente neste pedido específico
+   *  (via CustomerOrderPage), além de customerPhone. */
+  contactPhone?: string;
   createdAt: string;
   updatedAt: string;
   total: number;

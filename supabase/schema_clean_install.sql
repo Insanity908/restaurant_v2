@@ -645,6 +645,10 @@ create table public.orders (
   -- submetido pelo próprio cliente (não é só um FK para customers.address
   -- porque a morada guardada pode mudar depois deste pedido).
   delivery_address text,
+  -- Contacto adicional (opcional) deixado pelo próprio cliente neste pedido
+  -- — distinto de customer_phone (no fluxo de entrega, sempre o telefone já
+  -- registado na fidelização; no fluxo de mesa nunca existe outro).
+  contact_phone text,
   total numeric(12,2) not null default 0,
   discount numeric(12,2) not null default 0,
   tip numeric(12,2) not null default 0,
@@ -888,7 +892,8 @@ create or replace function public.submit_customer_order(
   p_customer_name text,
   p_items jsonb,
   p_delivery_address text default null,
-  p_idempotency_key text default null
+  p_idempotency_key text default null,
+  p_contact_phone text default null
 )
 returns uuid
 language plpgsql security definer set search_path = public
@@ -973,11 +978,12 @@ begin
   begin
     insert into public.orders (
       id, tenant_id, table_id, table_number, type, status,
-      customer_id, customer_name, customer_phone, delivery_address,
+      customer_id, customer_name, customer_phone, delivery_address, contact_phone,
       total, paid, created_by, idempotency_key
     ) values (
       v_order_id, p_tenant_id, p_table_id, v_table_number, v_type, 'awaiting-confirmation',
       v_customer_id, coalesce(v_customer_name, nullif(trim(p_customer_name), '')), p_customer_phone, v_delivery_address,
+      nullif(trim(p_contact_phone), ''),
       0, false, jsonb_build_object('source', 'customer'), p_idempotency_key
     );
   exception when unique_violation then
@@ -1061,7 +1067,7 @@ $$;
 
 grant execute on function public.get_public_branding(uuid) to anon, authenticated;
 grant execute on function public.verify_loyalty_customer(uuid, text) to anon, authenticated;
-grant execute on function public.submit_customer_order(uuid, uuid, text, text, jsonb, text, text) to anon, authenticated;
+grant execute on function public.submit_customer_order(uuid, uuid, text, text, jsonb, text, text, text) to anon, authenticated;
 grant execute on function public.get_order_status(uuid) to anon, authenticated;
 
 -- Superadmin-only view of Supabase Storage usage per bucket, plus database size.
