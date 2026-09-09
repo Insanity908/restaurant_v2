@@ -4,7 +4,7 @@ import {
   fetchPublicMenu, verifyLoyaltyCustomer, submitCustomerOrder, fetchPublicBranding,
   type PublicMenuItem, type LoyaltyCustomer, type PublicBranding,
 } from '@/lib/customerOrder';
-import { formatPrice } from '@/lib/helpers';
+import { formatPrice, getMenuItemImage } from '@/lib/helpers';
 import { maskMzPhone, validateMzMobile } from '@/lib/validators';
 import { applyTheme, DEFAULT_SETTINGS } from '@/lib/settings';
 import StorageImage from '@/components/StorageImage';
@@ -98,6 +98,12 @@ export default function CustomerOrderPage() {
 
   useEffect(() => {
     if (!tenantId) return;
+    // Aplica já um tema por omissão — sem isto, se get_public_branding
+    // falhar ou demorar (rede do telemóvel do cliente, não da equipa), o
+    // ecrã fica sem nenhuma cor durante esse tempo (às vezes a sessão
+    // inteira, já que nunca há retry). Fica logo substituído se a marca
+    // real do restaurante chegar a seguir.
+    applyTheme(DEFAULT_SETTINGS);
     fetchPublicMenu(tenantId).then(setMenu);
     // A app da equipa lê a marca/cores de app_settings em localStorage — não
     // existe aqui (é o telemóvel do próprio cliente), por isso vem por uma
@@ -380,6 +386,7 @@ export default function CustomerOrderPage() {
                       <StorageImage
                         bucket={MENU_BUCKET}
                         path={item.image}
+                        fallbackSrc={getMenuItemImage(item.name)}
                         alt={item.name}
                         className="w-full h-full object-cover"
                         placeholder={
@@ -437,12 +444,28 @@ export default function CustomerOrderPage() {
               <h2 className="font-heading text-sm font-bold flex items-center gap-1.5">
                 <ShoppingCart className="w-4 h-4 text-primary" /> O seu pedido
               </h2>
+              <div className="space-y-1.5">
+                <label className="text-xs text-muted-foreground" htmlFor="contact-phone">
+                  Outro contacto para este pedido (opcional)
+                </label>
+                <div className="flex items-center gap-2">
+                  <Phone className="w-4 h-4 text-muted-foreground shrink-0" />
+                  <Input
+                    id="contact-phone"
+                    value={contactPhone}
+                    onChange={e => setContactPhone(maskMzPhone(e.target.value))}
+                    placeholder="84 123 4567"
+                    inputMode="numeric"
+                  />
+                </div>
+              </div>
               {lines.map(l => (
                 <div key={l.item.id} className="flex gap-3 bg-card rounded-xl p-2.5 border border-border">
                   <div className="w-14 h-14 rounded-lg overflow-hidden bg-secondary shrink-0">
                     <StorageImage
                       bucket={MENU_BUCKET}
                       path={l.item.image}
+                      fallbackSrc={getMenuItemImage(l.item.name)}
                       alt={l.item.name}
                       className="w-full h-full object-cover"
                       placeholder={<div className="w-full h-full flex items-center justify-center text-lg">🍽️</div>}
@@ -463,21 +486,6 @@ export default function CustomerOrderPage() {
                   </div>
                 </div>
               ))}
-              <div className="space-y-1.5 pt-1">
-                <label className="text-xs text-muted-foreground" htmlFor="contact-phone">
-                  Outro contacto para este pedido (opcional)
-                </label>
-                <div className="flex items-center gap-2">
-                  <Phone className="w-4 h-4 text-muted-foreground shrink-0" />
-                  <Input
-                    id="contact-phone"
-                    value={contactPhone}
-                    onChange={e => setContactPhone(maskMzPhone(e.target.value))}
-                    placeholder="84 123 4567"
-                    inputMode="numeric"
-                  />
-                </div>
-              </div>
             </section>
           )}
         </div>
