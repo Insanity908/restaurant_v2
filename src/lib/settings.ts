@@ -20,10 +20,6 @@ export interface AppSettings {
   mpesaNumber: string;
   mpesaName: string;
   emolaNumber: string;
-  bankName: string;
-  bankAccount: string;
-  bankIban: string;
-  bankHolder: string;
   taxId: string;
   address: string;
   phone: string;
@@ -54,10 +50,6 @@ export const DEFAULT_SETTINGS: AppSettings = {
   mpesaNumber: '',
   mpesaName: '',
   emolaNumber: '',
-  bankName: '',
-  bankAccount: '',
-  bankIban: '',
-  bankHolder: '',
   taxId: '',
   address: '',
   phone: '',

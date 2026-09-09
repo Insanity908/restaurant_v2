@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
  * `get_public_branding` é a ÚNICA função que expõe `app_settings` a `anon`
  * (a página de pedido do cliente não tem sessão) — `app_settings.data` é um
  * jsonb único que também guarda dados de pagamento sensíveis (mpesaNumber,
- * bankAccount, bankIban, emolaNumber, chaves fiscais, etc.). Um `select *`
+ * emolaNumber, chaves fiscais, etc.). Um `select *`
  * ou um `jsonb_build_object` alargado por engano num refactor futuro
  * vazaria esses dados publicamente, sem precisar de sessão nenhuma.
  *
@@ -28,8 +28,7 @@ const ALLOWED_BRANDING_KEYS = [
 // Campos de app_settings.data que NUNCA podem aparecer numa função pública —
 // nomes reais vistos em src/lib/settings.ts (AppSettings).
 const SENSITIVE_SETTINGS_FIELDS = [
-  'mpesaNumber', 'mpesaName', 'emolaNumber', 'bankName', 'bankAccount',
-  'bankIban', 'bankHolder', 'taxId', 'address', 'phone', 'receiptLogo',
+  'mpesaNumber', 'mpesaName', 'emolaNumber', 'taxId', 'address', 'phone', 'receiptLogo',
 ];
 
 function extractFunctionBody(sql: string, functionName: string): string {

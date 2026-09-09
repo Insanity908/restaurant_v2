@@ -24,18 +24,6 @@ export function maskIntlPhone(raw: string): string {
   return (hasPlus ? '+' : '') + d;
 }
 
-/** Bank account: groups of 4 digits, max 16. */
-export function maskBankAccount(raw: string): string {
-  const d = digits(raw).slice(0, 16);
-  return d.replace(/(.{4})/g, '$1 ').trim();
-}
-
-/** IBAN MZ: "MZ" + 23 digits, grouped 4 chars. */
-export function maskIban(raw: string): string {
-  const cleaned = raw.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 25);
-  return cleaned.replace(/(.{4})/g, '$1 ').trim();
-}
-
 /** NUIT: 9 digits. */
 export function maskNuit(raw: string): string {
   return digits(raw).slice(0, 9);
@@ -67,20 +55,6 @@ export function validateEmola(raw: string): ValidationResult {
   const d = digits(raw);
   if (d.length !== 9) return 'Deve ter 9 dígitos (ex: 86 123 4567)';
   if (!/^8[67]/.test(d)) return 'e-Mola deve começar por 86 ou 87 (Movitel)';
-  return null;
-}
-
-export function validateBankAccount(raw: string): ValidationResult {
-  if (!raw.trim()) return null;
-  const d = digits(raw);
-  if (d.length < 8 || d.length > 16) return 'Conta deve ter entre 8 e 16 dígitos';
-  return null;
-}
-
-export function validateIban(raw: string): ValidationResult {
-  if (!raw.trim()) return null;
-  const c = raw.toUpperCase().replace(/\s/g, '');
-  if (!/^MZ\d{23}$/.test(c)) return 'IBAN inválido. Formato: MZ + 23 dígitos';
   return null;
 }
 

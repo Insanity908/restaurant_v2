@@ -10,8 +10,8 @@ import { useSettings } from '@/hooks/useSettings';
 import { Upload, RotateCcw, Save, Palette, Building2, Smartphone, Image as ImageIcon, AlertCircle, Check, SlidersHorizontal, ChevronDown } from 'lucide-react';
 import { toast } from 'sonner';
 import {
-  maskMzPhone, maskIntlPhone, maskBankAccount, maskIban, maskNuit,
-  validateMpesa, validateEmola, validateBankAccount, validateIban, validateNuit, validateIntlPhone,
+  maskMzPhone, maskIntlPhone, maskNuit,
+  validateMpesa, validateEmola, validateNuit, validateIntlPhone,
 } from '@/lib/validators';
 import { deriveThemeTokens, type AppSettings } from '@/lib/settings';
 import { uploadTenantImage, LOGO_BUCKET } from '@/lib/storage';
@@ -48,8 +48,6 @@ export default function SettingsPage() {
   const errors = useMemo(() => ({
     mpesaNumber: validateMpesa(local.mpesaNumber),
     emolaNumber: validateEmola(local.emolaNumber),
-    bankAccount: validateBankAccount(local.bankAccount),
-    bankIban: validateIban(local.bankIban),
     taxId: validateNuit(local.taxId),
     phone: validateIntlPhone(local.phone),
   }), [local]);
@@ -354,24 +352,6 @@ export default function SettingsPage() {
                 onChange={v => set('emolaNumber', maskMzPhone(v))}
                 placeholder="86 123 4567" error={errors.emolaNumber}
                 hint="Movitel: começa por 86 ou 87" inputMode="numeric" />
-            </div>
-          </Card>
-
-          <Card className="p-6 space-y-5">
-            <h2 className="font-heading text-lg font-semibold">Conta bancária</h2>
-            <div className="grid sm:grid-cols-2 gap-4">
-              <Field label="Banco" value={local.bankName}
-                onChange={v => set('bankName', v)} placeholder="BCI, BIM, Standard Bank..." />
-              <Field label="Titular" value={local.bankHolder}
-                onChange={v => set('bankHolder', v)} placeholder="Nome do titular" />
-              <Field label="Número da conta" value={local.bankAccount}
-                onChange={v => set('bankAccount', maskBankAccount(v))}
-                placeholder="0000 0000 0000" error={errors.bankAccount}
-                hint="8 a 16 dígitos" inputMode="numeric" />
-              <Field label="NIB / IBAN" value={local.bankIban}
-                onChange={v => set('bankIban', maskIban(v))}
-                placeholder="MZ59 0001 0000 0000 0000 0000 1"
-                error={errors.bankIban} hint="MZ + 23 dígitos" />
             </div>
           </Card>
         </TabsContent>
