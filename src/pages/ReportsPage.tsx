@@ -21,7 +21,7 @@ import { staffStore, shiftStore } from '@/lib/store';
 import { fetchFixedCosts, type PeriodFixedCosts } from '@/lib/expenses';
 import { periodDays, computeStats, pctChange, ZERO_FIXED } from '@/lib/reportStats';
 import { fetchOrdersInRange } from '@/lib/dataArchive';
-import { DollarSign, TrendingUp, ShoppingBag, Award, Package, Calendar as CalendarIcon, ArrowUp, ArrowDown, Minus, Download, FileText, FileSpreadsheet, ScrollText, UserCheck, XCircle, PlusCircle, Clock as ClockIcon, BarChart3, Settings2, Archive } from 'lucide-react';
+import { DollarSign, TrendingUp, ShoppingBag, Award, Package, Calendar as CalendarIcon, ArrowUp, ArrowDown, Minus, Download, Upload, FileText, FileSpreadsheet, ScrollText, UserCheck, XCircle, PlusCircle, Clock as ClockIcon, BarChart3, Settings2, Archive } from 'lucide-react';
 import type { DateRange } from 'react-day-picker';
 import type { Order, Staff, Shift } from '@/types/restaurant';
 import { exportReportsCSV, exportReportsPDF } from '@/lib/exportReports';
@@ -570,6 +570,11 @@ export default function ReportsPage() {
           {user?.role === 'admin' && (
             <Button variant="outline" size="sm" className="h-9 gap-2" asChild>
               <Link to="/data-archive"><Archive className="w-4 h-4" /> Arquivo de Dados</Link>
+            </Button>
+          )}
+          {user?.role === 'admin' && (
+            <Button variant="outline" size="sm" className="h-9 gap-2" asChild>
+              <Link to="/import-data"><Upload className="w-4 h-4" /> Importar Dados Antigos</Link>
             </Button>
           )}
         </div>

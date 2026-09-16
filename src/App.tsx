@@ -27,6 +27,7 @@ const SettingsPage = lazy(() => import("@/pages/SettingsPage"));
 const StaffPage = lazy(() => import("@/pages/StaffPage"));
 const ExpensesPage = lazy(() => import("@/pages/ExpensesPage"));
 const DataArchivePage = lazy(() => import("@/pages/DataArchivePage"));
+const ImportDataPage = lazy(() => import("@/pages/ImportDataPage"));
 const ShiftsPage = lazy(() => import("@/pages/ShiftsPage"));
 const CustomersPage = lazy(() => import("@/pages/CustomersPage"));
 const LoginPage = lazy(() => import("@/pages/LoginPage"));
@@ -122,6 +123,7 @@ const App = () => (
               <Route path="/staff" element={<RequireAuth><StaffPage /></RequireAuth>} />
               <Route path="/expenses" element={<RequireAuth><ExpensesPage /></RequireAuth>} />
               <Route path="/data-archive" element={<RequireAuth><DataArchivePage /></RequireAuth>} />
+              <Route path="/import-data" element={<RequireAuth><ImportDataPage /></RequireAuth>} />
               <Route path="/shifts" element={<RequireAuth><ShiftsPage /></RequireAuth>} />
               <Route path="/customers" element={<RequireAuth><CustomersPage /></RequireAuth>} />
               <Route path="/settings" element={<RequireAuth><SettingsPage /></RequireAuth>} />
