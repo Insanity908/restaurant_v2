@@ -52,18 +52,16 @@ vi.mock('@/integrations/supabase/client', () => ({
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           update: () => {
             updateAttempts += 1;
+            const resolveCall = () => (networkUp
+              ? Promise.resolve({ data: [{ id: orderId }], error: null }).then(r => { serverPaid = true; return r; })
+              : delay({ data: null, error: { message: 'Failed to fetch', code: '' } }, 5));
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const builder: any = {
+              select: () => builder,
               eq: () => builder,
-              lte: () => (networkUp ? Promise.resolve({ error: null }).then(r => { serverPaid = true; return r; })
-                : delay({ error: { message: 'Failed to fetch', code: '' } }, 5)),
-              lt: () => (networkUp ? Promise.resolve({ error: null }) : delay({ error: { message: 'Failed to fetch', code: '' } }, 5)),
-              then: (resolve: (v: { error: unknown }) => void) => {
-                const p = networkUp
-                  ? Promise.resolve({ error: null }).then(r => { serverPaid = true; return r; })
-                  : delay({ error: { message: 'Failed to fetch', code: '' } }, 5);
-                return p.then(resolve);
-              },
+              lte: () => resolveCall(),
+              lt: () => resolveCall(),
+              then: (resolve: (v: { data: unknown; error: unknown }) => void) => resolveCall().then(resolve),
             };
             return builder;
           },

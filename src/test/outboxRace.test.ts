@@ -58,11 +58,15 @@ vi.mock('@/integrations/supabase/client', () => ({
           // se sobrepor.
           update: () => {
             updateCallStarted = true;
+            // Com guard, execute() encadeia .select('id') antes dos filtros
+            // — devolve `builder` na mesma (chainable) — e espera de volta
+            // uma linha (não null) para saber que o guard não bloqueou.
             const builder: any = {
+              select: () => builder,
               eq: () => builder,
-              lte: () => delay({ data: null, error: null }, 30),
-              lt: () => delay({ data: null, error: null }, 30),
-              then: (resolve: any) => delay({ data: null, error: null }, 30).then(resolve),
+              lte: () => delay({ data: [{ id: orderId }], error: null }, 30),
+              lt: () => delay({ data: [{ id: orderId }], error: null }, 30),
+              then: (resolve: any) => delay({ data: [{ id: orderId }], error: null }, 30).then(resolve),
             };
             return builder;
           },

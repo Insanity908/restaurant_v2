@@ -237,11 +237,28 @@ async function execute(op: WriteOp): Promise<{ error: { message: string; code?: 
     const call = (async () => {
       if (op.action === 'insert') return await q.insert(op.values);
       if (op.action === 'upsert') return await q.upsert(op.values, op.onConflict ? { onConflict: op.onConflict } : undefined);
-      if (op.action === 'update') return await applyFilters(q.update(op.values), op);
+      if (op.action === 'update') {
+        // Com guard, um update que o guard bloqueia (linha mais recente no
+        // servidor do que o dispositivo sabia) devolve sucesso (204, sem
+        // erro, sem corpo) na mesma — sem `.select()` não há como distinguir
+        // "0 linhas porque o guard bloqueou" de "1 linha realmente
+        // actualizada". Sem esta distinção, um pagamento cuja escrita
+        // chegou a ser tentada mas nunca aplicada saía da fila como se
+        // tivesse sincronizado — silenciosamente, sem reverter o optimista
+        // nem avisar ninguém — e só se via que nunca aconteceu ao voltar a
+        // carregar a página e o servidor devolver o estado real (por-pagar).
+        let builder = q.update(op.values);
+        if (op.guard) builder = builder.select('id');
+        return await applyFilters(builder, op);
+      }
       return await applyFilters(q.delete(), op);
     })();
     const res = await withTimeout(call, NETWORK_TIMEOUT_MS);
-    return { error: res?.error ?? null };
+    if (res?.error) return { error: res.error };
+    if (op.action === 'update' && op.guard && Array.isArray(res?.data) && res.data.length === 0) {
+      return { error: { message: 'stale write: o servidor tem uma versão mais recente deste registo', code: 'GUARD_STALE' } };
+    }
+    return { error: null };
   } catch (e) {
     return { error: { message: e instanceof Error ? e.message : 'network error', code: '' } };
   }
