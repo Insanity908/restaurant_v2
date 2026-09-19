@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import PageShell from '@/components/PageShell';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -86,6 +87,11 @@ export default function ImportDataPage() {
             <Button variant="outline" className="gap-2" onClick={downloadImportTemplate}>
               <Download className="w-4 h-4" /> Descarregar modelo (.xlsx)
             </Button>
+            <p className="text-xs text-muted-foreground">
+              É o mesmo layout da "Cópia completa" que se pode gerar periodicamente em{' '}
+              <Link to="/data-archive" className="text-primary underline">Arquivo de Dados</Link> — um ficheiro
+              gerado lá carrega aqui sem precisar de alterar nada.
+            </p>
           </CardContent>
         </Card>
 

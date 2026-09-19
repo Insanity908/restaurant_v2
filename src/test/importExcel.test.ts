@@ -1,6 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import * as XLSX from 'xlsx';
-import { parseImportFile } from '@/lib/importExcel';
+import { parseImportFile, buildBackupWorkbook, type ParsedImportData } from '@/lib/importExcel';
+
+function workbookToFile(wb: XLSX.WorkBook): File {
+  const buf: ArrayBuffer = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+  const file = new File([buf], 'backup.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  if (typeof file.arrayBuffer !== 'function') {
+    Object.defineProperty(file, 'arrayBuffer', { value: async () => buf });
+  }
+  return file;
+}
 
 function bookToFile(sheets: Record<string, unknown[][]>): File {
   const wb = XLSX.utils.book_new();
@@ -96,5 +105,26 @@ describe('parseImportFile', () => {
     const { data } = await parseImportFile(file);
     expect(data.sales).toHaveLength(3);
     expect(data.sales.filter(s => s.receipt === '#a1')).toHaveLength(2);
+  });
+
+  it('buildBackupWorkbook (Arquivo de Dados) produz um ficheiro que parseImportFile lê de volta sem perdas — mesmo layout nos dois sentidos', async () => {
+    const original: ParsedImportData = {
+      menuItems: [{ name: 'Pizza Margarida', price: 450, category: 'Pratos Principais', description: 'Molho de tomate', available: true }],
+      customers: [{ name: 'Maria João', phone: '84 123 4567', email: undefined, nuit: undefined, birthday: undefined, notes: undefined, pointsAdjustment: 10 }],
+      inventory: [{ name: 'Farinha', unit: 'kg', currentStock: 20, minStock: 5, costPerUnit: 80 }],
+      sales: [{ date: '15/01/2026', receipt: '#a1b2', type: 'Mesa 4', description: 'Frango Grelhado', quantity: 2, value: 700 }],
+    };
+
+    const wb = buildBackupWorkbook(original);
+    const { data, errors } = await parseImportFile(workbookToFile(wb));
+
+    expect(errors).toHaveLength(0);
+    expect(data.menuItems).toEqual(original.menuItems);
+    expect(data.customers).toEqual(original.customers);
+    expect(data.inventory).toEqual(original.inventory);
+    expect(data.sales).toHaveLength(1);
+    expect(data.sales[0]).toMatchObject({
+      receipt: '#a1b2', type: 'Mesa 4', description: 'Frango Grelhado', quantity: 2, value: 700,
+    });
   });
 });

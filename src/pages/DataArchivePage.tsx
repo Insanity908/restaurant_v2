@@ -19,13 +19,14 @@ import { useSettings } from '@/hooks/useSettings';
 import { useRestaurant } from '@/hooks/useRestaurant';
 import { fetchOrdersInRange, fetchShiftsInRange, fetchSecurityAlertsInRange, fetchArchivedReports, type ArchivedReport } from '@/lib/dataArchive';
 import { fetchFixedCosts, type PeriodFixedCosts } from '@/lib/expenses';
-import { fetchOrders, fetchShifts } from '@/lib/store';
+import { fetchOrders, fetchShifts, fetchCustomers } from '@/lib/store';
 import { exportYearReportPDF, exportYearReportCSV, type YearReportPayload } from '@/lib/exportReports';
 import { exportYearReportExcel } from '@/lib/exportExcel';
+import { downloadBackupWorkbook, type ParsedImportData } from '@/lib/importExcel';
 import { downloadBatchReceiptsHTML } from '@/lib/receiptBatch';
 import { supabase } from '@/integrations/supabase/client';
 import { resolveStorageUrl, ARCHIVED_REPORTS_BUCKET } from '@/lib/storage';
-import type { Order, Shift } from '@/types/restaurant';
+import type { Order, Shift, Customer } from '@/types/restaurant';
 
 const MONTHS_PT = [
   'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
@@ -68,6 +69,7 @@ export default function DataArchivePage() {
   const [loading, setLoading] = useState(false);
   const [yearOrders, setYearOrders] = useState<Order[]>([]);
   const [yearShifts, setYearShifts] = useState<Shift[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [alertsCount, setAlertsCount] = useState<number | null>(null);
   const [fixedCosts, setFixedCosts] = useState<PeriodFixedCosts>(ZERO_FIXED);
   const [reportGenerated, setReportGenerated] = useState(false);
@@ -85,6 +87,9 @@ export default function DataArchivePage() {
     const t = user?.tenantId;
     if (!t) return;
     fetchArchivedReports(t).then(setArchivedReports).catch(() => {});
+    // Clientes não são por período (ao contrário de pedidos/turnos) — só
+    // precisam de ser lidos uma vez, para a cópia de segurança completa.
+    fetchCustomers(t).then(setCustomers).catch(() => {});
   }, [user?.tenantId]);
 
   const archivedByYear = useMemo(() => {
@@ -191,7 +196,12 @@ export default function DataArchivePage() {
     const orderTypeLabel = (o: Order) =>
       o.type === 'dine-in' ? `Mesa ${o.tableNumber ?? '—'}` : o.type === 'takeaway' ? 'Takeaway' : 'Entrega';
     const rows = filteredOrders.flatMap(o => {
-      const date = new Date(o.createdAt).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' });
+      // Ano incluído de propósito (não só dia/mês) — este ficheiro serve
+      // também de layout de importação (ver src/lib/importExcel.ts, folha
+      // "Vendas" com os mesmos cabeçalhos); sem o ano, um arquivo de anos
+      // anteriores reimportado ficava ambíguo sobre a que ano cada linha
+      // pertence.
+      const date = new Date(o.createdAt).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric' });
       const receiptTag = `#${o.id.slice(-4)}`;
       const orderType = orderTypeLabel(o);
       return o.items.map(item => ({
@@ -272,6 +282,37 @@ export default function DataArchivePage() {
     } catch (e) {
       console.error(e);
       toast.error('Falha ao exportar relatório');
+    }
+  };
+
+  // Cópia completa (menu + clientes + inventário + vendas do período), no
+  // mesmo layout de /import-data — pensada para gerar a cada 6 meses/ano e,
+  // se um dia os dados forem apagados/o sistema mudar, poder ser carregada
+  // de volta tal e qual, sem transformação nenhuma.
+  const handleExportBackup = () => {
+    if (filteredOrders.length === 0) { toast.error('Sem dados para exportar no período selecionado'); return; }
+    try {
+      const data: ParsedImportData = {
+        menuItems: menuItems.map(m => ({
+          name: m.name, price: m.price, category: m.category, description: m.description, available: m.available,
+        })),
+        customers: customers.map(c => ({
+          name: c.name, phone: c.phone, email: c.email, nuit: c.nuit, birthday: c.birthday,
+          notes: c.notes, pointsAdjustment: c.pointsAdjustment,
+        })),
+        inventory: inventory.map(i => ({
+          name: i.name, unit: i.unit, currentStock: i.currentStock, minStock: i.minStock, costPerUnit: i.costPerUnit,
+        })),
+        sales: transactions.map(t => ({
+          date: t.date, receipt: t.receiptTag, type: t.orderType, description: t.description,
+          quantity: t.quantity, value: t.value,
+        })),
+      };
+      downloadBackupWorkbook(data, `copia-completa-${year}${monthLabel ? `-${monthLabel}` : ''}.xlsx`);
+      toast.success('Cópia completa exportada');
+    } catch (e) {
+      console.error(e);
+      toast.error('Falha ao exportar cópia completa');
     }
   };
 
@@ -363,6 +404,9 @@ export default function DataArchivePage() {
                   </Button>
                   <Button variant="outline" size="sm" onClick={handleDownloadReceipts} className="gap-2">
                     <ScrollText className="w-4 h-4" /> Recibos do período (HTML)
+                  </Button>
+                  <Button variant="outline" size="sm" onClick={handleExportBackup} className="gap-2" title="Menu, clientes, inventário e vendas do período, no layout de /import-data">
+                    <Download className="w-4 h-4" /> Cópia completa (para reimportar)
                   </Button>
                 </div>
               )}

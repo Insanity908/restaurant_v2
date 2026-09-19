@@ -17,6 +17,17 @@ const SHEETS = {
   sales: 'Vendas',
 } as const;
 
+// Cabeçalhos partilhados entre o template vazio (downloadImportTemplate) e
+// a cópia de segurança com dados reais (buildBackupWorkbook, usada pelo
+// Arquivo de Dados) — nunca duplicar estas listas à parte, senão as duas
+// folhas divergem e um ficheiro de uma deixa de servir para a outra.
+const HEADERS = {
+  menu: ['Nome', 'Preço', 'Categoria', 'Descrição', 'Disponível'],
+  customers: ['Nome', 'Telefone', 'Email', 'NUIT', 'Aniversário', 'Notas', 'Pontos'],
+  inventory: ['Nome', 'Unidade', 'Stock Atual', 'Stock Mínimo', 'Custo por Unidade'],
+  sales: ['Data', 'Recibo', 'Tipo', 'Descrição', 'Qtd.', 'Valor'],
+} as const;
+
 export interface ImportMenuItem {
   name: string; price: number; category: string; description?: string; available: boolean;
 }
@@ -49,26 +60,63 @@ export function downloadImportTemplate(): void {
   const wb = XLSX.utils.book_new();
 
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-    ['Nome', 'Preço', 'Categoria', 'Descrição', 'Disponível'],
+    [...HEADERS.menu],
     ['Pizza Margarida', 450, 'Pratos Principais', 'Molho de tomate e queijo', 'Sim'],
   ]), SHEETS.menu);
 
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-    ['Nome', 'Telefone', 'Email', 'NUIT', 'Aniversário', 'Notas', 'Pontos'],
+    [...HEADERS.customers],
     ['Maria João', '84 123 4567', '', '', '', '', 0],
   ]), SHEETS.customers);
 
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-    ['Nome', 'Unidade', 'Stock Atual', 'Stock Mínimo', 'Custo por Unidade'],
+    [...HEADERS.inventory],
     ['Farinha', 'kg', 20, 5, 80],
   ]), SHEETS.inventory);
 
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
-    ['Data', 'Recibo', 'Tipo', 'Descrição', 'Qtd.', 'Valor'],
+    [...HEADERS.sales],
     ['15/01/2026', '', 'Balcão', 'Pizza Margarida', 1, 450],
   ]), SHEETS.sales);
 
   XLSX.writeFile(wb, 'template-importacao-dados-antigos.xlsx');
+}
+
+/**
+ * Cópia de segurança com os dados reais actuais, no MESMO layout do
+ * template de importação — pensada para o Arquivo de Dados gerar
+ * periodicamente (a cada 6 meses/ano, ver DataArchivePage) e, se um dia for
+ * preciso, poder ser carregada de volta tal e qual em /import-data sem
+ * nenhuma transformação.
+ */
+export function buildBackupWorkbook(data: ParsedImportData): XLSX.WorkBook {
+  const wb = XLSX.utils.book_new();
+
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    [...HEADERS.menu],
+    ...data.menuItems.map(m => [m.name, m.price, m.category, m.description ?? '', m.available ? 'Sim' : 'Não']),
+  ]), SHEETS.menu);
+
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    [...HEADERS.customers],
+    ...data.customers.map(c => [c.name, c.phone, c.email ?? '', c.nuit ?? '', c.birthday ?? '', c.notes ?? '', c.pointsAdjustment]),
+  ]), SHEETS.customers);
+
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    [...HEADERS.inventory],
+    ...data.inventory.map(i => [i.name, i.unit, i.currentStock, i.minStock, i.costPerUnit]),
+  ]), SHEETS.inventory);
+
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    [...HEADERS.sales],
+    ...data.sales.map(s => [s.date, s.receipt ?? '', s.type ?? '', s.description, s.quantity, s.value]),
+  ]), SHEETS.sales);
+
+  return wb;
+}
+
+export function downloadBackupWorkbook(data: ParsedImportData, filename: string): void {
+  XLSX.writeFile(buildBackupWorkbook(data), filename);
 }
 
 function sheetRows(wb: XLSX.WorkBook, name: string): Record<string, unknown>[] {
