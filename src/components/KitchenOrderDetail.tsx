@@ -378,33 +378,37 @@ function PreparationPanel({ activeItem, menuItems, checkedSteps, onToggleStep }:
   return (
     <div className="space-y-4">
       <h3 className="text-lg font-bold text-foreground">Modo de Preparo</h3>
-      <div className="space-y-2">
-        {recipe.steps.map((step, idx) => {
-          const done = checkedSteps?.has(idx) ?? step.done ?? false;
-          return (
-            <button
-              key={idx}
-              type="button"
-              onClick={() => onToggleStep?.(idx)}
-              className="flex items-center gap-3 p-3 rounded-xl bg-secondary/40 hover:bg-secondary/60 transition-colors w-full text-left"
-            >
-              <div className={cn(
-                'w-5 h-5 rounded-md border flex items-center justify-center shrink-0',
-                done ? 'bg-success border-success' : 'border-muted-foreground/40'
-              )}>
-                {done && <Check className="w-3.5 h-3.5 text-success-foreground" />}
-              </div>
-              <span className="text-2xl">{step.icon}</span>
-              <span className={cn(
-                'text-sm flex-1',
-                done ? 'text-muted-foreground line-through' : 'text-foreground'
-              )}>
-                {idx + 1}. {step.label}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+      {recipe.steps.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Nenhum passo definido para este prato.</p>
+      ) : (
+        <div className="space-y-2">
+          {recipe.steps.map((step, idx) => {
+            const done = checkedSteps?.has(idx) ?? step.done ?? false;
+            return (
+              <button
+                key={idx}
+                type="button"
+                onClick={() => onToggleStep?.(idx)}
+                className="flex items-center gap-3 p-3 rounded-xl bg-secondary/40 hover:bg-secondary/60 transition-colors w-full text-left"
+              >
+                <div className={cn(
+                  'w-5 h-5 rounded-md border flex items-center justify-center shrink-0',
+                  done ? 'bg-success border-success' : 'border-muted-foreground/40'
+                )}>
+                  {done && <Check className="w-3.5 h-3.5 text-success-foreground" />}
+                </div>
+                <span className="text-2xl">{step.icon}</span>
+                <span className={cn(
+                  'text-sm flex-1',
+                  done ? 'text-muted-foreground line-through' : 'text-foreground'
+                )}>
+                  {idx + 1}. {step.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
       {recipe.temp && (
         <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary text-sm">
           <Clock className="w-4 h-4 text-warning" />
