@@ -64,6 +64,19 @@ function resolveRecipe(menuItemId: string, menuItems?: MenuItem[], inventory?: I
 
 export default function KitchenOrderDetail({ order, menuItems, inventory, onClose, canManage, canServe, viewerRole, onStart, onComplete, onServe }: Props) {
   const [activeIdx, setActiveIdx] = useState(0);
+  // Passos do "Modo de Preparo" marcados pelo cozinheiro — só um lembrete
+  // visual enquanto prepara este prato (não é persistido; o estado real do
+  // pedido continua a ser só pending/preparing/ready/served via os botões
+  // abaixo). Por item, para não misturar o progresso de pratos diferentes
+  // ao navegar entre eles com as setas.
+  const [checkedSteps, setCheckedSteps] = useState<Record<string, Set<number>>>({});
+  const toggleStep = (itemId: string, idx: number) => {
+    setCheckedSteps(prev => {
+      const current = new Set(prev[itemId] ?? []);
+      if (current.has(idx)) current.delete(idx); else current.add(idx);
+      return { ...prev, [itemId]: current };
+    });
+  };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -114,19 +127,26 @@ export default function KitchenOrderDetail({ order, menuItems, inventory, onClos
             onClick={e => e.stopPropagation()}
             className="glass rounded-3xl w-full max-w-6xl max-h-[90vh] overflow-hidden flex flex-col"
           >
-            {/* Top bar */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-              <div className="flex items-center gap-3">
-                <span className="text-xs uppercase tracking-widest text-muted-foreground font-medium">KDS</span>
-                <span className="text-sm text-foreground/80">
+            {/* Top bar — X separado do grupo de botões de imprimir (shrink-0,
+                nunca fica sem espaço) porque num ecrã de telemóvel estreito,
+                assim que aparece o 2º botão "Servidos" (item fica ready/
+                served), o grupo todo deixava de caber e o X ficava
+                empurrado para fora — inacessível, sem scroll possível
+                dentro do modal (overflow-hidden no wrapper), sem forma de
+                fechar o ecrã. Agora os botões de imprimir vivem numa faixa
+                com scroll próprio, e o X fica sempre visível à parte. */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border gap-2">
+              <div className="flex items-center gap-3 min-w-0 overflow-hidden shrink">
+                <span className="text-xs uppercase tracking-widest text-muted-foreground font-medium shrink-0">KDS</span>
+                <span className="text-sm text-foreground/80 shrink-0">
                   {order.type === 'dine-in' ? `Mesa ${order.tableNumber}` : order.type === 'takeaway' ? 'Takeaway' : 'Entrega'}
                 </span>
-                <span className="text-xs text-muted-foreground">#{order.id.slice(-4)}</span>
+                <span className="text-xs text-muted-foreground shrink-0">#{order.id.slice(-4)}</span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 overflow-x-auto scrollbar-hide shrink min-w-0">
                 <button
                   onClick={() => printReceipt(order, { title: 'Pedido — Cozinha' })}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-secondary/60 hover:bg-secondary text-xs font-medium transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-secondary/60 hover:bg-secondary text-xs font-medium transition-colors shrink-0"
                   title="Imprimir pedido"
                 >
                   <Printer className="w-3.5 h-3.5" /> Pedido
@@ -134,19 +154,20 @@ export default function KitchenOrderDetail({ order, menuItems, inventory, onClos
                 {order.items.some(i => i.status === 'served' || i.status === 'ready') && (
                   <button
                     onClick={() => printServedItems(order)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-secondary/60 hover:bg-secondary text-xs font-medium transition-colors"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-secondary/60 hover:bg-secondary text-xs font-medium transition-colors shrink-0"
                     title="Imprimir itens servidos"
                   >
                     <Printer className="w-3.5 h-3.5" /> Servidos
                   </button>
                 )}
-                <button
-                  onClick={onClose}
-                  className="p-2 rounded-full hover:bg-secondary/60 transition-colors"
-                >
-                  <X className="w-5 h-5" />
-                </button>
               </div>
+              <button
+                onClick={onClose}
+                className="p-2 rounded-full hover:bg-secondary/60 transition-colors shrink-0"
+                aria-label="Fechar"
+              >
+                <X className="w-5 h-5" />
+              </button>
             </div>
 
             {/* Item tabs — only when more than one item */}
@@ -199,7 +220,12 @@ export default function KitchenOrderDetail({ order, menuItems, inventory, onClos
               <IngredientsPanel activeItem={activeItem} menuItems={menuItems} inventory={inventory} />
 
               {/* RIGHT — preparation */}
-              <PreparationPanel activeItem={activeItem} menuItems={menuItems} />
+              <PreparationPanel
+                activeItem={activeItem}
+                menuItems={menuItems}
+                checkedSteps={activeItem ? checkedSteps[activeItem.id] : undefined}
+                onToggleStep={idx => activeItem && toggleStep(activeItem.id, idx)}
+              />
 
               {/* FULL WIDTH — events log */}
               <div className="lg:col-span-3">
@@ -343,30 +369,41 @@ function IngredientsPanel({ activeItem, menuItems, inventory }: { activeItem?: O
   );
 }
 
-function PreparationPanel({ activeItem, menuItems }: { activeItem?: Order['items'][number]; menuItems?: MenuItem[] }) {
+function PreparationPanel({ activeItem, menuItems, checkedSteps, onToggleStep }: {
+  activeItem?: Order['items'][number]; menuItems?: MenuItem[];
+  checkedSteps?: Set<number>; onToggleStep?: (idx: number) => void;
+}) {
   const recipe = activeItem ? resolveRecipe(activeItem.menuItemId, menuItems) : DEFAULT_RECIPE;
 
   return (
     <div className="space-y-4">
       <h3 className="text-lg font-bold text-foreground">Modo de Preparo</h3>
       <div className="space-y-2">
-        {recipe.steps.map((step, idx) => (
-          <div key={idx} className="flex items-center gap-3 p-3 rounded-xl bg-secondary/40">
-            <div className={cn(
-              'w-5 h-5 rounded-md border flex items-center justify-center shrink-0',
-              step.done ? 'bg-success border-success' : 'border-muted-foreground/40'
-            )}>
-              {step.done && <Check className="w-3.5 h-3.5 text-success-foreground" />}
-            </div>
-            <span className="text-2xl">{step.icon}</span>
-            <span className={cn(
-              'text-sm flex-1',
-              step.done ? 'text-muted-foreground line-through' : 'text-foreground'
-            )}>
-              {idx + 1}. {step.label}
-            </span>
-          </div>
-        ))}
+        {recipe.steps.map((step, idx) => {
+          const done = checkedSteps?.has(idx) ?? step.done ?? false;
+          return (
+            <button
+              key={idx}
+              type="button"
+              onClick={() => onToggleStep?.(idx)}
+              className="flex items-center gap-3 p-3 rounded-xl bg-secondary/40 hover:bg-secondary/60 transition-colors w-full text-left"
+            >
+              <div className={cn(
+                'w-5 h-5 rounded-md border flex items-center justify-center shrink-0',
+                done ? 'bg-success border-success' : 'border-muted-foreground/40'
+              )}>
+                {done && <Check className="w-3.5 h-3.5 text-success-foreground" />}
+              </div>
+              <span className="text-2xl">{step.icon}</span>
+              <span className={cn(
+                'text-sm flex-1',
+                done ? 'text-muted-foreground line-through' : 'text-foreground'
+              )}>
+                {idx + 1}. {step.label}
+              </span>
+            </button>
+          );
+        })}
       </div>
       {recipe.temp && (
         <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-secondary text-sm">
