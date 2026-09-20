@@ -324,28 +324,56 @@ export const orderStore = {
   update: (id: string, updates: Partial<Order>) => {
     const orders = orderStore.getAll();
     const idx = orders.findIndex(o => o.id === id);
-    if (idx !== -1) {
-      orders[idx] = { ...orders[idx], ...updates, updatedAt: nowIso() };
-      orderStore.save(orders);
-    }
+    if (idx === -1) return undefined;
+    const previous = orders[idx];
+    orders[idx] = { ...previous, ...updates, updatedAt: nowIso() };
+    orderStore.save(orders);
+    const current = orders[idx];
+
     const t = tenantId();
-    if (t && isUuid(id) && idx !== -1) {
-      const current = orders[idx];
+    if (t && isUuid(id)) {
       void (async () => {
-        const row = orderRow(updates);
-        row.updated_at = current.updatedAt;
-        row.client_updated_at = current.updatedAt;
-        // Last-write-wins: só aplica se o servidor não tiver uma versão mais recente.
-        const { error } = await cloud('orders').update(row as never)
-          .eq('id', id).eq('tenant_id', t)
-          .guard('client_updated_at', current.updatedAt)
-          .resource(id);
-        warn('orders.update', error);
         if (updates.items) await syncOrderItems(id, updates.items);
         if (updates.events) await syncOrderEvents(id, updates.events);
       })();
+
+      const row = orderRow(updates);
+      row.updated_at = current.updatedAt;
+      row.client_updated_at = current.updatedAt;
+      void (async () => {
+        // Durably queued (survives reload) + vigiado até resolver — mesmo
+        // padrão de completePayment(), para QUALQUER alteração a um pedido
+        // poder ser revertida/avisada se o servidor rejeitar definitivamente
+        // (guard bloqueado: já tinha uma versão mais recente da linha).
+        // Sem isto, uma escrita bloqueada ficava a mentir no ecrã em
+        // silêncio até um fetchOrders() a apagar sem aviso nenhum — visto
+        // na prática como um pedido "a reverter sozinho".
+        const opId = await enqueueWrite({
+          table: 'orders', action: 'update', values: row,
+          match: { id, tenant_id: t },
+          // Guard contra o snapshot ANTERIOR a esta edição — comparar
+          // contra `current.updatedAt` (o timestamp que estamos mesmo
+          // agora a escrever) tornava o guard inútil, porque passa quase
+          // sempre.
+          guard: { column: 'client_updated_at', value: previous.updatedAt, op: 'lte' },
+          resource: `orders:${id}`,
+          label: 'orders.update',
+        });
+        const unwatch = subscribeOutbox(state => {
+          const op = state.ops.find(o => o.id === opId);
+          if (!op) { unwatch(); return; }
+          if (!op.failed) return;
+          unwatch();
+          const rollback = orderStore.getAll();
+          const ridx = rollback.findIndex(o => o.id === id);
+          if (ridx !== -1) { rollback[ridx] = previous; orderStore.save(rollback); }
+          warn('orders.update', { message: op.error ?? 'rejected' });
+          notifyLocalWrite();
+          void notifyReverted('O servidor rejeitou uma alteração a este pedido — revertido para o estado anterior. Verifique o pedido antes de tentar novamente.');
+        });
+      })();
     }
-    return orders[idx];
+    return current;
   },
   getActive: (): Order[] => orderStore.getAll().filter(o => !o.paid && o.status !== 'cancelled'),
   /** Regista uma parcela de pagamento (T4.1) — não mexe em `paid`/`total`/
