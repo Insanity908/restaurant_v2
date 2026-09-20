@@ -26,7 +26,18 @@ export async function fetchPublicBranding(tenantId: string): Promise<PublicBrand
   const { data, error } = await supabase.rpc('get_public_branding', { p_tenant_id: tenantId });
   if (error) { console.warn('fetchPublicBranding failed', error.message); return null; }
   if (!data || typeof data !== 'object') return null;
-  return data as PublicBranding;
+  // get_public_branding() usa jsonb_build_object(), que inclui as chaves de
+  // cor mesmo quando o restaurante nunca personalizou a marca (valor `null`
+  // no jsonb, em vez de a chave não existir). Sem filtrar isso aqui, o
+  // caller faz `{ ...DEFAULT_SETTINGS, ...branding }` e um `null` explícito
+  // sobrepõe o bom default — deriveThemeTokens() interpola esse `null`
+  // directamente numa string HSL ("null 95% 55%"), CSS inválido, e a
+  // página de pedido do cliente fica sem nenhuma cor (só a estrutura do
+  // Tailwind, que não depende das custom properties). Ver CustomerOrderPage.
+  const clean = Object.fromEntries(
+    Object.entries(data as Record<string, unknown>).filter(([, v]) => v !== null && v !== undefined),
+  );
+  return clean as PublicBranding;
 }
 
 /** Cardápio público de um tenant — só itens disponíveis (RLS já filtra isso para `anon`). */
