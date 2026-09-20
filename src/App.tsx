@@ -38,6 +38,7 @@ const SuperAdminPage = lazy(() => import("@/pages/SuperAdminPage"));
 const OnboardingPage = lazy(() => import("@/pages/OnboardingPage"));
 const CustomerOrderPage = lazy(() => import("@/pages/CustomerOrderPage"));
 const CustomerTrackingPage = lazy(() => import("@/pages/CustomerTrackingPage"));
+const QuestionnairePage = lazy(() => import("@/pages/QuestionnairePage"));
 const PricingPage = lazy(() => import("@/pages/PricingPage"));
 const BillingPage = lazy(() => import("@/pages/BillingPage"));
 const TermsPage = lazy(() => import("@/pages/TermsPage"));
@@ -51,7 +52,7 @@ const queryClient = new QueryClient();
 const NO_SIDEBAR_PATHS = ['/login', '/signup', '/landing', '/blocked', '/terms', '/privacy', '/forgot-password', '/reset-password'];
 // Páginas públicas do cliente (QR/entrega) — sem sessão, nunca mostram a
 // barra lateral da equipa.
-const NO_SIDEBAR_PREFIXES = ['/pedir/', '/pedido/'];
+const NO_SIDEBAR_PREFIXES = ['/pedir/', '/pedido/', '/questionario/'];
 
 function PageFallback() {
   return (
@@ -113,6 +114,7 @@ const App = () => (
               <Route path="/pedir/:tenantId/mesa/:tableId" element={<CustomerOrderPage />} />
               <Route path="/pedir/:tenantId/entrega" element={<CustomerOrderPage />} />
               <Route path="/pedido/:orderId" element={<CustomerTrackingPage />} />
+              <Route path="/questionario/:token" element={<QuestionnairePage />} />
               <Route path="/" element={<HomeRoute />} />
               <Route path="/menu" element={<RequireAuth><MenuPage /></RequireAuth>} />
               <Route path="/tables" element={<RequireAuth><TablesPage /></RequireAuth>} />

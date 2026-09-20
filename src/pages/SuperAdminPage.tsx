@@ -12,7 +12,7 @@ import {
   Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Lock, Unlock, Trash2, Clock, Search, Building2, TrendingUp, Users, BarChart3, Copy, Landmark, Save, CheckCircle2, Inbox, MessageSquare, Mail, MailOpen, Images, ImagePlus, Wallet, HardDrive, Database, AlertTriangle, Smartphone } from 'lucide-react';
+import { Lock, Unlock, Trash2, Clock, Search, Building2, TrendingUp, Users, BarChart3, Copy, Landmark, Save, CheckCircle2, Inbox, MessageSquare, Mail, MailOpen, Images, ImagePlus, Wallet, HardDrive, Database, AlertTriangle, Smartphone, ClipboardList, Send, Eye } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, CartesianGrid } from 'recharts';
 import { tenantStore, fetchTenants, fetchTenantTeams, type TenantTeam } from '@/lib/tenants';
 import { PLANS, formatMT, fetchPlans, savePlans, BASIC_PLANS, PRO_PLANS, type PlanConfig } from '@/lib/billing';
@@ -20,6 +20,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { getPaymentAccounts, savePaymentAccounts, fetchPaymentAccounts, type PaymentAccounts } from '@/lib/paymentAccounts';
 import { fetchPendingSubmissions, markSubmissionStatus, type PaymentSubmission } from '@/lib/paymentSubmissions';
 import { fetchFeedback, markFeedbackStatus, deleteFeedback, type FeedbackSubmission } from '@/lib/feedback';
+import {
+  fetchQuestionnaires, createQuestionnaire, deleteQuestionnaire, questionnaireLink,
+  type SalesQuestionnaire,
+} from '@/lib/salesQuestionnaires';
+import { QUESTIONNAIRE_SECTIONS } from '@/lib/diagnosticQuestionnaire';
 import { fetchPaymentSmsLog, deletePaymentSmsLogEntry, type PaymentSmsLogEntry, type PaymentSmsReason } from '@/lib/paymentSmsLog';
 import { fetchPresetImages, uploadPresetImage, deletePresetImage, type PresetImage } from '@/lib/presetImages';
 import { PRESET_IMAGES_BUCKET, fetchStorageUsage, type StorageUsage } from '@/lib/storage';
@@ -359,6 +364,7 @@ export default function SuperAdminPage() {
               {unreadFeedbackCount > 0 && <Badge variant="outline" className="ml-1.5 border-primary/30 text-primary">{unreadFeedbackCount}</Badge>}
             </TabsTrigger>
             <TabsTrigger value="gallery" className="shrink-0"><Images className="w-3.5 h-3.5 mr-1" />Galeria</TabsTrigger>
+            <TabsTrigger value="questionnaires" className="shrink-0"><ClipboardList className="w-3.5 h-3.5 mr-1" />Diagnóstico</TabsTrigger>
             <TabsTrigger value="system" className="shrink-0"><BarChart3 className="w-3.5 h-3.5 mr-1" />Relatórios de sistema</TabsTrigger>
           </TabsList>
           {/* Pista visual de que a lista de abas desliza — sem isto, em ecrãs
@@ -657,6 +663,10 @@ export default function SuperAdminPage() {
               ))
             )}
           </div>
+        </TabsContent>
+
+        <TabsContent value="questionnaires">
+          <QuestionnairesPanel />
         </TabsContent>
 
         <TabsContent value="system">
@@ -1331,6 +1341,168 @@ function PlansForm({
       <Button onClick={onSave} disabled={saving}>
         <Save className="w-4 h-4" /> {saving ? 'A guardar…' : 'Guardar planos'}
       </Button>
+    </div>
+  );
+}
+
+/** Ficha de Visita e Diagnóstico JSETRA — o superadmin cria um link por
+ *  indivíduo/restaurante, envia-o manualmente (WhatsApp/email) e revê as
+ *  respostas aqui quando chegam. Ver src/lib/salesQuestionnaires.ts e
+ *  src/pages/QuestionnairePage.tsx (a página pública, sem login). */
+function QuestionnairesPanel() {
+  const [items, setItems] = useState<SalesQuestionnaire[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newLabel, setNewLabel] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [newLink, setNewLink] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<SalesQuestionnaire | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<SalesQuestionnaire | null>(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setItems(await fetchQuestionnaires());
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  const handleCreate = async () => {
+    if (!newLabel.trim()) { toast.error('Indique um nome (restaurante ou pessoa)'); return; }
+    setCreating(true);
+    const created = await createQuestionnaire(newLabel);
+    setCreating(false);
+    if (!created) { toast.error('Não foi possível criar o questionário'); return; }
+    setNewLabel('');
+    setNewLink(questionnaireLink(created.token));
+    void refresh();
+  };
+
+  const copyLink = (token: string) => {
+    navigator.clipboard.writeText(questionnaireLink(token));
+    toast.success('Link copiado');
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    const ok = await deleteQuestionnaire(deleteTarget.id);
+    if (ok) { toast.success('Questionário apagado'); setItems(prev => prev.filter(i => i.id !== deleteTarget.id)); }
+    else toast.error('Não foi possível apagar');
+    setDeleteTarget(null);
+  };
+
+  return (
+    <div className="glass rounded-xl p-5 mt-4 space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="font-heading font-semibold flex items-center gap-2"><ClipboardList className="w-4 h-4" /> Ficha de Diagnóstico</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Crie um link por restaurante/pessoa e envie-o manualmente (WhatsApp, email). As respostas aparecem aqui assim que forem enviadas.
+          </p>
+        </div>
+        <div className="flex items-end gap-2">
+          <div className="space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Nome do restaurante/pessoa</Label>
+            <Input value={newLabel} onChange={e => setNewLabel(e.target.value)} placeholder="Ex: Restaurante Sabor de Nampula" className="w-64" />
+          </div>
+          <Button onClick={handleCreate} disabled={creating} className="gap-2">
+            <Send className="w-4 h-4" /> {creating ? 'A criar…' : 'Criar link'}
+          </Button>
+        </div>
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-muted-foreground">A carregar…</p>
+      ) : items.length === 0 ? (
+        <p className="text-sm text-muted-foreground">Ainda não enviou nenhuma ficha.</p>
+      ) : (
+        <div className="space-y-2">
+          {items.map(q => (
+            <div key={q.id} className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2.5">
+              <div className="min-w-0">
+                <p className="font-medium text-sm truncate">{q.label}</p>
+                <p className="text-[11px] text-muted-foreground">
+                  {new Date(q.createdAt).toLocaleDateString('pt-PT')}
+                  {q.submittedAt && ` · respondido ${new Date(q.submittedAt).toLocaleDateString('pt-PT')}`}
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <Badge variant="outline" className={q.status === 'submitted' ? 'border-primary/40 text-primary' : ''}>
+                  {q.status === 'submitted' ? 'Respondido' : 'Pendente'}
+                </Badge>
+                <button onClick={() => copyLink(q.token)} className="p-1.5 text-muted-foreground hover:text-foreground" aria-label="Copiar link">
+                  <Copy className="w-4 h-4" />
+                </button>
+                {q.status === 'submitted' && (
+                  <button onClick={() => setViewing(q)} className="p-1.5 text-muted-foreground hover:text-foreground" aria-label="Ver respostas">
+                    <Eye className="w-4 h-4" />
+                  </button>
+                )}
+                <button onClick={() => setDeleteTarget(q)} className="p-1.5 text-muted-foreground hover:text-destructive" aria-label="Apagar">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Dialog open={!!newLink} onOpenChange={open => !open && setNewLink(null)}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Link criado</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">Envie este link à pessoa — não precisa de conta para preencher.</p>
+          <div className="flex items-center gap-2">
+            <Input readOnly value={newLink ?? ''} className="text-xs" />
+            <Button size="sm" variant="outline" onClick={() => newLink && copyLink(newLink.split('/').pop()!)}>
+              <Copy className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+          <DialogFooter>
+            <Button onClick={() => setNewLink(null)}>Fechar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!viewing} onOpenChange={open => !open && setViewing(null)}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>{viewing?.label}</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            {QUESTIONNAIRE_SECTIONS.map(section => {
+              const rows = section.fields
+                .map(f => ({ f, value: viewing?.answers?.[f.key] }))
+                .filter(({ value }) => Array.isArray(value) ? value.length > 0 : !!value);
+              if (rows.length === 0) return null;
+              return (
+                <div key={section.id}>
+                  <p className="text-xs font-mono font-semibold text-primary mb-1.5">{section.num} · {section.title}</p>
+                  <div className="space-y-2">
+                    {rows.map(({ f, value }) => (
+                      <div key={f.key} className="text-sm">
+                        <p className="text-muted-foreground text-xs">{f.prompt ?? f.label}</p>
+                        <p>{Array.isArray(value) ? value.join(', ') : value}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={open => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Apagar ficha de "{deleteTarget?.label}"?</AlertDialogTitle>
+            <AlertDialogDescription>O link deixa de funcionar. Esta ação não pode ser anulada.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90" onClick={() => void handleDelete()}>
+              Apagar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

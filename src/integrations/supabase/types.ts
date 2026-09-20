@@ -1091,6 +1091,39 @@ export type Database = {
           },
         ]
       }
+      sales_questionnaires: {
+        Row: {
+          answers: Json | null
+          created_at: string
+          created_by: string | null
+          id: string
+          label: string
+          status: string
+          submitted_at: string | null
+          token: string
+        }
+        Insert: {
+          answers?: Json | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          label: string
+          status?: string
+          submitted_at?: string | null
+          token?: string
+        }
+        Update: {
+          answers?: Json | null
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          label?: string
+          status?: string
+          submitted_at?: string | null
+          token?: string
+        }
+        Relationships: []
+      }
       security_alerts: {
         Row: {
           attempted_pin: string | null
@@ -1544,6 +1577,7 @@ export type Database = {
       }
       get_order_status: { Args: { p_order_id: string }; Returns: Json }
       get_public_branding: { Args: { p_tenant_id: string }; Returns: Json }
+      get_questionnaire_by_token: { Args: { p_token: string }; Returns: Json }
       get_storage_usage: { Args: never; Returns: Json }
       has_role: {
         Args: {
@@ -1595,6 +1629,10 @@ export type Database = {
           p_tenant_id: string
         }
         Returns: string
+      }
+      submit_questionnaire_response: {
+        Args: { p_answers: Json; p_token: string }
+        Returns: boolean
       }
       update_checkout_session_phone: {
         Args: { p_phone: string; p_session_id: string }
