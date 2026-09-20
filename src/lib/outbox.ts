@@ -100,12 +100,20 @@ function unmarkInFlight(resource?: string) {
   if (n <= 0) inFlight.delete(resource); else inFlight.set(resource, n);
 }
 
-/** Ids of records with unsynced local changes — server data must not clobber them. */
+/** Ids of records with unsynced local changes — server data must not clobber them.
+ *  Excludes permanently-failed ops: those already got rolled back to the
+ *  last known-good local snapshot (see e.g. `completePayment`'s
+ *  `subscribeOutbox` handler in store.ts), so there is no longer a pending
+ *  local edit to protect — only a stale snapshot that a fresh server read
+ *  should be allowed to correct. Counting them as "pending" would freeze
+ *  that record against every future resync (Realtime included) until the
+ *  failed op is retried or cleared, dooming every retry to the same guard
+ *  mismatch that failed the first time. */
 export function pendingResourceIds(table: string | string[]): Set<string> {
   const tables = Array.isArray(table) ? table : [table];
   const ids = new Set<string>();
   read().forEach(op => {
-    if (!tables.includes(op.table) || !op.resource) return;
+    if (op.failed || !tables.includes(op.table) || !op.resource) return;
     const id = op.resource.split(':')[1];
     if (id) ids.add(id);
   });
