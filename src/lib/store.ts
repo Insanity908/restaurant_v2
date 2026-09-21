@@ -82,7 +82,42 @@ function mergePending<T extends { id: string }>(serverRows: T[], localRows: T[],
   return merged;
 }
 
-
+/**
+ * Guarded update + revert-and-warn-on-failure for a simple tenant-scoped
+ * resource (menu items, tables, inventory) — same shape as
+ * `submitGuardedOrderUpdate` minus the rebase option, which those single-
+ * actor-edited resources don't need (menu/estoque are normally edited by
+ * one admin at a time, not the concurrent kitchen-vs-till case orders are).
+ * `previousUpdatedAt` absent (a local record cached before this field
+ * existed, or before its first fetch since) skips the guard rather than
+ * blocking blind — the write applies unconditionally, same as before this
+ * guard existed.
+ */
+async function submitGuardedResourceUpdate<T extends { id: string; updatedAt?: string }>(
+  table: string, id: string, t: string, row: Record<string, unknown>,
+  previousUpdatedAt: string | undefined, previous: T,
+  getAll: () => T[], save: (items: T[]) => void, revertedMessage: string,
+): Promise<void> {
+  const opId = await enqueueWrite({
+    table, action: 'update', values: row,
+    match: { id, tenant_id: t },
+    guard: previousUpdatedAt ? { column: 'client_updated_at', value: previousUpdatedAt, op: 'lte' } : undefined,
+    resource: `${table}:${id}`,
+    label: `${table}.update`,
+  });
+  const unwatch = subscribeOutbox(state => {
+    const op = state.ops.find(o => o.id === opId);
+    if (!op) { unwatch(); return; }
+    if (!op.failed) return;
+    unwatch();
+    const rollback = getAll();
+    const ridx = rollback.findIndex(o => o.id === id);
+    if (ridx !== -1) { rollback[ridx] = previous; save(rollback); }
+    warn(`${table}.update`, { message: op.error ?? 'rejected' });
+    notifyLocalWrite();
+    void notifyReverted(revertedMessage);
+  });
+}
 
 // -- Menu Items --------------------------------------------------------------
 export const menuStore = {
@@ -90,7 +125,7 @@ export const menuStore = {
   save: (items: MenuItem[]) => setStore('menu_items', items),
   add: (item: Omit<MenuItem, 'id'>): MenuItem => {
     const items = menuStore.getAll();
-    const newItem = { ...item, id: generateId() };
+    const newItem = { ...item, id: generateId(), updatedAt: nowIso() };
     items.push(newItem);
     menuStore.save(items);
     const t = tenantId();
@@ -99,6 +134,7 @@ export const menuStore = {
         id: newItem.id, tenant_id: t, name: newItem.name, price: newItem.price, category: newItem.category,
         description: newItem.description ?? null, image_path: newItem.image ?? null, available: newItem.available,
         modifiers: (newItem.modifiers ?? []) as never, recipe: (newItem.recipe ?? null) as never,
+        client_updated_at: newItem.updatedAt,
       }, { onConflict: 'id' }).then(({ error }) => warn('menu.insert', error));
     }
     return newItem;
@@ -106,7 +142,11 @@ export const menuStore = {
   update: (id: string, updates: Partial<MenuItem>) => {
     const items = menuStore.getAll();
     const idx = items.findIndex(i => i.id === id);
-    if (idx !== -1) { items[idx] = { ...items[idx], ...updates }; menuStore.save(items); }
+    if (idx === -1) return undefined;
+    const previous = items[idx];
+    const ts = nowIso();
+    items[idx] = { ...previous, ...updates, updatedAt: ts };
+    menuStore.save(items);
     const t = tenantId();
     if (t && isUuid(id)) {
       const row: Record<string, unknown> = {};
@@ -119,11 +159,11 @@ export const menuStore = {
       if (updates.modifiers !== undefined) row.modifiers = updates.modifiers ?? [];
       if (updates.recipe !== undefined) row.recipe = updates.recipe ?? null;
       if (Object.keys(row).length) {
-        const ts = nowIso();
         row.client_updated_at = ts;
-        void cloud('menu_items').update(row as never).eq('id', id).eq('tenant_id', t)
-          .guard('client_updated_at', ts).resource(id)
-          .then(({ error }) => warn('menu.update', error));
+        void submitGuardedResourceUpdate(
+          'menu_items', id, t, row, previous.updatedAt, previous, menuStore.getAll, menuStore.save,
+          'O servidor rejeitou uma alteração a este prato — revertido para o estado anterior. Verifique antes de tentar novamente.',
+        );
       }
     }
     return items[idx];
@@ -146,6 +186,7 @@ export async function fetchMenu(t: string): Promise<MenuItem[]> {
     description: r.description ?? undefined, image: r.image_path ?? undefined,
     available: r.available, modifiers: (r.modifiers ?? []) as unknown as MenuItem['modifiers'],
     recipe: (r.recipe ?? undefined) as unknown as MenuItem['recipe'],
+    updatedAt: r.client_updated_at ?? undefined,
   }));
   const merged = mergePending(rows, menuStore.getAll(), 'menu_items');
   menuStore.save(merged);
@@ -160,7 +201,7 @@ export const tableStore = {
   save: (tables: Table[]) => setStore('tables', tables),
   add: (table: Omit<Table, 'id'>): Table => {
     const tables = tableStore.getAll();
-    const newTable = { ...table, id: generateId() };
+    const newTable = { ...table, id: generateId(), updatedAt: nowIso() };
     tables.push(newTable);
     tableStore.save(tables);
     const t = tenantId();
@@ -168,6 +209,7 @@ export const tableStore = {
       void cloud('restaurant_tables').upsert({
         id: newTable.id, tenant_id: t, number: newTable.number, seats: newTable.seats,
         status: newTable.status, current_order_id: newTable.currentOrderId ?? null,
+        client_updated_at: newTable.updatedAt,
       }, { onConflict: 'id' }).then(({ error }) => warn('tables.insert', error));
     }
     return newTable;
@@ -175,7 +217,11 @@ export const tableStore = {
   update: (id: string, updates: Partial<Table>) => {
     const tables = tableStore.getAll();
     const idx = tables.findIndex(x => x.id === id);
-    if (idx !== -1) { tables[idx] = { ...tables[idx], ...updates }; tableStore.save(tables); }
+    if (idx === -1) return undefined;
+    const previous = tables[idx];
+    const ts = nowIso();
+    tables[idx] = { ...previous, ...updates, updatedAt: ts };
+    tableStore.save(tables);
     const t = tenantId();
     if (t && isUuid(id)) {
       const row: Record<string, unknown> = {};
@@ -184,11 +230,11 @@ export const tableStore = {
       if (updates.status !== undefined) row.status = updates.status;
       if (updates.currentOrderId !== undefined) row.current_order_id = updates.currentOrderId ?? null;
       if (Object.keys(row).length) {
-        const ts = nowIso();
         row.client_updated_at = ts;
-        void cloud('restaurant_tables').update(row as never).eq('id', id).eq('tenant_id', t)
-          .guard('client_updated_at', ts).resource(id)
-          .then(({ error }) => warn('tables.update', error));
+        void submitGuardedResourceUpdate(
+          'restaurant_tables', id, t, row, previous.updatedAt, previous, tableStore.getAll, tableStore.save,
+          'O servidor rejeitou uma alteração a esta mesa — revertida para o estado anterior. Verifique antes de tentar novamente.',
+        );
       }
 
     }
@@ -211,6 +257,7 @@ export async function fetchTables(t: string): Promise<Table[]> {
     id: r.id, number: r.number, seats: r.seats,
     status: r.status as Table['status'],
     currentOrderId: r.current_order_id ?? undefined,
+    updatedAt: r.client_updated_at ?? undefined,
   }));
   const merged = mergePending(rows, tableStore.getAll(), 'restaurant_tables');
   tableStore.save(merged);
@@ -608,7 +655,7 @@ export const inventoryStore = {
   save: (items: InventoryItem[]) => setStore('inventory', items),
   add: (item: Omit<InventoryItem, 'id'>): InventoryItem => {
     const items = inventoryStore.getAll();
-    const newItem = { ...item, id: generateId() };
+    const newItem = { ...item, id: generateId(), updatedAt: nowIso() };
     items.push(newItem);
     inventoryStore.save(items);
     const t = tenantId();
@@ -619,6 +666,7 @@ export const inventoryStore = {
         linked_menu_item_ids: newItem.linkedMenuItemIds.filter(isUuid),
         usage_per_serving: newItem.usagePerServing,
         icon: newItem.icon ?? null, image: newItem.image ?? null,
+        client_updated_at: newItem.updatedAt,
       }, { onConflict: 'id' }).then(({ error }) => warn('inventory.insert', error));
     }
     return newItem;
@@ -626,7 +674,11 @@ export const inventoryStore = {
   update: (id: string, updates: Partial<InventoryItem>) => {
     const items = inventoryStore.getAll();
     const idx = items.findIndex(i => i.id === id);
-    if (idx !== -1) { items[idx] = { ...items[idx], ...updates }; inventoryStore.save(items); }
+    if (idx === -1) return undefined;
+    const previous = items[idx];
+    const ts = nowIso();
+    items[idx] = { ...previous, ...updates, updatedAt: ts };
+    inventoryStore.save(items);
     const t = tenantId();
     if (t && isUuid(id)) {
       const row: Record<string, unknown> = {};
@@ -640,11 +692,11 @@ export const inventoryStore = {
       if (updates.icon !== undefined) row.icon = updates.icon ?? null;
       if (updates.image !== undefined) row.image = updates.image ?? null;
       if (Object.keys(row).length) {
-        const ts = nowIso();
         row.client_updated_at = ts;
-        void cloud('inventory_items').update(row as never).eq('id', id).eq('tenant_id', t)
-          .guard('client_updated_at', ts).resource(id)
-          .then(({ error }) => warn('inventory.update', error));
+        void submitGuardedResourceUpdate(
+          'inventory_items', id, t, row, previous.updatedAt, previous, inventoryStore.getAll, inventoryStore.save,
+          'O servidor rejeitou uma alteração a este item de estoque — revertido para o estado anterior. Verifique antes de tentar novamente.',
+        );
       }
     }
     return items[idx];
@@ -686,6 +738,7 @@ export async function fetchInventory(t: string): Promise<InventoryItem[]> {
     costPerUnit: Number(r.cost_per_unit), linkedMenuItemIds: r.linked_menu_item_ids ?? [],
     usagePerServing: Number(r.usage_per_serving),
     icon: r.icon ?? undefined, image: r.image ?? undefined,
+    updatedAt: r.client_updated_at ?? undefined,
   }));
   const merged = mergePending(rows, inventoryStore.getAll(), 'inventory_items');
   inventoryStore.save(merged);

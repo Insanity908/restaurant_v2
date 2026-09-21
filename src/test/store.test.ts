@@ -84,6 +84,19 @@ vi.mock('@/lib/outbox', () => {
       delete: () => makeBuilder(table, 'delete'),
     }),
     pendingResourceIds: () => pendingIdsRef.current,
+    // orderStore.update() (e agora menuStore/tableStore/inventoryStore.update())
+    // vão directo a enqueueWrite(), não a cloud() — mesma captura em
+    // `cloudCalls`, para as asserções existentes (procuram por table+action)
+    // continuarem a funcionar sem saber qual dos dois caminhos foi usado.
+    enqueueWrite: async (op: { table: string; action: CloudCall['action']; values?: unknown; match?: Record<string, unknown> }) => {
+      const call: CloudCall = { table: op.table, action: op.action, values: op.values, eq: Object.entries(op.match ?? {}) };
+      cloudCalls.push(call);
+      return `op-${cloudCalls.length}`;
+    },
+    // Nenhum teste aqui exercita a falha/reversão — só sucesso imediato — por
+    // isso não há op "failed" para entregar; devolve sempre um unsubscribe no-op.
+    subscribeOutbox: () => () => {},
+    dropOperation: () => {},
   };
 });
 

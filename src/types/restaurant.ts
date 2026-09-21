@@ -10,6 +10,12 @@ export interface MenuItem {
   modifiers?: Modifier[];
   available: boolean;
   recipe?: Recipe;
+  /** Server's `client_updated_at` as last known by this device — undefined
+   *  until the first fetch after this field was introduced. Used as the
+   *  last-write-wins guard's baseline in menuStore.update(); absent means
+   *  "unknown", not "never edited", so updates fall back to unconditional
+   *  (see store.ts). */
+  updatedAt?: string;
 }
 
 export interface RecipeIngredient {
@@ -43,6 +49,8 @@ export interface Table {
   seats: number;
   status: 'free' | 'occupied' | 'reserved';
   currentOrderId?: string;
+  /** See MenuItem.updatedAt — same last-write-wins guard baseline, for tableStore.update(). */
+  updatedAt?: string;
 }
 
 export interface OrderItem {
@@ -135,6 +143,8 @@ export interface InventoryItem {
   usagePerServing: number; // how much is consumed per serving
   icon?: string; // emoji
   image?: string; // storage path — sobrepõe o icon quando presente
+  /** See MenuItem.updatedAt — same last-write-wins guard baseline, for inventoryStore.update(). */
+  updatedAt?: string;
 }
 
 export type UserRole = 'waiter' | 'cashier' | 'kitchen' | 'manager' | 'admin' | 'superadmin';
