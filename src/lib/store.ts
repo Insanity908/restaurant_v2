@@ -1,6 +1,6 @@
 import { MenuItem, Table, Order, OrderItem, OrderEvent, OrderPayment, Staff, InventoryItem, Shift, SecurityAlert, Customer } from '@/types/restaurant';
 import { supabase } from '@/integrations/supabase/client';
-import { cloud, pendingResourceIds, enqueueWrite, subscribeOutbox } from './outbox';
+import { cloud, pendingResourceIds, enqueueWrite, subscribeOutbox, dropOperation } from './outbox';
 import { warmStorageUrls, MENU_BUCKET } from './storage';
 import { tenantScopedKey } from './localCache';
 import { nowIso } from './serverClock';
@@ -297,6 +297,95 @@ async function syncOrderPayment(orderId: string, payment: OrderPayment) {
   warn('orderPayments.insert', error);
 }
 
+async function syncOrderRelated(orderId: string, updates: Partial<Order>) {
+  if (updates.items) await syncOrderItems(orderId, updates.items);
+  if (updates.events) await syncOrderEvents(orderId, updates.events);
+}
+
+/** Fresh single-row read, bypassing the local cache — only for the rebase
+ *  retry below (`submitGuardedOrderUpdate`), which needs the server's
+ *  actual current row, not whatever `orderStore.getAll()` still has. */
+async function fetchOrderById(t: string, id: string): Promise<Order | null> {
+  const { data, error } = await supabase
+    .from('orders')
+    .select('*, order_items(*), order_events(*), order_payments(*)')
+    .eq('id', id).eq('tenant_id', t)
+    .maybeSingle();
+  if (error || !data) return null;
+  return mapOrderRow(data as Record<string, unknown>);
+}
+
+const MAX_REBASE_ATTEMPTS = 2;
+
+/** Guarded write behind `orderStore.update()` — durably queued (survives
+ *  reload) + vigiada até resolver, mesmo padrão de completePayment(). On a
+ *  blocked guard (server already had a newer row — a concurrent edit from
+ *  another device/screen, e.g. kitchen vs. till on the same busy tab): if
+ *  `rebase` was given, re-fetch the true current row and recompute THIS
+ *  SAME change on top of it (bounded to MAX_REBASE_ATTEMPTS) instead of
+ *  giving up straight away — a couple of these collisions per busy order
+ *  is the normal case, not the exception, and reverting+warning on every
+ *  one of them made the sync-failures panel feel stuck even though each
+ *  individual revert was working correctly. Only once rebasing itself
+ *  can't land (or wasn't offered) does this fall back to reverting to the
+ *  last known-good snapshot and warning — the original behaviour. */
+async function submitGuardedOrderUpdate(
+  id: string, t: string, lastGood: Order, current: Order, updates: Partial<Order>,
+  rebase: ((fresh: Order) => Partial<Order>) | undefined, attempt: number,
+): Promise<void> {
+  const row = orderRow(updates);
+  row.updated_at = current.updatedAt;
+  row.client_updated_at = current.updatedAt;
+  const opId = await enqueueWrite({
+    table: 'orders', action: 'update', values: row,
+    match: { id, tenant_id: t },
+    // Guard contra o snapshot ANTERIOR a esta edição (ou o último
+    // rebase bem sucedido) — nunca contra `current.updatedAt` (o
+    // timestamp que esta própria escrita está a gravar), que tornava o
+    // guard inútil por passar quase sempre.
+    guard: { column: 'client_updated_at', value: lastGood.updatedAt, op: 'lte' },
+    resource: `orders:${id}`,
+    label: 'orders.update',
+  });
+  const unwatch = subscribeOutbox(state => {
+    const op = state.ops.find(o => o.id === opId);
+    if (!op) { unwatch(); return; }
+    if (!op.failed) return;
+    unwatch();
+    void handleGuardBlocked();
+  });
+
+  async function handleGuardBlocked() {
+    if (rebase && attempt < MAX_REBASE_ATTEMPTS) {
+      const fresh = await fetchOrderById(t, id);
+      if (fresh) {
+        // This attempt is superseded by the rebased retry below, not
+        // truly unresolved — drop it so the sync-failures panel doesn't
+        // show a stale "falhou" entry once the retry lands fine (which
+        // it does the vast majority of the time: most collisions here
+        // are two edits to DIFFERENT parts of the same order).
+        dropOperation(opId);
+        const rebasedUpdates = rebase(fresh);
+        const rebasedCurrent = { ...fresh, ...rebasedUpdates, updatedAt: nowIso() };
+        const orders = orderStore.getAll();
+        const ridx = orders.findIndex(o => o.id === id);
+        if (ridx !== -1) { orders[ridx] = rebasedCurrent; orderStore.save(orders); }
+        notifyLocalWrite();
+        void syncOrderRelated(id, rebasedUpdates);
+        void submitGuardedOrderUpdate(id, t, fresh, rebasedCurrent, rebasedUpdates, rebase, attempt + 1);
+        return;
+      }
+      // Fetch itself failed (offline, etc.) — falls through to reverting below.
+    }
+    const rollback = orderStore.getAll();
+    const ridx = rollback.findIndex(o => o.id === id);
+    if (ridx !== -1) { rollback[ridx] = lastGood; orderStore.save(rollback); }
+    warn('orders.update', { message: 'rejected' });
+    notifyLocalWrite();
+    void notifyReverted('O servidor rejeitou uma alteração a este pedido — revertido para o estado anterior. Verifique o pedido antes de tentar novamente.');
+  }
+}
+
 export const orderStore = {
   getAll: (): Order[] => getStore<Order>('orders'),
   save: (orders: Order[]) => setStore('orders', orders),
@@ -321,7 +410,19 @@ export const orderStore = {
     }
     return newOrder;
   },
-  update: (id: string, updates: Partial<Order>) => {
+  /**
+   * `rebase`, when given, is tried before giving up on a blocked guard
+   * (server already had a newer version of the row) instead of reverting
+   * straight away. It recomputes THIS SAME logical change — "mark this one
+   * item served", "append these items" — from a freshly-fetched order, so a
+   * concurrent edit to a DIFFERENT part of the row (kitchen marking one
+   * item while the till appends another round to the same tab, the classic
+   * real case) resolves instead of clobbering whichever side lost the
+   * race. Callers that can't safely recompute their intent from a fresh
+   * base (completePayment, plain field edits) omit it and keep the old
+   * strict revert-and-warn behaviour.
+   */
+  update: (id: string, updates: Partial<Order>, rebase?: (fresh: Order) => Partial<Order>) => {
     const orders = orderStore.getAll();
     const idx = orders.findIndex(o => o.id === id);
     if (idx === -1) return undefined;
@@ -332,46 +433,8 @@ export const orderStore = {
 
     const t = tenantId();
     if (t && isUuid(id)) {
-      void (async () => {
-        if (updates.items) await syncOrderItems(id, updates.items);
-        if (updates.events) await syncOrderEvents(id, updates.events);
-      })();
-
-      const row = orderRow(updates);
-      row.updated_at = current.updatedAt;
-      row.client_updated_at = current.updatedAt;
-      void (async () => {
-        // Durably queued (survives reload) + vigiado até resolver — mesmo
-        // padrão de completePayment(), para QUALQUER alteração a um pedido
-        // poder ser revertida/avisada se o servidor rejeitar definitivamente
-        // (guard bloqueado: já tinha uma versão mais recente da linha).
-        // Sem isto, uma escrita bloqueada ficava a mentir no ecrã em
-        // silêncio até um fetchOrders() a apagar sem aviso nenhum — visto
-        // na prática como um pedido "a reverter sozinho".
-        const opId = await enqueueWrite({
-          table: 'orders', action: 'update', values: row,
-          match: { id, tenant_id: t },
-          // Guard contra o snapshot ANTERIOR a esta edição — comparar
-          // contra `current.updatedAt` (o timestamp que estamos mesmo
-          // agora a escrever) tornava o guard inútil, porque passa quase
-          // sempre.
-          guard: { column: 'client_updated_at', value: previous.updatedAt, op: 'lte' },
-          resource: `orders:${id}`,
-          label: 'orders.update',
-        });
-        const unwatch = subscribeOutbox(state => {
-          const op = state.ops.find(o => o.id === opId);
-          if (!op) { unwatch(); return; }
-          if (!op.failed) return;
-          unwatch();
-          const rollback = orderStore.getAll();
-          const ridx = rollback.findIndex(o => o.id === id);
-          if (ridx !== -1) { rollback[ridx] = previous; orderStore.save(rollback); }
-          warn('orders.update', { message: op.error ?? 'rejected' });
-          notifyLocalWrite();
-          void notifyReverted('O servidor rejeitou uma alteração a este pedido — revertido para o estado anterior. Verifique o pedido antes de tentar novamente.');
-        });
-      })();
+      void syncOrderRelated(id, updates);
+      void submitGuardedOrderUpdate(id, t, previous, current, updates, rebase, 0);
     }
     return current;
   },

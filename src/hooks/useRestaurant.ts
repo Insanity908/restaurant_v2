@@ -9,6 +9,30 @@ function actorFrom(user: { id: string; name: string; role: AuditActor['role'] } 
   return { id: user.id, name: user.name, role: user.role };
 }
 
+/** Shared by appendOrderItems's optimistic apply and its rebase (retry on a
+ *  concurrent edit) — the two must merge identically or a rebased retry
+ *  could land a different result than what the screen already shows. Only
+ *  folds into an existing line still `pending` (not yet sent to the
+ *  kitchen) with no notes/modifiers — a repeat order of something already
+ *  preparing/served gets its own fresh line instead of silently bumping a
+ *  quantity the kitchen already started on. */
+function mergeOrderItems(existing: OrderItem[], toAdd: OrderItem[]): OrderItem[] {
+  const merged = [...existing];
+  toAdd.forEach(ni => {
+    const match = merged.find(
+      m => m.menuItemId === ni.menuItemId && m.status === 'pending'
+        && !m.notes && !ni.notes
+        && (!m.modifiers || m.modifiers.length === 0) && (!ni.modifiers || ni.modifiers.length === 0),
+    );
+    if (match) {
+      match.quantity += ni.quantity;
+    } else {
+      merged.push(ni);
+    }
+  });
+  return merged;
+}
+
 export function useRestaurant() {
   const { user, catalogVersion } = useAuth();
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
@@ -64,23 +88,23 @@ export function useRestaurant() {
   const appendOrderItems = useCallback((orderId: string, items: OrderItem[]) => {
     const order = orderStore.getAll().find(o => o.id === orderId);
     if (!order) return false;
-    const merged = [...order.items];
-    items.forEach(ni => {
-      const existing = merged.find(
-        m => m.menuItemId === ni.menuItemId && m.status === 'pending'
-          && !m.notes && !ni.notes
-          && (!m.modifiers || m.modifiers.length === 0) && (!ni.modifiers || ni.modifiers.length === 0),
-      );
-      if (existing) {
-        existing.quantity += ni.quantity;
-      } else {
-        merged.push(ni);
-      }
-    });
+    const merged = mergeOrderItems(order.items, items);
     const newTotal = merged.reduce((s, i) => s + i.price * i.quantity, 0);
     const newStatus: Order['status'] =
       order.status === 'completed' || order.status === 'cancelled' ? order.status : 'active';
-    orderStore.update(orderId, { items: merged, total: newTotal, status: newStatus });
+    orderStore.update(orderId, { items: merged, total: newTotal, status: newStatus }, fresh => {
+      // Retentativa depois de um conflito (ex: a cozinha marcou um item
+      // servido ao mesmo tempo que aqui se adicionava outra ronda à
+      // mesma conta) — junta ESTES itens à versão actual do servidor em
+      // vez de desistir, para as duas edições concorrentes não se
+      // pisarem uma à outra.
+      const rebasedMerged = mergeOrderItems(fresh.items, items);
+      return {
+        items: rebasedMerged,
+        total: rebasedMerged.reduce((s, i) => s + i.price * i.quantity, 0),
+        status: fresh.status === 'completed' || fresh.status === 'cancelled' ? fresh.status : 'active',
+      };
+    });
     items.forEach(i => inventoryStore.deductForOrder(i.menuItemId, i.quantity));
     refresh();
     return true;
@@ -139,6 +163,18 @@ export function useRestaurant() {
       items: updatedItems,
       status: allReady ? 'ready' : 'preparing',
       events: newEvents,
+    }, fresh => {
+      // Retentativa depois de um conflito (ex: o caixa acrescentou outra
+      // ronda à mesma conta enquanto a cozinha marcava este item aqui) —
+      // volta a marcar SÓ este item na versão actual do servidor, em vez
+      // de desistir e reverter o item que a cozinha acabou de preparar.
+      const rebasedItems = fresh.items.map(item => item.id === itemId ? { ...item, status } : item);
+      const rebasedAllReady = rebasedItems.every(i => i.status === 'ready' || i.status === 'served');
+      return {
+        items: rebasedItems,
+        status: rebasedAllReady ? 'ready' : 'preparing',
+        events: appendEventsForItemChanges(fresh.items, rebasedItems, fresh.events),
+      };
     });
     refresh();
   }, [refresh, appendEventsForItemChanges]);
